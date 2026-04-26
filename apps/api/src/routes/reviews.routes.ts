@@ -1,23 +1,24 @@
 import { Router } from 'express';
+import multer from 'multer';
+
+import * as ctrl from '../controllers/reviews.controller.js';
 import { optionalAuth } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import {
+  CreateManualReviewSchema,
+  ListReviewsQuerySchema,
+} from '../schemas/reviews.schema.js';
 
 export const reviewsRouter = Router();
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
+});
+
 reviewsRouter.use(optionalAuth);
 
-// TODO: реализация в следующем коммите
-reviewsRouter.get('/', (_req, res) => {
-  res.json({ items: [], total: 0, message: 'reviews list — заглушка' });
-});
-
-reviewsRouter.get('/:id', (req, res) => {
-  res.json({ id: req.params.id, message: 'review details — заглушка' });
-});
-
-reviewsRouter.post('/upload/csv', (_req, res) => {
-  res.status(501).json({ error: 'Not Implemented Yet' });
-});
-
-reviewsRouter.post('/upload/text', (_req, res) => {
-  res.status(501).json({ error: 'Not Implemented Yet' });
-});
+reviewsRouter.get('/', validate(ListReviewsQuerySchema, 'query'), ctrl.list);
+reviewsRouter.get('/:id', ctrl.getById);
+reviewsRouter.post('/upload/csv', upload.single('file'), ctrl.uploadCsv);
+reviewsRouter.post('/upload/text', validate(CreateManualReviewSchema), ctrl.createManual);
