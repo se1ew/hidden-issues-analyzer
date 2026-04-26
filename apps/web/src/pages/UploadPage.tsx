@@ -1,25 +1,59 @@
-import { Upload as UploadIcon, FileText, Type } from 'lucide-react';
+import { Loader2, Upload as UploadIcon, FileText, Type } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
+import { useNavigate } from 'react-router-dom';
+import { useCreateManualReview, useUploadCsv } from '../lib/queries';
 
 type Tab = 'csv' | 'manual';
 
 export function UploadPage() {
   const [tab, setTab] = useState<Tab>('csv');
   const [text, setText] = useState('');
+  const [rating, setRating] = useState<number | ''>('');
+  const navigate = useNavigate();
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles.length > 0) {
-      toast(`Файл получен: ${acceptedFiles[0].name} — загрузка пока не реализована`, { icon: 'ℹ️' });
+  const uploadCsv = useUploadCsv();
+  const createManual = useCreateManualReview();
+
+  const onDrop = useCallback(
+    async (acceptedFiles: File[]) => {
+      if (acceptedFiles.length === 0) return;
+      const file = acceptedFiles[0];
+      try {
+        const result = await uploadCsv.mutateAsync(file);
+        toast.success(`Загружено ${result.count} отзывов`);
+        navigate('/reviews');
+      } catch (err: unknown) {
+        const e = err as { response?: { data?: { error?: string } } };
+        toast.error(e.response?.data?.error ?? 'Ошибка загрузки');
+      }
+    },
+    [uploadCsv, navigate],
+  );
+
+  const handleManualSubmit = async () => {
+    if (!text.trim()) return;
+    try {
+      await createManual.mutateAsync({
+        text: text.trim(),
+        rating: rating === '' ? undefined : Number(rating),
+      });
+      setText('');
+      setRating('');
+      toast.success('Отзыв добавлен');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string } } };
+      toast.error(e.response?.data?.error ?? 'Ошибка');
     }
-  }, []);
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'text/csv': ['.csv'] },
+    accept: { 'text/csv': ['.csv'], 'application/vnd.ms-excel': ['.csv'] },
     maxFiles: 1,
+    disabled: uploadCsv.isPending,
   });
 
   return (
@@ -60,44 +94,69 @@ export function UploadPage() {
             isDragActive
               ? 'border-primary-400 bg-primary-50'
               : 'border-neutral-200 hover:border-primary-300 hover:bg-neutral-50',
+            uploadCsv.isPending && 'opacity-60 cursor-wait',
           )}
         >
           <input {...getInputProps()} />
-          <UploadIcon className="h-12 w-12 mx-auto text-primary-500 mb-3" />
+          {uploadCsv.isPending ? (
+            <Loader2 className="h-12 w-12 mx-auto text-primary-500 mb-3 animate-spin" />
+          ) : (
+            <UploadIcon className="h-12 w-12 mx-auto text-primary-500 mb-3" />
+          )}
           <p className="text-sm font-medium text-neutral-700">
-            {isDragActive ? 'Отпустите файл здесь' : 'Перетащите CSV-файл или кликните'}
+            {uploadCsv.isPending
+              ? 'Загрузка...'
+              : isDragActive
+                ? 'Отпустите файл здесь'
+                : 'Перетащите CSV-файл или кликните'}
           </p>
           <p className="text-xs text-neutral-400 mt-2">
-            Колонки: text, rating, date (опционально)
+            Колонки: text/review/comment, rating/score (1-5), date (опц.)
           </p>
         </div>
       )}
 
       {tab === 'manual' && (
-        <div className="card">
+        <div className="card space-y-4">
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             className="input min-h-[200px] resize-y"
             placeholder="Введите текст отзыва..."
           />
-          <div className="flex justify-end mt-4">
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <label className="block text-xs font-medium text-neutral-500 mb-1">
+                Рейтинг (опц.)
+              </label>
+              <select
+                value={rating}
+                onChange={(e) => setRating(e.target.value === '' ? '' : Number(e.target.value))}
+                className="input w-32"
+              >
+                <option value="">—</option>
+                {[1, 2, 3, 4, 5].map((r) => (
+                  <option key={r} value={r}>
+                    {r} ★
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
-              onClick={() => toast('Отправка пока не реализована', { icon: 'ℹ️' })}
-              disabled={!text.trim()}
+              onClick={handleManualSubmit}
+              disabled={!text.trim() || createManual.isPending}
               className="btn-primary"
             >
-              Отправить на анализ
+              {createManual.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Добавить отзыв
             </button>
           </div>
         </div>
       )}
 
-      <div>
-        <h2 className="mb-3">Недавние загрузки</h2>
-        <div className="card text-sm text-neutral-400 text-center py-8">
-          Пока нет загрузок
-        </div>
+      <div className="card bg-primary-50 border-primary-200 text-sm text-neutral-600">
+        <strong>Совет:</strong> после загрузки перейдите в «Отзывы» и нажмите «Запустить анализ» —
+        каждый отзыв будет проанализирован LLM на тональность, аспекты и проблемы.
       </div>
     </div>
   );
