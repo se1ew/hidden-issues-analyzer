@@ -1,0 +1,35 @@
+{
+  "name": "hidden-issues-analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Интеллектуальная система анализа отзывов о товарах с выявлением скрытых проблем",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:api dev:web",
+    "dev:api": "npm run dev --workspace=@hia/api",
+    "dev:web": "npm run dev --workspace=@hia/web",
+    "build": "npm-run-all build:api build:web",
+    "build:api": "npm run build --workspace=@hia/api",
+    "build:web": "npm run build --workspace=@hia/web",
+    "lint": "npm-run-all --parallel lint:api lint:web",
+    "lint:api": "npm run lint --workspace=@hia/api",
+    "lint:web": "npm run lint --workspace=@hia/web",
+    "test": "npm-run-all --parallel test:api test:web",
+    "test:api": "npm run test --workspace=@hia/api",
+    "test:web": "npm run test --workspace=@hia/web",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "db:migrate": "npm run prisma:migrate --workspace=@hia/api",
+    "db:generate": "npm run prisma:generate --workspace=@hia/api"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5",
+    "prettier": "^3.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

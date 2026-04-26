@@ -1,0 +1,58 @@
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Testing
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Prisma
+apps/api/prisma/migrations/dev.db
+*.db-journal
+
+# Generated
+apps/api/src/generated/
+reports_output/
+uploads/
+*.pdf
+*.docx
+!docs/**
+
+# Cache
+.cache/
+.parcel-cache/
+.turbo/
+models_cache/
+
+# Docker
+postgres-data/
+redis-data/
