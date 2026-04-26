@@ -18,8 +18,9 @@ interface WbFeedbackResponse {
 }
 
 /**
- * Парсит ID товара из URL Wildberries:
+ * Парсит ID товара (nm) из URL Wildberries:
  *   https://www.wildberries.ru/catalog/123456789/detail.aspx
+ *   https://global.wildberries.ru/catalog/123456789/detail.aspx?size=...
  */
 function extractWbId(url: string): number | null {
   const m = url.match(/\/catalog\/(\d+)\//);
@@ -28,35 +29,11 @@ function extractWbId(url: string): number | null {
   return Number.isFinite(id) && id > 0 ? id : null;
 }
 
-/**
- * WB-серверы шардируют товары по ID. Эта функция реплицирует логику.
- * См. https://github.com/glmaster/wildberries-api для пояснений.
- */
-function getWbBasketHost(productId: number): string {
-  const t = Math.floor(productId / 1e5);
-  if (t < 144) return 'basket-01.wbbasket.ru';
-  if (t < 287) return 'basket-02.wbbasket.ru';
-  if (t < 432) return 'basket-03.wbbasket.ru';
-  if (t < 720) return 'basket-04.wbbasket.ru';
-  if (t < 1008) return 'basket-05.wbbasket.ru';
-  if (t < 1062) return 'basket-06.wbbasket.ru';
-  if (t < 1115) return 'basket-07.wbbasket.ru';
-  if (t < 1352) return 'basket-08.wbbasket.ru';
-  if (t < 1602) return 'basket-09.wbbasket.ru';
-  if (t < 1655) return 'basket-10.wbbasket.ru';
-  if (t < 1853) return 'basket-11.wbbasket.ru';
-  if (t < 2057) return 'basket-12.wbbasket.ru';
-  if (t < 2189) return 'basket-13.wbbasket.ru';
-  if (t < 2451) return 'basket-14.wbbasket.ru';
-  if (t < 2654) return 'basket-15.wbbasket.ru';
-  if (t < 2829) return 'basket-16.wbbasket.ru';
-  if (t < 3169) return 'basket-17.wbbasket.ru';
-  return 'basket-18.wbbasket.ru';
-}
-
 async function fetchWbFeedbacksByImtId(imtId: number): Promise<ParsedReview[]> {
-  // Endpoint, отдающий json-список отзывов по imtId
+  // v2 содержит больше отзывов; пробуем v2 на обоих доменах, потом v1.
   const urls = [
+    `https://feedbacks2.wb.ru/feedbacks/v2/${imtId}`,
+    `https://feedbacks1.wb.ru/feedbacks/v2/${imtId}`,
     `https://feedbacks2.wb.ru/feedbacks/v1/${imtId}`,
     `https://feedbacks1.wb.ru/feedbacks/v1/${imtId}`,
   ];
@@ -98,21 +75,33 @@ async function fetchWbFeedbacksByImtId(imtId: number): Promise<ParsedReview[]> {
 }
 
 /**
- * Получает imtId (он же товарный ID для отзывов) из card.json — он лежит на basket-XX.
+ * Получает imt_id из card.json. WB шардирует card.json по basket-XX.wbbasket.ru,
+ * причём раскладка периодически меняется. Проще честно перебрать все шарды,
+ * чем поддерживать таблицу диапазонов.
  */
 async function fetchWbImtId(productId: number): Promise<number | null> {
-  const host = getWbBasketHost(productId);
   const vol = Math.floor(productId / 1e5);
   const part = Math.floor(productId / 1e3);
-  const url = `https://${host}/vol${vol}/part${part}/${productId}/info/ru/card.json`;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = (await res.json()) as { imt_id?: number };
-    return data.imt_id ?? null;
-  } catch {
-    return null;
+
+  // Параллельный запрос ко всем шардам — кто первый ответил 200, тот и наш
+  const candidates = Array.from({ length: 25 }, (_, i) => {
+    const host = `basket-${String(i + 1).padStart(2, '0')}.wbbasket.ru`;
+    return `https://${host}/vol${vol}/part${part}/${productId}/info/ru/card.json`;
+  });
+
+  const results = await Promise.allSettled(
+    candidates.map(async (url) => {
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const data = (await res.json()) as { imt_id?: number };
+      if (!data.imt_id) throw new Error('no imt_id');
+      return data.imt_id;
+    }),
+  );
+  for (const r of results) {
+    if (r.status === 'fulfilled') return r.value;
   }
+  return null;
 }
 
 export async function parseWildberries(url: string): Promise<{
@@ -126,14 +115,14 @@ export async function parseWildberries(url: string): Promise<{
   }
   logger.info({ productId }, 'WB parse started');
 
-  // Сначала пробуем напрямую productId, потом imtId
-  let reviews = await fetchWbFeedbacksByImtId(productId);
-  if (reviews.length === 0) {
-    const imtId = await fetchWbImtId(productId);
-    if (imtId) {
-      reviews = await fetchWbFeedbacksByImtId(imtId);
-    }
+  // Отзывы привязаны к imt_id (parent product), не к nm — сразу резолвим
+  const imtId = await fetchWbImtId(productId);
+  if (!imtId) {
+    throw new Error('Не удалось получить карточку товара (imt_id) — возможно, товар снят с продажи');
   }
+  logger.info({ productId, imtId }, 'WB resolved imt_id');
+
+  const reviews = await fetchWbFeedbacksByImtId(imtId);
 
   if (reviews.length === 0) {
     logger.warn({ productId }, 'WB: no reviews found');
