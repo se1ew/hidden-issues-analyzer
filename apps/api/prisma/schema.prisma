@@ -1,0 +1,130 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Sentiment {
+  positive
+  negative
+  neutral
+}
+
+enum UploadSource {
+  csv
+  manual
+  parsing
+}
+
+enum ReportFormat {
+  pdf
+  docx
+}
+
+model User {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  refreshTokens RefreshToken[]
+  uploadBatches UploadBatch[]
+  reports       Report[]
+}
+
+model RefreshToken {
+  id          String   @id @default(cuid())
+  userId      String
+  tokenHash   String   @unique
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  replacedBy  String?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Product {
+  id        String   @id @default(cuid())
+  name      String
+  sourceUrl String?
+  createdAt DateTime @default(now())
+
+  reviews Review[]
+}
+
+model Review {
+  id             String     @id @default(cuid())
+  productId      String?
+  text           String     @db.Text
+  cleanedText    String?    @db.Text
+  rating         Int?
+  reviewDate     DateTime?
+
+  sentiment      Sentiment?
+  sentimentScore Float?
+  aspects        Json?      // [{ name, sentiment }]
+  issues         Json?      // string[]
+
+  hiddenIssueId  String?
+  analyzedAt     DateTime?
+  createdAt      DateTime   @default(now())
+
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  hiddenIssue HiddenIssue? @relation(fields: [hiddenIssueId], references: [id], onDelete: SetNull)
+
+  @@index([sentiment])
+  @@index([productId])
+  @@index([hiddenIssueId])
+  @@index([createdAt])
+}
+
+model HiddenIssue {
+  id           String   @id @default(cuid())
+  title        String
+  description  String?  @db.Text
+  keywords     Json?
+  size         Int      @default(0)
+  severity     Float    @default(0)
+  visibility   Float    @default(0)
+  hiddenScore  Float    @default(0)
+  createdAt    DateTime @default(now())
+
+  reviews Review[]
+
+  @@index([hiddenScore])
+}
+
+model UploadBatch {
+  id        String       @id @default(cuid())
+  userId    String?
+  source    UploadSource
+  filename  String?
+  count     Int          @default(0)
+  createdAt DateTime     @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Report {
+  id        String       @id @default(cuid())
+  userId    String?
+  title     String
+  format    ReportFormat
+  filePath  String
+  createdAt DateTime     @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+}
