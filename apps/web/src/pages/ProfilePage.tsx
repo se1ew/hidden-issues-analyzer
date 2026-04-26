@@ -1,8 +1,11 @@
 import { FileText, MessageSquare, Upload, User as UserIcon } from 'lucide-react';
 import { useAuthStore } from '../store/auth.store';
+import { useProfileStats, useStats } from '../lib/queries';
 
 export function ProfilePage() {
   const { user } = useAuthStore();
+  const profileStats = useProfileStats();
+  const overallStats = useStats();
 
   return (
     <div className="space-y-6">
@@ -24,16 +27,21 @@ export function ProfilePage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard icon={Upload} label="Загрузок" value="0" />
-        <StatCard icon={MessageSquare} label="Отзывов проанализировано" value="0" />
-        <StatCard icon={FileText} label="Отчётов" value="0" />
-      </div>
-
-      <div>
-        <h2 className="mb-3">Мои отчёты</h2>
-        <div className="card text-sm text-neutral-400 text-center py-8">
-          Пока нет отчётов
-        </div>
+        <StatCard
+          icon={Upload}
+          label="Моих загрузок"
+          value={profileStats.data?.uploads.toString() ?? '—'}
+        />
+        <StatCard
+          icon={MessageSquare}
+          label="Отзывов в системе"
+          value={overallStats.data?.total.toString() ?? '—'}
+        />
+        <StatCard
+          icon={FileText}
+          label="Моих отчётов"
+          value={profileStats.data?.reports.toString() ?? '—'}
+        />
       </div>
     </div>
   );

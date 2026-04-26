@@ -1,17 +1,24 @@
-import { AlertTriangle, TrendingUp } from 'lucide-react';
+import { AlertTriangle, Loader2, RefreshCw, TrendingUp } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useHiddenIssues, useRecomputeIssues } from '../lib/queries';
 
 export function IssuesPage() {
-  // Заглушка
-  const issues: Array<{
-    id: string;
-    title: string;
-    description: string;
-    size: number;
-    severity: number;
-    visibility: number;
-    hiddenScore: number;
-    keywords: string[];
-  }> = [];
+  const { data, isLoading } = useHiddenIssues();
+  const recompute = useRecomputeIssues();
+
+  const handleRecompute = async () => {
+    try {
+      const res = await recompute.mutateAsync();
+      toast.success(
+        `Готово: ${res.clustersCreated} кластеров, ${res.reviewsAssigned} отзывов привязано`,
+      );
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string } } };
+      toast.error(e.response?.data?.error ?? 'Ошибка пересчёта');
+    }
+  };
+
+  const issues = data?.items ?? [];
 
   return (
     <div className="space-y-6">
@@ -25,7 +32,18 @@ export function IssuesPage() {
             Кластеры повторяющихся жалоб, ранжированные по скрытости и серьёзности
           </p>
         </div>
-        <button className="btn-primary">Пересчитать</button>
+        <button
+          onClick={handleRecompute}
+          disabled={recompute.isPending}
+          className="btn-primary"
+        >
+          {recompute.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
+          Пересчитать
+        </button>
       </div>
 
       <div className="card bg-primary-50 border-primary-200">
@@ -43,7 +61,11 @@ export function IssuesPage() {
         </p>
       </div>
 
-      {issues.length === 0 ? (
+      {isLoading ? (
+        <div className="card text-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary-500" />
+        </div>
+      ) : issues.length === 0 ? (
         <div className="card text-center py-12">
           <AlertTriangle className="h-10 w-10 mx-auto text-neutral-300 mb-3" />
           <p className="text-sm text-neutral-400">
@@ -53,18 +75,25 @@ export function IssuesPage() {
       ) : (
         <div className="space-y-3">
           {issues.map((issue) => (
-            <div key={issue.id} className="card hover:border-primary-300 transition cursor-pointer">
+            <div
+              key={issue.id}
+              className="card hover:border-primary-300 transition"
+            >
               <div className="flex justify-between items-start gap-4">
                 <div className="flex-1">
                   <h3 className="text-neutral-700">{issue.title}</h3>
-                  <p className="text-sm text-neutral-500 mt-1">{issue.description}</p>
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {issue.keywords.map((kw) => (
-                      <span key={kw} className="badge bg-neutral-100 text-neutral-600">
-                        {kw}
-                      </span>
-                    ))}
-                  </div>
+                  {issue.description && (
+                    <p className="text-sm text-neutral-500 mt-1">{issue.description}</p>
+                  )}
+                  {issue.keywords && issue.keywords.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {issue.keywords.map((kw) => (
+                        <span key={kw} className="badge bg-neutral-100 text-neutral-600">
+                          {kw}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-2xl font-semibold text-primary-700">
@@ -76,7 +105,10 @@ export function IssuesPage() {
               <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-neutral-100 text-xs">
                 <Stat label="Отзывов" value={issue.size.toString()} />
                 <Stat label="Серьёзность" value={`${(issue.severity * 100).toFixed(0)}%`} />
-                <Stat label="Видимость" value={`${(issue.visibility * 100).toFixed(1)}%`} />
+                <Stat
+                  label="Видимость"
+                  value={`${(issue.visibility * 100).toFixed(2)}%`}
+                />
               </div>
             </div>
           ))}
