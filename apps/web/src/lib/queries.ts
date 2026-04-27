@@ -93,6 +93,8 @@ export interface HiddenIssue {
   severity: number;
   visibility: number;
   hiddenScore: number;
+  resolved: boolean;
+  resolvedAt: string | null;
   createdAt: string;
   productId: string | null;
   product: { id: string; name: string } | null;
@@ -385,6 +387,30 @@ export function useIssueDetail(id: string | null) {
       return data;
     },
     enabled: !!id,
+  });
+}
+
+// ===== Toggle Issue resolved =====
+
+export function useToggleResolved() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.patch<HiddenIssue>(`/api/issues/${id}/resolve`);
+      return data;
+    },
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ['issues'] });
+      const snapshots = qc.getQueriesData<HiddenIssuesResponse>({ queryKey: ['issues'] });
+      qc.setQueriesData<HiddenIssuesResponse>({ queryKey: ['issues'] }, (old) =>
+        old ? { ...old, items: old.items.map((i) => i.id === id ? { ...i, resolved: !i.resolved } : i) } : old,
+      );
+      return { snapshots };
+    },
+    onError: (_err, _id, ctx) => {
+      ctx?.snapshots.forEach(([key, val]) => qc.setQueryData(key, val));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['issues'] }),
   });
 }
 

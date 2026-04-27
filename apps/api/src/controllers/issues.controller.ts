@@ -5,6 +5,7 @@ import {
   getHiddenIssue,
   listHiddenIssues,
   recomputeHiddenIssues,
+  toggleResolvedIssue,
 } from '../services/clustering.service.js';
 
 export async function list(req: Request, res: Response): Promise<void> {
@@ -18,6 +19,13 @@ export async function list(req: Request, res: Response): Promise<void> {
 export async function getById(req: Request, res: Response): Promise<void> {
   const id = req.params.id as string;
   const issue = await getHiddenIssue(id);
+  if (!issue) throw new HttpError(404, 'Hidden issue not found');
+  res.json(issue);
+}
+
+export async function toggleResolved(req: Request, res: Response): Promise<void> {
+  const id = req.params.id as string;
+  const issue = await toggleResolvedIssue(id);
   if (!issue) throw new HttpError(404, 'Hidden issue not found');
   res.json(issue);
 }

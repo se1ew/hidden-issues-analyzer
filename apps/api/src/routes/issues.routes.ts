@@ -9,4 +9,5 @@ issuesRouter.use(optionalAuth);
 
 issuesRouter.get('/', ctrl.list);
 issuesRouter.get('/:id', ctrl.getById);
+issuesRouter.patch('/:id/resolve', ctrl.toggleResolved);
 issuesRouter.post('/recompute', ctrl.recompute);

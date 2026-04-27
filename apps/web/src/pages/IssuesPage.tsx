@@ -1,8 +1,8 @@
-import { AlertTriangle, ChevronDown, ChevronUp, Download, HelpCircle, Loader2, Package, RefreshCw, Search, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Circle, Download, HelpCircle, Loader2, Package, RefreshCw, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
-import { useHiddenIssues, useIssueDetail, useRecomputeIssues } from '../lib/queries';
+import { useHiddenIssues, useIssueDetail, useRecomputeIssues, useToggleResolved } from '../lib/queries';
 import { ProductSelector } from '../components/ProductSelector';
 import { AnalysisBanner } from '../components/AnalysisBanner';
 import { useProductStore } from '../store/product.store';
@@ -29,6 +29,7 @@ export function IssuesPage() {
   const [sevFilter, setSevFilter] = useState<SevFilter>('all');
   const { data, isLoading } = useHiddenIssues(selectedProductId, page, 50);
   const recompute = useRecomputeIssues();
+  const toggleResolved = useToggleResolved();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => { setPage(1); }, [selectedProductId]);
@@ -164,7 +165,7 @@ export function IssuesPage() {
             return (
               <div
                 key={issue.id}
-                className="card hover:border-primary-300 transition animate-slide-in"
+                className={clsx('card hover:border-primary-300 transition animate-slide-in', issue.resolved && 'opacity-60')}
                 style={{ animationDelay: `${idx * 60}ms` }}
               >
                 <div className="flex justify-between items-start gap-4">
@@ -225,16 +226,34 @@ export function IssuesPage() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setExpandedId(expandedId === issue.id ? null : issue.id)}
-                  className="mt-3 flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 transition"
-                >
-                  {expandedId === issue.id ? (
-                    <><ChevronUp className="h-3.5 w-3.5" /> Скрыть отзывы</>
-                  ) : (
-                    <><ChevronDown className="h-3.5 w-3.5" /> Показать отзывы ({issue.size})</>
-                  )}
-                </button>
+                <div className="mt-3 flex items-center justify-between">
+                  <button
+                    onClick={() => setExpandedId(expandedId === issue.id ? null : issue.id)}
+                    className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 transition"
+                  >
+                    {expandedId === issue.id ? (
+                      <><ChevronUp className="h-3.5 w-3.5" /> Скрыть отзывы</>
+                    ) : (
+                      <><ChevronDown className="h-3.5 w-3.5" /> Показать отзывы ({issue.size})</>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      toggleResolved.mutate(issue.id);
+                      if (!issue.resolved) toast.success('Проблема отмечена как решённая');
+                    }}
+                    className={clsx(
+                      'flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition',
+                      issue.resolved
+                        ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                        : 'bg-white dark:bg-neutral-800 text-neutral-500 border-neutral-200 hover:border-green-400 hover:text-green-600',
+                    )}
+                  >
+                    {issue.resolved
+                      ? <><CheckCircle2 className="h-3.5 w-3.5" /> Решено</>
+                      : <><Circle className="h-3.5 w-3.5" /> Отметить решённым</>}
+                  </button>
+                </div>
 
                 {expandedId === issue.id && (
                   <IssueReviews issueId={issue.id} />

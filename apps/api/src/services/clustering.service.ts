@@ -253,6 +253,16 @@ export async function listHiddenIssues(
   return { items, total, page, pageSize };
 }
 
+export async function toggleResolvedIssue(id: string) {
+  const existing = await prisma.hiddenIssue.findUnique({ where: { id } });
+  if (!existing) return null;
+  const newResolved = !existing.resolved;
+  return prisma.hiddenIssue.update({
+    where: { id },
+    data: { resolved: newResolved, resolvedAt: newResolved ? new Date() : null },
+  });
+}
+
 export async function getHiddenIssue(id: string) {
   const issue = await prisma.hiddenIssue.findUnique({
     where: { id },

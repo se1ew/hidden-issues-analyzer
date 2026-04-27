@@ -97,6 +97,8 @@ model HiddenIssue {
   severity     Float    @default(0)
   visibility   Float    @default(0)
   hiddenScore  Float    @default(0)
+  resolved     Boolean  @default(false)
+  resolvedAt   DateTime?
   createdAt    DateTime @default(now())
 
   product Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
