@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronDown, ChevronUp, Loader2, Package, RefreshCw, TrendingUp } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, HelpCircle, Loader2, Package, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -6,6 +6,12 @@ import { useHiddenIssues, useIssueDetail, useRecomputeIssues } from '../lib/quer
 import { ProductSelector } from '../components/ProductSelector';
 import { AnalysisBanner } from '../components/AnalysisBanner';
 import { useProductStore } from '../store/product.store';
+
+function getSeverityLevel(score: number) {
+  if (score >= 0.7) return { label: 'Критично', bg: 'bg-red-100', text: 'text-red-700', bar: 'bg-red-500' };
+  if (score >= 0.4) return { label: 'Важно',    bg: 'bg-amber-100', text: 'text-amber-700', bar: 'bg-amber-500' };
+  return               { label: 'Низкий',  bg: 'bg-green-100', text: 'text-green-700', bar: 'bg-green-500' };
+}
 
 export function IssuesPage() {
   const { selectedProductId } = useProductStore();
@@ -60,21 +66,6 @@ export function IssuesPage() {
       <ProductSelector />
       <AnalysisBanner />
 
-      <div className="card bg-primary-50 border-primary-200">
-        <h3 className="mb-2 flex items-center gap-2">
-          <TrendingUp className="h-5 w-5 text-primary-700" />
-          Что такое «скрытая» проблема?
-        </h3>
-        <p className="text-sm text-neutral-600">
-          Это проблема, которая встречается редко (низкая видимость), но почти всегда сопровождается
-          сильным негативом (высокая серьёзность). Такие проблемы легко пропустить при ручном
-          просмотре, но они критичны для качества товара.
-        </p>
-        <p className="text-sm text-neutral-500 mt-2">
-          <strong>hidden_score = severity × (1 − visibility)</strong>
-        </p>
-      </div>
-
       {isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -96,62 +87,89 @@ export function IssuesPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {issues.map((issue) => (
-            <div key={issue.id} className="card hover:border-primary-300 transition">
-              <div className="flex justify-between items-start gap-4">
-                <div className="flex-1">
-                  {issue.product && (
-                    <div className="mb-2">
-                      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-primary-200 text-primary-800">
-                        <Package className="h-3 w-3" />
-                        {issue.product.name}
-                      </span>
-                    </div>
-                  )}
-                  <h3 className="text-neutral-700">{issue.title}</h3>
-                  {issue.description && (
-                    <p className="text-sm text-neutral-500 mt-1">{issue.description}</p>
-                  )}
-                  {issue.keywords && issue.keywords.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {issue.keywords.map((kw) => (
-                        <span key={kw} className="badge bg-neutral-100 text-neutral-600">
-                          {kw}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="text-2xl font-semibold text-primary-700">
-                    {(issue.hiddenScore * 100).toFixed(0)}
-                  </div>
-                  <div className="text-xs text-neutral-400">hidden score</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-neutral-100 text-xs">
-                <Stat label="Отзывов" value={issue.size.toString()} />
-                <Stat label="Серьёзность" value={`${(issue.severity * 100).toFixed(0)}%`} />
-                <Stat label="Видимость" value={`${(issue.visibility * 100).toFixed(2)}%`} />
-              </div>
-
-              <button
-                onClick={() => setExpandedId(expandedId === issue.id ? null : issue.id)}
-                className="mt-3 flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 transition"
+          {issues.map((issue, idx) => {
+            const sev = getSeverityLevel(issue.hiddenScore);
+            return (
+              <div
+                key={issue.id}
+                className="card hover:border-primary-300 transition"
+                style={{ animationDelay: `${idx * 60}ms` }}
               >
-                {expandedId === issue.id ? (
-                  <><ChevronUp className="h-3.5 w-3.5" /> Скрыть отзывы</>
-                ) : (
-                  <><ChevronDown className="h-3.5 w-3.5" /> Показать отзывы ({issue.size})</>
-                )}
-              </button>
+                <div className="flex justify-between items-start gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${sev.bg} ${sev.text}`}>
+                        {sev.label}
+                      </span>
+                      {issue.product && (
+                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-primary-100 text-primary-700">
+                          <Package className="h-3 w-3" />
+                          {issue.product.name}
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-neutral-800 dark:text-neutral-100">{issue.title}</h3>
+                    {issue.description && (
+                      <p className="text-sm text-neutral-500 mt-1 line-clamp-2">{issue.description}</p>
+                    )}
+                    {issue.keywords && issue.keywords.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-3">
+                        {issue.keywords.map((kw) => (
+                          <span key={kw} className="text-xs px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+                            {kw}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="flex items-center gap-1 justify-end">
+                      <span className={`text-2xl font-bold ${sev.text}`}>
+                        {(issue.hiddenScore * 100).toFixed(0)}
+                      </span>
+                      <span className="text-xs text-neutral-400">/100</span>
+                      <div className="relative group">
+                        <HelpCircle className="h-3.5 w-3.5 text-neutral-300 cursor-help" />
+                        <div className="absolute right-0 top-5 w-56 p-2.5 text-xs bg-neutral-800 text-neutral-200 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition z-10">
+                          Оценка серьёзности AI: чем выше — тем критичнее проблема.
+                          <br /><span className="text-neutral-400">= severity × (1 − visibility)</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-neutral-400 mt-0.5">{issue.size} отзывов</div>
+                  </div>
+                </div>
 
-              {expandedId === issue.id && (
-                <IssueReviews issueId={issue.id} />
-              )}
-            </div>
-          ))}
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs text-neutral-400 mb-1">
+                    <span>Серьёзность: {(issue.severity * 100).toFixed(0)}%</span>
+                    <span>Видимость: {(issue.visibility * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="h-1.5 w-full bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${sev.bar}`}
+                      style={{ width: `${(issue.hiddenScore * 100).toFixed(0)}%` }}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setExpandedId(expandedId === issue.id ? null : issue.id)}
+                  className="mt-3 flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 transition"
+                >
+                  {expandedId === issue.id ? (
+                    <><ChevronUp className="h-3.5 w-3.5" /> Скрыть отзывы</>
+                  ) : (
+                    <><ChevronDown className="h-3.5 w-3.5" /> Показать отзывы ({issue.size})</>
+                  )}
+                </button>
+
+                {expandedId === issue.id && (
+                  <IssueReviews issueId={issue.id} />
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
