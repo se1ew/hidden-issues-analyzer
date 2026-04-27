@@ -12,6 +12,8 @@ import {
   YAxis,
 } from 'recharts';
 import { useStats, useTimeseries } from '../lib/queries';
+import { ProductSelector } from '../components/ProductSelector';
+import { useProductStore } from '../store/product.store';
 
 const SENTIMENT_COLORS = {
   positive: '#16A34A',
@@ -20,8 +22,9 @@ const SENTIMENT_COLORS = {
 };
 
 export function AnalyticsPage() {
-  const stats = useStats();
-  const timeseries = useTimeseries({ bucket: 'day', days: 30 });
+  const { selectedProductId } = useProductStore();
+  const stats = useStats(selectedProductId);
+  const timeseries = useTimeseries({ bucket: 'day', days: 30, productId: selectedProductId });
 
   const s = stats.data;
   const pieData = s
@@ -55,6 +58,8 @@ export function AnalyticsPage() {
           Обновить
         </button>
       </div>
+
+      <ProductSelector />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard

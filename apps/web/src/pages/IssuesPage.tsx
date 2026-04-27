@@ -1,14 +1,17 @@
-import { AlertTriangle, Loader2, RefreshCw, TrendingUp } from 'lucide-react';
+import { AlertTriangle, Loader2, Package, RefreshCw, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useHiddenIssues, useRecomputeIssues } from '../lib/queries';
+import { ProductSelector } from '../components/ProductSelector';
+import { useProductStore } from '../store/product.store';
 
 export function IssuesPage() {
-  const { data, isLoading } = useHiddenIssues();
+  const { selectedProductId } = useProductStore();
+  const { data, isLoading } = useHiddenIssues(selectedProductId);
   const recompute = useRecomputeIssues();
 
   const handleRecompute = async () => {
     try {
-      const res = await recompute.mutateAsync();
+      const res = await recompute.mutateAsync(selectedProductId);
       toast.success(
         `Готово: ${res.clustersCreated} кластеров, ${res.reviewsAssigned} отзывов привязано`,
       );
@@ -42,9 +45,11 @@ export function IssuesPage() {
           ) : (
             <RefreshCw className="h-4 w-4" />
           )}
-          Пересчитать
+          {selectedProductId ? 'Пересчитать для товара' : 'Пересчитать все'}
         </button>
       </div>
+
+      <ProductSelector />
 
       <div className="card bg-primary-50 border-primary-200">
         <h3 className="mb-2 flex items-center gap-2">
@@ -81,6 +86,14 @@ export function IssuesPage() {
             >
               <div className="flex justify-between items-start gap-4">
                 <div className="flex-1">
+                  {issue.product && (
+                    <div className="mb-2">
+                      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-primary-200 text-primary-800">
+                        <Package className="h-3 w-3" />
+                        {issue.product.name}
+                      </span>
+                    </div>
+                  )}
                   <h3 className="text-neutral-700">{issue.title}</h3>
                   {issue.description && (
                     <p className="text-sm text-neutral-500 mt-1">{issue.description}</p>

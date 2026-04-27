@@ -1,4 +1,4 @@
-import { Filter, Loader2, Play, X } from 'lucide-react';
+import { Filter, Loader2, Package, Play, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -8,6 +8,8 @@ import {
   useRunAnalysis,
   type ReviewListItem,
 } from '../lib/queries';
+import { ProductSelector } from '../components/ProductSelector';
+import { useProductStore } from '../store/product.store';
 
 const SENTIMENT_LABEL: Record<string, { label: string; cls: string }> = {
   positive: { label: 'позитив', cls: 'badge-positive' },
@@ -25,6 +27,8 @@ export function ReviewsPage() {
   const [selected, setSelected] = useState<ReviewListItem | null>(null);
   const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
 
+  const { selectedProductId } = useProductStore();
+
   const { data, isLoading, refetch } = useReviews({
     page,
     pageSize: 25,
@@ -32,6 +36,7 @@ export function ReviewsPage() {
     rating: rating ? Number(rating) : undefined,
     hasIssues: hasIssues === '' ? undefined : hasIssues === 'true',
     search: search || undefined,
+    productId: selectedProductId ?? undefined,
   });
 
   const runAnalysis = useRunAnalysis();
@@ -72,6 +77,11 @@ export function ReviewsPage() {
     }
   };
 
+  // Сбрасываем страницу при смене товара
+  useEffect(() => {
+    setPage(1);
+  }, [selectedProductId]);
+
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
@@ -98,6 +108,8 @@ export function ReviewsPage() {
             : 'Запустить анализ'}
         </button>
       </div>
+
+      <ProductSelector />
 
       <div className="card">
         <div className="flex items-center gap-2 mb-3">
@@ -175,6 +187,7 @@ export function ReviewsPage() {
           <thead>
             <tr className="text-left text-xs text-neutral-400 border-b border-neutral-100">
               <th className="pb-3 pr-3">Текст</th>
+              <th className="pb-3 pr-3">Товар</th>
               <th className="pb-3 pr-3">Рейтинг</th>
               <th className="pb-3 pr-3">Тональность</th>
               <th className="pb-3 pr-3">Проблем</th>
@@ -184,13 +197,13 @@ export function ReviewsPage() {
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={5} className="text-center py-12">
+                <td colSpan={6} className="text-center py-12">
                   <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary-500" />
                 </td>
               </tr>
             ) : !data || data.items.length === 0 ? (
               <tr>
-                <td colSpan={5} className="text-center py-12 text-neutral-400">
+                <td colSpan={6} className="text-center py-12 text-neutral-400">
                   Нет отзывов. Загрузите данные на странице «Загрузка».
                 </td>
               </tr>
@@ -200,10 +213,20 @@ export function ReviewsPage() {
                 return (
                   <tr
                     key={r.id}
-                    className="border-b border-neutral-50 hover:bg-neutral-50 cursor-pointer"
+                    className="border-b border-neutral-50 hover:bg-primary-50 cursor-pointer transition"
                     onClick={() => setSelected(r)}
                   >
                     <td className="py-3 pr-3 max-w-md truncate">{r.text}</td>
+                    <td className="py-3 pr-3">
+                      {r.product ? (
+                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-primary-100 text-primary-800 max-w-[14rem] truncate">
+                          <Package className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{r.product.name}</span>
+                        </span>
+                      ) : (
+                        <span className="text-xs text-neutral-400">—</span>
+                      )}
+                    </td>
                     <td className="py-3 pr-3">{r.rating ?? '—'}</td>
                     <td className="py-3 pr-3">
                       {s ? <span className={s.cls}>{s.label}</span> : '—'}

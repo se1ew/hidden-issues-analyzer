@@ -12,6 +12,7 @@ export function UploadPage() {
   const [tab, setTab] = useState<Tab>('csv');
   const [text, setText] = useState('');
   const [rating, setRating] = useState<number | ''>('');
+  const [productName, setProductName] = useState('');
   const navigate = useNavigate();
 
   const uploadCsv = useUploadCsv();
@@ -22,7 +23,7 @@ export function UploadPage() {
       if (acceptedFiles.length === 0) return;
       const file = acceptedFiles[0];
       try {
-        const result = await uploadCsv.mutateAsync(file);
+        const result = await uploadCsv.mutateAsync({ file, productName });
         toast.success(`Загружено ${result.count} отзывов`);
         navigate('/reviews');
       } catch (err: unknown) {
@@ -30,7 +31,7 @@ export function UploadPage() {
         toast.error(e.response?.data?.error ?? 'Ошибка загрузки');
       }
     },
-    [uploadCsv, navigate],
+    [uploadCsv, navigate, productName],
   );
 
   const handleManualSubmit = async () => {
@@ -39,6 +40,7 @@ export function UploadPage() {
       await createManual.mutateAsync({
         text: text.trim(),
         rating: rating === '' ? undefined : Number(rating),
+        productName: productName.trim() || undefined,
       });
       setText('');
       setRating('');
@@ -62,6 +64,24 @@ export function UploadPage() {
         <h1>Загрузка отзывов</h1>
         <p className="text-sm text-neutral-400 mt-1">
           Загрузите CSV-файл или введите отзывы вручную
+        </p>
+      </div>
+
+      <div className="card bg-primary-100 border-primary-300">
+        <label className="block text-sm font-medium text-neutral-700 mb-1">
+          Название товара (опционально)
+        </label>
+        <input
+          type="text"
+          value={productName}
+          onChange={(e) => setProductName(e.target.value)}
+          placeholder="Например: Кроссовки Nike Pegasus 40"
+          className="input bg-white"
+          maxLength={200}
+        />
+        <p className="text-xs text-neutral-500 mt-1.5">
+          Указанное название создаст или дополнит товар в системе. Если оставить пустым — для CSV
+          будет использовано имя файла.
         </p>
       </div>
 

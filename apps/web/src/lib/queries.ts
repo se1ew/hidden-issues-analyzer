@@ -1,6 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 
+export const UNASSIGNED_PRODUCT_ID = '__unassigned__';
+
+export interface Product {
+  id: string;
+  name: string;
+  sourceUrl: string | null;
+  reviewsCount: number;
+  analyzedCount: number;
+  avgRating: number | null;
+  createdAt: string;
+}
+
+export function useProducts() {
+  return useQuery({
+    queryKey: ['products'],
+    queryFn: async () => {
+      const { data } = await api.get<{ items: Product[] }>('/api/products');
+      return data;
+    },
+  });
+}
+
 // ===== Types =====
 
 export interface OverviewStats {
@@ -31,6 +53,8 @@ export interface ReviewListItem {
   hiddenIssueId: string | null;
   analyzedAt: string | null;
   createdAt: string;
+  productId: string | null;
+  product: { id: string; name: string } | null;
 }
 
 export interface ReviewsListResponse {
@@ -50,6 +74,8 @@ export interface HiddenIssue {
   visibility: number;
   hiddenScore: number;
   createdAt: string;
+  productId: string | null;
+  product: { id: string; name: string } | null;
 }
 
 export interface ReportItem {
@@ -69,6 +95,7 @@ export function useReviews(params: {
   rating?: number;
   hasIssues?: boolean;
   search?: string;
+  productId?: string | null;
 }) {
   return useQuery({
     queryKey: ['reviews', params],
@@ -82,10 +109,11 @@ export function useReviews(params: {
 export function useUploadCsv() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file, productName }: { file: File; productName?: string }) => {
       const formData = new FormData();
       formData.append('file', file);
-      const { data } = await api.post<{ count: number; batchId: string }>(
+      if (productName?.trim()) formData.append('productName', productName.trim());
+      const { data } = await api.post<{ count: number; batchId: string; productId: string | null }>(
         '/api/reviews/upload/csv',
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } },
@@ -95,6 +123,7 @@ export function useUploadCsv() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['reviews'] });
       qc.invalidateQueries({ queryKey: ['stats'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
     },
   });
 }
@@ -109,28 +138,37 @@ export function useCreateManualReview() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['reviews'] });
       qc.invalidateQueries({ queryKey: ['stats'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
     },
   });
 }
 
 // ===== Analysis =====
 
-export function useStats() {
+export function useStats(productId?: string | null) {
   return useQuery({
-    queryKey: ['stats'],
+    queryKey: ['stats', productId ?? null],
     queryFn: async () => {
-      const { data } = await api.get<OverviewStats>('/api/analysis/stats');
+      const { data } = await api.get<OverviewStats>('/api/analysis/stats', {
+        params: productId ? { productId } : {},
+      });
       return data;
     },
   });
 }
 
-export function useTimeseries(params: { bucket?: 'day' | 'week' | 'month'; days?: number } = {}) {
+export function useTimeseries(
+  params: { bucket?: 'day' | 'week' | 'month'; days?: number; productId?: string | null } = {},
+) {
   return useQuery({
     queryKey: ['timeseries', params],
     queryFn: async () => {
       const { data } = await api.get<{ buckets: TimeseriesBucket[] }>('/api/analysis/timeseries', {
-        params,
+        params: {
+          bucket: params.bucket,
+          days: params.days,
+          ...(params.productId ? { productId: params.productId } : {}),
+        },
       });
       return data;
     },
@@ -148,11 +186,13 @@ export function useRunAnalysis() {
 
 // ===== Issues =====
 
-export function useHiddenIssues() {
+export function useHiddenIssues(productId?: string | null) {
   return useQuery({
-    queryKey: ['issues'],
+    queryKey: ['issues', productId ?? null],
     queryFn: async () => {
-      const { data } = await api.get<{ items: HiddenIssue[] }>('/api/issues');
+      const { data } = await api.get<{ items: HiddenIssue[] }>('/api/issues', {
+        params: productId ? { productId } : {},
+      });
       return data;
     },
   });
@@ -161,12 +201,12 @@ export function useHiddenIssues() {
 export function useRecomputeIssues() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (productId?: string | null) => {
       const { data } = await api.post<{
         clustersCreated: number;
         reviewsAssigned: number;
         noisePoints: number;
-      }>('/api/issues/recompute');
+      }>('/api/issues/recompute', productId ? { productId } : {});
       return data;
     },
     onSuccess: () => {
@@ -218,6 +258,7 @@ export function useStartParsing() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['reviews'] });
       qc.invalidateQueries({ queryKey: ['stats'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
     },
   });
 }
