@@ -1,12 +1,23 @@
 import { Download, FileText, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { useGenerateReport, useReports } from '../lib/queries';
+import { useGenerateReport, useProducts, useReports } from '../lib/queries';
+import { useProductStore } from '../store/product.store';
 import { api } from '../lib/api';
 
 export function ReportsPage() {
   const [format, setFormat] = useState<'pdf' | 'docx'>('pdf');
   const [title, setTitle] = useState('');
+
+  const { selectedProductId } = useProductStore();
+  const products = useProducts();
+
+  const selectedProduct = products.data?.items.find((p) => p.id === selectedProductId);
+  const autoTitle = (() => {
+    const date = new Date().toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    const productName = selectedProduct?.name;
+    return productName ? `${productName} — ${date}` : `Отчёт ${date}`;
+  });
 
   const reports = useReports();
   const generate = useGenerateReport();
@@ -58,13 +69,23 @@ export function ReportsPage() {
             <label className="block text-sm font-medium text-primary-300 mb-2">
               Заголовок (опц.)
             </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Например: Отчёт за апрель 2026"
-              className="input"
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={autoTitle()}
+                className="input flex-1"
+              />
+              <button
+                type="button"
+                onClick={() => setTitle(autoTitle())}
+                className="btn-outline px-3 py-2 text-xs whitespace-nowrap"
+                title="Подставить автозаголовок"
+              >
+                Авто
+              </button>
+            </div>
           </div>
 
           <div>
@@ -100,8 +121,16 @@ export function ReportsPage() {
       <div>
         <h2 className="mb-3">История отчётов</h2>
         {reports.isLoading ? (
-          <div className="card text-center py-10">
-            <Loader2 className="h-5 w-5 animate-spin mx-auto text-primary-500" />
+          <div className="space-y-3">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="card animate-pulse flex items-center gap-3 py-3.5">
+                <div className="h-9 w-9 rounded-xl bg-neutral-200 shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3.5 bg-neutral-200 rounded w-1/2" />
+                  <div className="h-2.5 bg-neutral-100 rounded w-1/4" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : !reports.data || reports.data.items.length === 0 ? (
           <div className="card text-center py-12 flex flex-col items-center gap-3">
