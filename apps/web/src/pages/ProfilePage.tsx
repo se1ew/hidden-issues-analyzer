@@ -13,9 +13,7 @@ export function ProfilePage() {
     <div className="space-y-6">
       <div>
         <h1>Профиль</h1>
-        <p className="text-sm text-primary-600 dark:text-primary-400 mt-1">
-          Информация об аккаунте и активности
-        </p>
+        <p className="text-sm mt-1" style={{ color: '#5A7A96' }}>Информация об аккаунте и активности</p>
       </div>
 
       <div className="card flex items-center gap-4">
@@ -23,10 +21,8 @@ export function ProfilePage() {
           <UserIcon className="h-8 w-8 text-white" />
         </div>
         <div>
-          <div className="text-lg font-bold text-primary-900 dark:text-primary-100">
-            {user?.name || 'Без имени'}
-          </div>
-          <div className="text-sm text-primary-600 dark:text-primary-400">{user?.email}</div>
+          <div className="text-lg font-bold sidebar-title">{user?.name || 'Без имени'}</div>
+          <div className="text-sm sidebar-subtitle mt-0.5">{user?.email}</div>
         </div>
       </div>
 
@@ -53,10 +49,8 @@ export function ProfilePage() {
         <h3 className="mb-4">Настройки</h3>
         <div className="flex items-center justify-between py-2">
           <div>
-            <div className="font-semibold text-primary-900 dark:text-primary-100">Тёмная тема</div>
-            <div className="text-xs text-primary-600 dark:text-primary-400 mt-0.5">
-              Переключить цветовую схему интерфейса
-            </div>
+            <div className="font-semibold sidebar-title">Тёмная тема</div>
+            <div className="text-xs sidebar-subtitle mt-0.5">Переключить цветовую схему интерфейса</div>
           </div>
           <button
             onClick={toggle}
@@ -105,12 +99,8 @@ function StatCard({
           <Icon className="h-5 w-5" />
         </div>
         <div>
-          <div className={`text-xs ${hero ? 'text-primary-300' : 'text-primary-600 dark:text-primary-400'}`}>
-            {label}
-          </div>
-          <div className={`text-2xl font-bold ${hero ? 'text-white' : 'text-primary-900 dark:text-primary-100'}`}>
-            {value}
-          </div>
+          <div className={`text-xs ${hero ? 'text-primary-300' : 'sidebar-subtitle'}`}>{label}</div>
+          <div className={`text-2xl font-bold ${hero ? 'text-white' : 'sidebar-title'}`}>{value}</div>
         </div>
       </div>
     </div>
