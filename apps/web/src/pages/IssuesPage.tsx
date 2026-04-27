@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import { useHiddenIssues, useIssueDetail, useRecomputeIssues } from '../lib/queries';
 import { ProductSelector } from '../components/ProductSelector';
+import { AnalysisBanner } from '../components/AnalysisBanner';
 import { useProductStore } from '../store/product.store';
 
 export function IssuesPage() {
@@ -57,6 +58,7 @@ export function IssuesPage() {
       </div>
 
       <ProductSelector />
+      <AnalysisBanner />
 
       <div className="card bg-primary-50 border-primary-200">
         <h3 className="mb-2 flex items-center gap-2">

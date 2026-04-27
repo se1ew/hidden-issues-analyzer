@@ -12,6 +12,7 @@ import {
   type ReviewListItem,
 } from '../lib/queries';
 import { ProductSelector } from '../components/ProductSelector';
+import { AnalysisBanner } from '../components/AnalysisBanner';
 import { useProductStore } from '../store/product.store';
 
 const SENTIMENT_LABEL: Record<string, { label: string; cls: string }> = {
@@ -239,6 +240,7 @@ export function ReviewsPage() {
       </div>
 
       <ProductSelector />
+      <AnalysisBanner />
 
       <div className="card">
         <div className="flex items-center justify-between mb-3">
