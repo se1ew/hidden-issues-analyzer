@@ -4,7 +4,8 @@ import { useDropzone } from 'react-dropzone';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import { useNavigate } from 'react-router-dom';
-import { useCreateManualReview, useProducts, useUploadCsv } from '../lib/queries';
+import { useCreateManualReview, useProducts, useRunAnalysis, useUploadCsv } from '../lib/queries';
+import { AnalysisPromptModal } from '../components/AnalysisPromptModal';
 
 type Tab = 'csv' | 'manual';
 
@@ -17,7 +18,9 @@ export function UploadPage() {
 
   const uploadCsv = useUploadCsv();
   const createManual = useCreateManualReview();
+  const runAnalysis = useRunAnalysis();
   const products = useProducts();
+  const [uploadedCount, setUploadedCount] = useState<number | null>(null);
   const productNames = (products.data?.items ?? [])
     .filter((p) => p.id !== '__unassigned__')
     .map((p) => p.name);
@@ -29,13 +32,13 @@ export function UploadPage() {
       try {
         const result = await uploadCsv.mutateAsync({ file, productName });
         toast.success(`Загружено ${result.count} отзывов`);
-        navigate('/reviews');
+        setUploadedCount(result.count);
       } catch (err: unknown) {
         const e = err as { response?: { data?: { error?: string } } };
         toast.error(e.response?.data?.error ?? 'Ошибка загрузки');
       }
     },
-    [uploadCsv, navigate, productName],
+    [uploadCsv, productName],
   );
 
   const handleManualSubmit = async () => {
@@ -62,8 +65,31 @@ export function UploadPage() {
     disabled: uploadCsv.isPending,
   });
 
+  const handleAnalyzeNow = async () => {
+    setUploadedCount(null);
+    try {
+      await runAnalysis.mutateAsync(undefined);
+      toast.success('Анализ запущен');
+    } catch {
+      toast.error('Не удалось запустить анализ');
+    }
+    navigate('/reviews');
+  };
+
+  const handleAnalyzeLater = () => {
+    setUploadedCount(null);
+    navigate('/reviews');
+  };
+
   return (
     <div className="space-y-6">
+      {uploadedCount !== null && (
+        <AnalysisPromptModal
+          count={uploadedCount}
+          onAnalyze={handleAnalyzeNow}
+          onLater={handleAnalyzeLater}
+        />
+      )}
       <div>
         <h1>Загрузка отзывов</h1>
         <p className="text-sm text-neutral-400 mt-1">
