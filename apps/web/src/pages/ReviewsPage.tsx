@@ -1,5 +1,6 @@
 import { Download, Filter, Loader2, Package, Play, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import { connectSocket } from '../lib/socket';
@@ -20,12 +21,29 @@ const SENTIMENT_LABEL: Record<string, { label: string; cls: string }> = {
 };
 
 export function ReviewsPage() {
-  const [page, setPage] = useState(1);
-  const [sentiment, setSentiment] = useState<string>('');
-  const [rating, setRating] = useState<string>('');
-  const [hasIssues, setHasIssues] = useState<string>('');
-  const [search, setSearch] = useState('');
-  const [searchInput, setSearchInput] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const page = Number(searchParams.get('page') ?? '1');
+  const sentiment = searchParams.get('sentiment') ?? '';
+  const rating = searchParams.get('rating') ?? '';
+  const hasIssues = searchParams.get('hasIssues') ?? '';
+  const search = searchParams.get('search') ?? '';
+  const [searchInput, setSearchInput] = useState(search);
+
+  const setParam = (key: string, value: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set(key, value); else next.delete(key);
+      if (key !== 'page') next.delete('page');
+      return next;
+    });
+  };
+  const setPage = (p: number) => setParam('page', p > 1 ? String(p) : '');
+  const setSentiment = (v: string) => setParam('sentiment', v);
+  const setRating = (v: string) => setParam('rating', v);
+  const setHasIssues = (v: string) => setParam('hasIssues', v);
+  const setSearch = (v: string) => setParam('search', v);
+
   const [selected, setSelected] = useState<ReviewListItem | null>(null);
   const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
@@ -82,9 +100,14 @@ export function ReviewsPage() {
     }
   };
 
+  useEffect(() => {
+    setSearchInput(search);
+  }, [search]);
+
   // Сбрасываем страницу при смене товара
   useEffect(() => {
     setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProductId]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
@@ -371,7 +394,7 @@ export function ReviewsPage() {
             </span>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => setPage(Math.max(1, page - 1))}
                 disabled={page === 1}
                 className={clsx('btn-outline px-3 py-1', page === 1 && 'opacity-50')}
               >
@@ -381,7 +404,7 @@ export function ReviewsPage() {
                 {page} / {totalPages}
               </span>
               <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() => setPage(Math.min(totalPages, page + 1))}
                 disabled={page >= totalPages}
                 className={clsx('btn-outline px-3 py-1', page >= totalPages && 'opacity-50')}
               >
