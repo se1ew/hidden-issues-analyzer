@@ -28,6 +28,7 @@ export function ReviewsPage() {
   const [searchInput, setSearchInput] = useState('');
   const [selected, setSelected] = useState<ReviewListItem | null>(null);
   const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
   const { selectedProductId } = useProductStore();
   const deleteReview = useDeleteReview();
@@ -99,13 +100,14 @@ export function ReviewsPage() {
   };
 
   const handleDeleteAll = async () => {
-    if (!window.confirm(`Удалить все отзывы${selectedProductId ? ' этого товара' : ''}? Действие необратимо.`)) return;
     try {
       const res = await deleteReviewsBulk.mutateAsync(selectedProductId);
       toast.success(`Удалено ${res.deleted} отзывов`);
       setPage(1);
     } catch {
       toast.error('Не удалось удалить');
+    } finally {
+      setConfirmDeleteAll(false);
     }
   };
 
@@ -152,14 +154,33 @@ export function ReviewsPage() {
               <Download className="h-4 w-4" />
               CSV
             </button>
-            <button
-              onClick={handleDeleteAll}
-              disabled={deleteReviewsBulk.isPending || !data || data.total === 0}
-              className="btn-outline text-red-600 border-red-200 hover:bg-red-50"
-              title="Удалить все отзывы"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            {confirmDeleteAll ? (
+              <>
+                <span className="text-xs text-neutral-500">Удалить все?</span>
+                <button
+                  onClick={handleDeleteAll}
+                  disabled={deleteReviewsBulk.isPending}
+                  className="btn px-3 py-2 text-xs bg-red-600 text-white hover:bg-red-700"
+                >
+                  {deleteReviewsBulk.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Да'}
+                </button>
+                <button
+                  onClick={() => setConfirmDeleteAll(false)}
+                  className="btn-outline px-3 py-2 text-xs"
+                >
+                  Нет
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirmDeleteAll(true)}
+                disabled={!data || data.total === 0}
+                className="btn-outline text-red-600 border-red-200 hover:bg-red-50"
+                title="Удалить все отзывы"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
             <button
               onClick={handleRunAnalysis}
               disabled={runAnalysis.isPending || progress !== null}
@@ -277,18 +298,25 @@ export function ReviewsPage() {
               <th className="pb-3 pr-3">Тональность</th>
               <th className="pb-3 pr-3">Проблем</th>
               <th className="pb-3 pr-3">Дата</th>
+              <th className="pb-3 w-8" />
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr>
-                <td colSpan={6} className="text-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary-500" />
-                </td>
-              </tr>
+              Array.from({ length: 8 }).map((_, i) => (
+                <tr key={i} className="border-b border-neutral-50 animate-pulse">
+                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-200 rounded w-full" /></td>
+                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-100 rounded w-20" /></td>
+                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-100 rounded w-8" /></td>
+                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-100 rounded w-16" /></td>
+                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-100 rounded w-6" /></td>
+                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-100 rounded w-16" /></td>
+                  <td className="py-3" />
+                </tr>
+              ))
             ) : !data || data.items.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-12 text-neutral-400">
+                <td colSpan={7} className="text-center py-12 text-neutral-400">
                   Нет отзывов. Загрузите данные на странице «Загрузка».
                 </td>
               </tr>
