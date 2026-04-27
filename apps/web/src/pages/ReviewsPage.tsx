@@ -46,7 +46,7 @@ export function ReviewsPage() {
   const setSearch = (v: string) => setParam('search', v);
 
   const [selected, setSelected] = useState<ReviewListItem | null>(null);
-  const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{ processed: number; total: number; step?: string; label?: string } | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
   const { selectedProductId } = useProductStore();
@@ -67,8 +67,10 @@ export function ReviewsPage() {
 
   useEffect(() => {
     const socket = connectSocket();
-    const onProgress = (p: { processed: number; total: number }) =>
-      setProgress({ processed: p.processed, total: p.total });
+    const onStep = (s: { step: string; label: string }) =>
+      setProgress((prev) => prev ? { ...prev, step: s.step, label: s.label } : { processed: 0, total: 0, step: s.step, label: s.label });
+    const onProgress = (p: { processed: number; total: number; step?: string }) =>
+      setProgress((prev) => ({ processed: p.processed, total: p.total, step: p.step ?? prev?.step, label: prev?.label }));
     const onComplete = () => {
       setProgress(null);
       toast.success('Анализ завершён');
@@ -78,10 +80,12 @@ export function ReviewsPage() {
       setProgress(null);
       toast.error(e.message);
     };
+    socket.on('analysis:step', onStep);
     socket.on('analysis:progress', onProgress);
     socket.on('analysis:complete', onComplete);
     socket.on('analysis:error', onError);
     return () => {
+      socket.off('analysis:step', onStep);
       socket.off('analysis:progress', onProgress);
       socket.off('analysis:complete', onComplete);
       socket.off('analysis:error', onError);
@@ -219,9 +223,9 @@ export function ReviewsPage() {
             </button>
           </div>
           {progress !== null && (
-            <div className="w-56">
+            <div className="w-64">
               <div className="flex justify-between text-xs text-neutral-500 mb-1">
-                <span>Анализ</span>
+                <span className="font-medium truncate max-w-[160px]">{progress.label ?? 'Анализ...'}</span>
                 <span>{progress.processed}/{progress.total || '?'}</span>
               </div>
               <div className="h-1.5 w-full bg-neutral-200 rounded-full overflow-hidden">
@@ -230,9 +234,19 @@ export function ReviewsPage() {
                   style={{
                     width: progress.total > 0
                       ? `${Math.round((progress.processed / progress.total) * 100)}%`
-                      : '5%',
+                      : '8%',
                   }}
                 />
+              </div>
+              <div className="flex gap-2 mt-1.5">
+                {['Тональность', 'Аспекты', 'Кластеры'].map((s, i) => (
+                  <div key={s} className={`flex-1 h-1 rounded-full transition-all duration-500 ${
+                    (progress.step === 'analyzing' && i === 0) ||
+                    (progress.step === 'analyzing' && i === 1 && progress.processed > 0) ||
+                    progress.step === 'done'
+                      ? 'bg-primary-500' : 'bg-neutral-200'
+                  }`} />
+                ))}
               </div>
             </div>
           )}

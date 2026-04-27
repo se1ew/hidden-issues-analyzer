@@ -5,7 +5,8 @@ import { logger } from '../lib/logger.js';
 import { verifyAccessToken } from '../middleware/auth.js';
 
 export interface ServerToClientEvents {
-  'analysis:progress': (data: { jobId: string; processed: number; total: number }) => void;
+  'analysis:progress': (data: { jobId: string; processed: number; total: number; step?: string }) => void;
+  'analysis:step': (data: { jobId: string; step: string; label: string }) => void;
   'analysis:complete': (data: { jobId: string }) => void;
   'analysis:error': (data: { jobId: string; message: string }) => void;
 }

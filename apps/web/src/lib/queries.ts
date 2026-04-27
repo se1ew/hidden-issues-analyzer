@@ -414,6 +414,19 @@ export function useToggleResolved() {
   });
 }
 
+// ===== AI Summary =====
+
+export function useAiSummary(productId?: string | null) {
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await api.get<{ summary: string }>('/api/analysis/summary', {
+        params: productId ? { productId } : {},
+      });
+      return data.summary;
+    },
+  });
+}
+
 // ===== Parsing history =====
 
 export function useParsingHistory() {

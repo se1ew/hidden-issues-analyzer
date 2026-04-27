@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 
 import { runPendingAnalysis } from '../services/analyzer.service.js';
 import { getOverviewStats, getSentimentTimeseries, type Bucket } from '../services/stats.service.js';
+import { generateProductSummary } from '../services/summary.service.js';
 import { getIO } from '../sockets/index.js';
 
 export async function run(req: Request, res: Response): Promise<void> {
@@ -12,20 +13,24 @@ export async function run(req: Request, res: Response): Promise<void> {
   res.status(202).json({ jobId, message: 'Анализ запущен' });
 
   const io = getIO();
-  io.to(`job:${jobId}`).emit('analysis:progress', { jobId, processed: 0, total: 0 });
+  const room = io.to(`job:${jobId}`);
+
+  room.emit('analysis:step', { jobId, step: 'analyzing', label: 'Анализ тональности и аспектов' });
+  room.emit('analysis:progress', { jobId, processed: 0, total: 0, step: 'analyzing' });
 
   runPendingAnalysis({
     limit,
     concurrency: 3,
     onProgress: (processed, total) => {
-      io.to(`job:${jobId}`).emit('analysis:progress', { jobId, processed, total });
+      room.emit('analysis:progress', { jobId, processed, total, step: 'analyzing' });
     },
   })
     .then(() => {
-      io.to(`job:${jobId}`).emit('analysis:complete', { jobId });
+      room.emit('analysis:step', { jobId, step: 'done', label: 'Готово' });
+      room.emit('analysis:complete', { jobId });
     })
     .catch((err: Error) => {
-      io.to(`job:${jobId}`).emit('analysis:error', { jobId, message: err.message });
+      room.emit('analysis:error', { jobId, message: err.message });
     });
 }
 
@@ -41,4 +46,10 @@ export async function timeseries(req: Request, res: Response): Promise<void> {
   const productId = (req.query.productId as string) || undefined;
   const data = await getSentimentTimeseries(bucket, days, productId);
   res.json(data);
+}
+
+export async function summary(req: Request, res: Response): Promise<void> {
+  const productId = (req.query.productId as string) || undefined;
+  const text = await generateProductSummary(productId);
+  res.json({ summary: text });
 }

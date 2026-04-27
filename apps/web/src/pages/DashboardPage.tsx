@@ -15,6 +15,7 @@ import { useAuthStore } from '../store/auth.store';
 import { useStats, useReviews, useHiddenIssues, useRunAnalysis } from '../lib/queries';
 import { useProductStore } from '../store/product.store';
 import { ProductSelector } from '../components/ProductSelector';
+import { AiSummaryButton } from '../components/AiSummaryModal';
 import toast from 'react-hot-toast';
 
 function getSeverity(score: number) {
@@ -90,6 +91,7 @@ export function DashboardPage() {
             Сводка по анализу отзывов
           </p>
         </div>
+        <AiSummaryButton productId={selectedProductId} />
       </div>
 
       <ProductSelector />
