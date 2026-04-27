@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { HttpError } from '../middleware/error.js';
 import type { CreateManualReviewInput, ListReviewsQuery } from '../schemas/reviews.schema.js';
+import { UNASSIGNED_PRODUCT_ID } from './products.service.js';
 
 export interface ParsedCsvRow {
   text: string;
@@ -60,10 +61,20 @@ export async function importReviewsFromCsv(
   buffer: Buffer,
   filename: string,
   userId: string | null,
-): Promise<{ count: number; batchId: string }> {
+  productName?: string,
+): Promise<{ count: number; batchId: string; productId: string | null }> {
   const rows = parseReviewsCsv(buffer);
   if (rows.length === 0) {
     throw new HttpError(422, 'CSV не содержит валидных строк (нет колонки text/review/comment)');
+  }
+
+  // Если указано имя товара — создаём/находим его, иначе используем имя файла
+  let productId: string | null = null;
+  const finalProductName = productName?.trim() || deriveProductNameFromFilename(filename);
+  if (finalProductName) {
+    const existing = await prisma.product.findFirst({ where: { name: finalProductName } });
+    const product = existing ?? (await prisma.product.create({ data: { name: finalProductName } }));
+    productId = product.id;
   }
 
   const batch = await prisma.uploadBatch.create({
@@ -84,12 +95,19 @@ export async function importReviewsFromCsv(
         text: r.text,
         rating: r.rating ?? null,
         reviewDate: r.date ?? null,
+        productId,
       })),
     });
   }
 
-  logger.info({ batchId: batch.id, count: rows.length, userId }, 'CSV import complete');
-  return { count: rows.length, batchId: batch.id };
+  logger.info({ batchId: batch.id, count: rows.length, userId, productId }, 'CSV import complete');
+  return { count: rows.length, batchId: batch.id, productId };
+}
+
+function deriveProductNameFromFilename(filename: string): string | null {
+  if (!filename) return null;
+  const base = filename.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim();
+  return base ? base.slice(0, 200) : null;
 }
 
 export async function createManualReview(
@@ -129,6 +147,9 @@ export async function listReviews(query: ListReviewsQuery) {
   if (query.search) {
     where.text = { contains: query.search, mode: 'insensitive' };
   }
+  if (query.productId) {
+    where.productId = query.productId === UNASSIGNED_PRODUCT_ID ? null : query.productId;
+  }
 
   const [items, total] = await Promise.all([
     prisma.review.findMany({
@@ -147,6 +168,8 @@ export async function listReviews(query: ListReviewsQuery) {
         hiddenIssueId: true,
         analyzedAt: true,
         createdAt: true,
+        productId: true,
+        product: { select: { id: true, name: true } },
       },
     }),
     prisma.review.count({ where }),

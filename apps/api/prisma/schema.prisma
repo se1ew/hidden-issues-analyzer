@@ -57,7 +57,8 @@ model Product {
   sourceUrl String?
   createdAt DateTime @default(now())
 
-  reviews Review[]
+  reviews      Review[]
+  hiddenIssues HiddenIssue[]
 }
 
 model Review {
@@ -88,6 +89,7 @@ model Review {
 
 model HiddenIssue {
   id           String   @id @default(cuid())
+  productId    String?
   title        String
   description  String?  @db.Text
   keywords     Json?
@@ -97,9 +99,11 @@ model HiddenIssue {
   hiddenScore  Float    @default(0)
   createdAt    DateTime @default(now())
 
+  product Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
   reviews Review[]
 
   @@index([hiddenScore])
+  @@index([productId])
 }
 
 model UploadBatch {

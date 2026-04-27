@@ -7,8 +7,9 @@ import {
   recomputeHiddenIssues,
 } from '../services/clustering.service.js';
 
-export async function list(_req: Request, res: Response): Promise<void> {
-  const items = await listHiddenIssues();
+export async function list(req: Request, res: Response): Promise<void> {
+  const productId = (req.query.productId as string) || undefined;
+  const items = await listHiddenIssues(productId);
   res.json({ items });
 }
 
@@ -19,7 +20,11 @@ export async function getById(req: Request, res: Response): Promise<void> {
   res.json(issue);
 }
 
-export async function recompute(_req: Request, res: Response): Promise<void> {
-  const result = await recomputeHiddenIssues();
+export async function recompute(req: Request, res: Response): Promise<void> {
+  const productId =
+    (req.body?.productId as string | undefined) ||
+    (req.query.productId as string | undefined) ||
+    undefined;
+  const result = await recomputeHiddenIssues(productId);
   res.json(result);
 }

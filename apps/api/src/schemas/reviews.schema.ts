@@ -10,6 +10,7 @@ export const ListReviewsQuerySchema = z.object({
     .transform((v) => v === 'true')
     .optional(),
   search: z.string().trim().min(1).max(200).optional(),
+  productId: z.string().min(1).max(60).optional(),
 });
 export type ListReviewsQuery = z.infer<typeof ListReviewsQuerySchema>;
 

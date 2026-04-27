@@ -16,6 +16,7 @@ interface ReviewIssuePoint {
   reviewId: string;
   reviewSentimentScore: number;
   issueText: string;
+  productId: string | null;
 }
 
 /**
@@ -82,14 +83,18 @@ export interface ClusterRunResult {
 
 /**
  * Главный pipeline: собирает все issue-фразы из проанализированных отзывов,
- * считает эмбеддинги, кластеризует DBSCAN-ом, для каждого кластера считает
- * size / severity / visibility / hidden_score и просит LLM сформулировать заголовок.
+ * считает эмбеддинги, кластеризует DBSCAN-ом ВНУТРИ КАЖДОГО ТОВАРА,
+ * для каждого кластера считает size / severity / visibility / hidden_score
+ * и просит LLM сформулировать заголовок.
+ *
+ * @param productId Если указан — пересчитывает только для этого товара. Иначе — для всех.
  */
-export async function recomputeHiddenIssues(): Promise<ClusterRunResult> {
-  // 1. Собираем все issue-точки
+export async function recomputeHiddenIssues(productId?: string): Promise<ClusterRunResult> {
+  // 1. Собираем все issue-точки (опционально ограничиваем по товару)
+  const reviewWhere = productId ? { productId } : {};
   const reviews = await prisma.review.findMany({
-    where: { analyzedAt: { not: null }, issues: { not: null as never } },
-    select: { id: true, sentimentScore: true, issues: true },
+    where: { ...reviewWhere, analyzedAt: { not: null }, issues: { not: null as never } },
+    select: { id: true, sentimentScore: true, issues: true, productId: true },
   });
 
   const points: ReviewIssuePoint[] = [];
@@ -101,84 +106,123 @@ export async function recomputeHiddenIssues(): Promise<ClusterRunResult> {
           reviewId: r.id,
           reviewSentimentScore: r.sentimentScore ?? 0,
           issueText: issue,
+          productId: r.productId,
         });
       }
     }
   }
 
-  const totalReviews = reviews.length;
   if (points.length < 3) {
     logger.warn({ points: points.length }, 'Not enough issue points to cluster');
-    await resetIssues();
+    await resetIssuesForScope(productId);
     return { clustersCreated: 0, reviewsAssigned: 0, noisePoints: points.length };
   }
 
-  // 2. Эмбеддинги
-  logger.info({ count: points.length }, 'Computing embeddings for clustering');
-  const vectors = await embed(points.map((p) => p.issueText));
+  // 2. Очищаем старые HiddenIssue только в пределах scope
+  await resetIssuesForScope(productId);
 
-  // 3. DBSCAN — eps=0.35 в косинусной дистанции (для нормированных эмбеддингов),
-  //    minPts=2: требуется минимум 2 «близкие» жалобы, чтобы образовать кластер
-  const dbscan = new densityClustering.DBSCAN();
-  const clusters: number[][] = dbscan.run(vectors, 0.35, 2, cosineDistance);
-  const noise: number[] = dbscan.noise;
-
-  // 4. Очищаем старые HiddenIssue / связи
-  await resetIssues();
+  // 3. Группируем точки по productId — кластеризуем независимо
+  const groups = new Map<string | null, { points: ReviewIssuePoint[]; indices: number[] }>();
+  points.forEach((p, idx) => {
+    const key = p.productId;
+    const grp = groups.get(key) ?? { points: [], indices: [] };
+    grp.points.push(p);
+    grp.indices.push(idx);
+    groups.set(key, grp);
+  });
 
   let clustersCreated = 0;
   let reviewsAssigned = 0;
+  let totalNoise = 0;
 
-  for (const clusterIndices of clusters) {
-    if (clusterIndices.length < 2) continue;
+  for (const [groupProductId, group] of groups) {
+    if (group.points.length < 2) {
+      totalNoise += group.points.length;
+      continue;
+    }
 
-    const clusterPoints = clusterIndices.map((i) => points[i]);
-    const uniqueReviewIds = Array.from(new Set(clusterPoints.map((p) => p.reviewId)));
-
-    // Метрики
-    const size = uniqueReviewIds.length;
-    const visibility = totalReviews > 0 ? size / totalReviews : 0;
-    const severity = avg(clusterPoints.map((p) => Math.abs(p.reviewSentimentScore)));
-    const hiddenScore = severity * (1 - visibility);
-
-    // Берём до 8 репрезентативных фраз для саммари
-    const samples = clusterPoints.slice(0, 8).map((p) => p.issueText);
-    const summary = await summarizeCluster(samples);
-
-    const hiddenIssue = await prisma.hiddenIssue.create({
-      data: {
-        title: summary.title,
-        description: summary.description,
-        keywords: summary.keywords,
-        size,
-        severity,
-        visibility,
-        hiddenScore,
-      },
+    // Подсчёт всех отзывов в этом товаре (для visibility)
+    const totalReviewsInGroup = await prisma.review.count({
+      where: groupProductId === null ? { productId: null } : { productId: groupProductId },
     });
 
-    await prisma.review.updateMany({
-      where: { id: { in: uniqueReviewIds } },
-      data: { hiddenIssueId: hiddenIssue.id },
-    });
+    logger.info(
+      { productId: groupProductId, points: group.points.length, totalReviewsInGroup },
+      'Clustering group',
+    );
+    const vectors = await embed(group.points.map((p) => p.issueText));
 
-    clustersCreated++;
-    reviewsAssigned += uniqueReviewIds.length;
+    const dbscan = new densityClustering.DBSCAN();
+    const clusters: number[][] = dbscan.run(vectors, 0.35, 2, cosineDistance);
+    const noise: number[] = dbscan.noise;
+    totalNoise += noise.length;
+
+    for (const clusterIndices of clusters) {
+      if (clusterIndices.length < 2) continue;
+
+      const clusterPoints = clusterIndices.map((i) => group.points[i]);
+      const uniqueReviewIds = Array.from(new Set(clusterPoints.map((p) => p.reviewId)));
+
+      const size = uniqueReviewIds.length;
+      const visibility = totalReviewsInGroup > 0 ? size / totalReviewsInGroup : 0;
+      const severity = avg(clusterPoints.map((p) => Math.abs(p.reviewSentimentScore)));
+      const hiddenScore = severity * (1 - visibility);
+
+      const samples = clusterPoints.slice(0, 8).map((p) => p.issueText);
+      const summary = await summarizeCluster(samples);
+
+      const hiddenIssue = await prisma.hiddenIssue.create({
+        data: {
+          productId: groupProductId,
+          title: summary.title,
+          description: summary.description,
+          keywords: summary.keywords,
+          size,
+          severity,
+          visibility,
+          hiddenScore,
+        },
+      });
+
+      await prisma.review.updateMany({
+        where: { id: { in: uniqueReviewIds } },
+        data: { hiddenIssueId: hiddenIssue.id },
+      });
+
+      clustersCreated++;
+      reviewsAssigned += uniqueReviewIds.length;
+    }
   }
 
   logger.info(
-    { clustersCreated, reviewsAssigned, noisePoints: noise.length, total: points.length },
+    { clustersCreated, reviewsAssigned, noisePoints: totalNoise, total: points.length },
     'Clustering complete',
   );
-  return { clustersCreated, reviewsAssigned, noisePoints: noise.length };
+  return { clustersCreated, reviewsAssigned, noisePoints: totalNoise };
 }
 
-async function resetIssues(): Promise<void> {
-  await prisma.review.updateMany({
-    where: { hiddenIssueId: { not: null } },
-    data: { hiddenIssueId: null },
-  });
-  await prisma.hiddenIssue.deleteMany({});
+async function resetIssuesForScope(productId?: string): Promise<void> {
+  // Snimaem связь с reviews и удаляем HiddenIssue в нужном scope
+  if (productId) {
+    const issues = await prisma.hiddenIssue.findMany({
+      where: { productId },
+      select: { id: true },
+    });
+    const ids = issues.map((i) => i.id);
+    if (ids.length > 0) {
+      await prisma.review.updateMany({
+        where: { hiddenIssueId: { in: ids } },
+        data: { hiddenIssueId: null },
+      });
+      await prisma.hiddenIssue.deleteMany({ where: { id: { in: ids } } });
+    }
+  } else {
+    await prisma.review.updateMany({
+      where: { hiddenIssueId: { not: null } },
+      data: { hiddenIssueId: null },
+    });
+    await prisma.hiddenIssue.deleteMany({});
+  }
 }
 
 function avg(arr: number[]): number {
@@ -186,9 +230,16 @@ function avg(arr: number[]): number {
   return arr.reduce((s, x) => s + x, 0) / arr.length;
 }
 
-export async function listHiddenIssues() {
+export async function listHiddenIssues(productId?: string) {
+  const where = productId
+    ? productId === '__unassigned__'
+      ? { productId: null }
+      : { productId }
+    : {};
   return prisma.hiddenIssue.findMany({
+    where,
     orderBy: { hiddenScore: 'desc' },
+    include: { product: { select: { id: true, name: true } } },
   });
 }
 

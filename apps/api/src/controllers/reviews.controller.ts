@@ -19,10 +19,14 @@ export async function getById(req: Request, res: Response): Promise<void> {
 export async function uploadCsv(req: Request, res: Response): Promise<void> {
   const file = (req as Request & { file?: Express.Multer.File }).file;
   if (!file) throw new HttpError(400, 'Файл не загружен (поле: file)');
+  const productName = typeof req.body?.productName === 'string'
+    ? req.body.productName.toString().trim() || undefined
+    : undefined;
   const result = await reviewsService.importReviewsFromCsv(
     file.buffer,
     file.originalname,
     req.user?.sub ?? null,
+    productName,
   );
   res.status(201).json(result);
 }

@@ -29,14 +29,16 @@ export async function run(req: Request, res: Response): Promise<void> {
     });
 }
 
-export async function stats(_req: Request, res: Response): Promise<void> {
-  const data = await getOverviewStats();
+export async function stats(req: Request, res: Response): Promise<void> {
+  const productId = (req.query.productId as string) || undefined;
+  const data = await getOverviewStats(productId);
   res.json(data);
 }
 
 export async function timeseries(req: Request, res: Response): Promise<void> {
   const bucket = ((req.query.bucket as string) || 'day') as Bucket;
   const days = Math.max(1, Math.min(365, Number(req.query.days) || 30));
-  const data = await getSentimentTimeseries(bucket, days);
+  const productId = (req.query.productId as string) || undefined;
+  const data = await getSentimentTimeseries(bucket, days, productId);
   res.json(data);
 }
