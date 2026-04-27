@@ -69,7 +69,11 @@ export async function renameProduct(id: string, name: string): Promise<ProductWi
 }
 
 export async function removeProduct(id: string): Promise<void> {
-  await prisma.product.delete({ where: { id } });
+  await prisma.$transaction([
+    prisma.hiddenIssue.deleteMany({ where: { productId: id } }),
+    prisma.review.deleteMany({ where: { productId: id } }),
+    prisma.product.delete({ where: { id } }),
+  ]);
 }
 
 /**

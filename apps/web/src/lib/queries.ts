@@ -279,6 +279,7 @@ export function useStartParsing() {
       qc.invalidateQueries({ queryKey: ['reviews'] });
       qc.invalidateQueries({ queryKey: ['stats'] });
       qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['parsing', 'history'] });
     },
   });
 }
