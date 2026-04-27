@@ -116,7 +116,7 @@ export function UploadPage() {
               : 'border-primary-400/60 hover:border-primary-500 hover:bg-primary-200/40',
             uploadCsv.isPending && 'opacity-60 cursor-wait',
           )}
-          style={{ background: isDragActive ? 'rgba(183,239,255,0.5)' : 'rgba(207,244,255,0.35)' }}
+          style={{ background: isDragActive ? 'rgba(184,216,245,0.55)' : 'rgba(211,233,248,0.45)' }}
         >
           <input {...getInputProps()} />
           <div className="flex flex-col items-center gap-3">
