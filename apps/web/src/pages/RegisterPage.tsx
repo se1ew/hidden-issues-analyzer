@@ -34,25 +34,27 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-neutral-50 px-4">
+    <div className="min-h-screen flex items-center justify-center px-4"
+      style={{ background: 'radial-gradient(900px 700px at 20% 30%, #CFF4FF 0%, transparent 60%), radial-gradient(700px 600px at 80% 80%, #B7EFFF 0%, transparent 65%), #E5F8FF' }}
+    >
       <div className="w-full max-w-md">
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="h-12 w-12 rounded-xl bg-primary-300 flex items-center justify-center">
-            <AlertTriangle className="h-6 w-6 text-neutral-700" />
+        <div className="flex items-center justify-center gap-3 mb-8">
+          <div className="h-14 w-14 rounded-2xl bg-primary-800 flex items-center justify-center shadow-card">
+            <AlertTriangle className="h-7 w-7 text-primary-300" />
           </div>
           <div>
-            <div className="text-lg font-semibold text-neutral-700">Hidden Issues</div>
-            <div className="text-sm text-neutral-400">Analyzer</div>
+            <div className="text-xl font-bold text-primary-900">Hidden Issues</div>
+            <div className="text-sm text-primary-600">Analyzer</div>
           </div>
         </div>
 
-        <div className="card">
-          <h1 className="mb-1">Регистрация</h1>
-          <p className="text-sm text-neutral-400 mb-6">Создайте новый аккаунт</p>
+        <div className="card-hero">
+          <h1 className="mb-1 text-white">Регистрация</h1>
+          <p className="text-sm text-primary-300 mb-6">Создайте новый аккаунт</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-neutral-600 mb-1">Имя</label>
+              <label className="block text-sm font-medium text-primary-300 mb-1">Имя</label>
               <input
                 type="text"
                 value={name}
@@ -62,7 +64,7 @@ export function RegisterPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-neutral-600 mb-1">Email</label>
+              <label className="block text-sm font-medium text-primary-300 mb-1">Email</label>
               <input
                 type="email"
                 required
@@ -73,7 +75,7 @@ export function RegisterPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-neutral-600 mb-1">Пароль</label>
+              <label className="block text-sm font-medium text-primary-300 mb-1">Пароль</label>
               <input
                 type="password"
                 required
@@ -90,9 +92,9 @@ export function RegisterPage() {
             </button>
           </form>
 
-          <p className="text-sm text-center text-neutral-400 mt-6">
+          <p className="text-sm text-center text-primary-400 mt-6">
             Уже есть аккаунт?{' '}
-            <Link to="/login" className="text-primary-600 hover:text-primary-700 font-medium">
+            <Link to="/login" className="text-primary-300 hover:text-white font-medium">
               Войти
             </Link>
           </p>

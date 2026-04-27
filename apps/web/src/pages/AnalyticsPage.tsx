@@ -63,15 +63,17 @@ export function AnalyticsPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
+          hero
           icon={MessageSquare}
           label="Всего отзывов"
           value={s ? s.total.toString() : '—'}
           sub={s ? `проанализировано ${s.analyzed}` : undefined}
         />
         <StatCard
-          icon={Star}
-          label="Средний рейтинг"
-          value={s?.avgRating != null ? s.avgRating.toFixed(2) : '—'}
+          hero
+          icon={AlertTriangle}
+          label="Скрытых проблем"
+          value={s ? s.issuesCount.toString() : '—'}
         />
         <StatCard
           icon={TrendingDown}
@@ -80,9 +82,9 @@ export function AnalyticsPage() {
           accent="negative"
         />
         <StatCard
-          icon={AlertTriangle}
-          label="Скрытых проблем"
-          value={s ? s.issuesCount.toString() : '—'}
+          icon={Star}
+          label="Средний рейтинг"
+          value={s?.avgRating != null ? s.avgRating.toFixed(2) : '—'}
           accent="primary"
         />
       </div>
@@ -170,30 +172,33 @@ function StatCard({
   label,
   value,
   sub,
+  hero = false,
   accent,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   sub?: string;
+  hero?: boolean;
   accent?: 'primary' | 'negative';
 }) {
-  const accentClass =
-    accent === 'primary'
-      ? 'bg-primary-100 text-primary-700'
+  const iconClass = hero
+    ? 'bg-white/20 text-white'
+    : accent === 'primary'
+      ? 'bg-primary-200 text-primary-800'
       : accent === 'negative'
-        ? 'bg-red-100 text-red-600'
-        : 'bg-neutral-100 text-neutral-500';
+        ? 'bg-red-100 text-red-700'
+        : 'bg-primary-100 text-primary-700';
   return (
-    <div className="card">
+    <div className={hero ? 'card-hero' : 'card'}>
       <div className="flex items-center gap-3">
-        <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${accentClass}`}>
+        <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${iconClass}`}>
           <Icon className="h-5 w-5" />
         </div>
         <div>
-          <div className="text-xs text-neutral-400">{label}</div>
-          <div className="text-2xl font-semibold text-neutral-700">{value}</div>
-          {sub && <div className="text-xs text-neutral-400 mt-0.5">{sub}</div>}
+          <div className={`text-xs ${hero ? 'text-primary-300' : 'text-neutral-500'}`}>{label}</div>
+          <div className={`text-2xl font-bold ${hero ? 'text-white' : 'text-neutral-800'}`}>{value}</div>
+          {sub && <div className={`text-xs mt-0.5 ${hero ? 'text-primary-300' : 'text-neutral-400'}`}>{sub}</div>}
         </div>
       </div>
     </div>

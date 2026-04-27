@@ -5,20 +5,29 @@
 @layer base {
   html {
     font-family: 'Inter', system-ui, sans-serif;
-    color: theme('colors.neutral.DEFAULT');
-    background: theme('colors.neutral.50');
+    color: theme('colors.neutral.700');
   }
   body {
     @apply min-h-screen antialiased;
+    /* Мягкий бренд-градиент вместо плоского серого фона */
+    background:
+      radial-gradient(900px 600px at 0% 0%, theme('colors.primary.100') 0%, transparent 60%),
+      radial-gradient(800px 600px at 100% 100%, theme('colors.primary.200') 0%, transparent 65%),
+      theme('colors.primary.50');
+    background-attachment: fixed;
   }
   h1 {
-    @apply text-2xl font-semibold;
+    @apply text-2xl font-semibold text-neutral-800;
   }
   h2 {
-    @apply text-xl font-semibold;
+    @apply text-xl font-semibold text-neutral-800;
   }
   h3 {
-    @apply text-lg font-semibold;
+    @apply text-lg font-semibold text-neutral-700;
+  }
+  /* Стилизуем дефолтный select под light brand */
+  select.input {
+    background-color: white;
   }
 }
 
@@ -26,34 +35,51 @@
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed;
   }
+  /* Главная кнопка — насыщенный бренд */
   .btn-primary {
-    @apply btn bg-primary-300 text-neutral-700 hover:bg-primary-400;
+    @apply btn bg-primary-600 text-white shadow-card hover:bg-primary-700 active:bg-primary-800;
+  }
+  /* Светлая бренд-кнопка (вторичная) */
+  .btn-soft {
+    @apply btn bg-primary-200 text-primary-900 hover:bg-primary-300;
   }
   .btn-outline {
-    @apply btn border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50;
+    @apply btn border border-primary-300 bg-white/70 text-primary-800 hover:bg-primary-100;
   }
   .btn-ghost {
-    @apply btn text-neutral-600 hover:bg-neutral-100;
+    @apply btn text-neutral-600 hover:bg-primary-100 hover:text-primary-800;
   }
 
   .input {
-    @apply w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-700 placeholder:text-neutral-400 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200;
+    @apply w-full rounded-lg border border-primary-200 bg-white px-3 py-2 text-sm text-neutral-700 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-300;
   }
 
+  /* Карточка: легкая «стеклянная» заливка с brand-обводкой */
   .card {
-    @apply rounded-xl border border-neutral-100 bg-white p-5 shadow-card;
+    @apply rounded-xl border border-primary-200 bg-white/85 p-5 shadow-card backdrop-blur-sm;
+  }
+  /* Бренд-карточка: цветная подложка для акцентных секций */
+  .card-brand {
+    @apply rounded-xl border border-primary-300 bg-primary-100 p-5 shadow-card;
+  }
+  /* Тёмная карточка-герой (большие KPI/CTA) */
+  .card-hero {
+    @apply rounded-xl bg-primary-800 text-white p-5 shadow-card;
   }
 
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
   }
   .badge-positive {
-    @apply badge bg-green-100 text-green-700;
+    @apply badge bg-green-100 text-green-800;
   }
   .badge-negative {
-    @apply badge bg-red-100 text-red-700;
+    @apply badge bg-red-100 text-red-800;
   }
   .badge-neutral {
-    @apply badge bg-neutral-100 text-neutral-600;
+    @apply badge bg-primary-100 text-primary-800;
+  }
+  .badge-brand {
+    @apply badge bg-primary-200 text-primary-900;
   }
 }

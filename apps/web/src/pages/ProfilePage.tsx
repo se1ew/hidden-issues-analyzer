@@ -28,14 +28,15 @@ export function ProfilePage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
-          icon={Upload}
-          label="Моих загрузок"
-          value={profileStats.data?.uploads.toString() ?? '—'}
-        />
-        <StatCard
+          hero
           icon={MessageSquare}
           label="Отзывов в системе"
           value={overallStats.data?.total.toString() ?? '—'}
+        />
+        <StatCard
+          icon={Upload}
+          label="Моих загрузок"
+          value={profileStats.data?.uploads.toString() ?? '—'}
         />
         <StatCard
           icon={FileText}
@@ -51,20 +52,22 @@ function StatCard({
   icon: Icon,
   label,
   value,
+  hero = false,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
+  hero?: boolean;
 }) {
   return (
-    <div className="card">
+    <div className={hero ? 'card-hero' : 'card'}>
       <div className="flex items-center gap-3">
-        <div className="h-10 w-10 rounded-lg bg-primary-100 text-primary-700 flex items-center justify-center">
+        <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${hero ? 'bg-white/20 text-white' : 'bg-primary-200 text-primary-800'}`}>
           <Icon className="h-5 w-5" />
         </div>
         <div>
-          <div className="text-xs text-neutral-400">{label}</div>
-          <div className="text-2xl font-semibold text-neutral-700">{value}</div>
+          <div className={`text-xs ${hero ? 'text-primary-300' : 'text-neutral-500'}`}>{label}</div>
+          <div className={`text-2xl font-bold ${hero ? 'text-white' : 'text-neutral-800'}`}>{value}</div>
         </div>
       </div>
     </div>
