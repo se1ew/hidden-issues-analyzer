@@ -5,13 +5,16 @@ import {
   LayoutDashboard,
   LogOut,
   MessageSquare,
+  Moon,
   Package,
+  Sun,
   Upload,
   User,
 } from 'lucide-react';
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth.store';
+import { useThemeStore } from '../store/theme.store';
 import clsx from 'clsx';
 
 const navGroups = [
@@ -53,6 +56,7 @@ function SidebarSection({ children, border }: { children: React.ReactNode; borde
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const navigate = useNavigate();
   const { user, clear } = useAuthStore();
+  const { isDark, toggle: toggleTheme } = useThemeStore();
 
   const handleLogout = () => {
     clear();
@@ -102,13 +106,22 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             <div className="truncate mt-0.5 sidebar-subtitle">{user.email}</div>
           </div>
         )}
-        <button
-          onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 sidebar-nav-item sidebar-nav-inactive"
-        >
-          <LogOut className="h-4 w-4" />
-          Выйти
-        </button>
+        <div className="flex items-center gap-2 w-full">
+          <button
+            onClick={handleLogout}
+            className="flex flex-1 items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 sidebar-nav-item sidebar-nav-inactive"
+          >
+            <LogOut className="h-4 w-4" />
+            Выйти
+          </button>
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-xl transition-all duration-200 sidebar-nav-item sidebar-nav-inactive"
+            title={isDark ? 'Светлая тема' : 'Тёмная тема'}
+          >
+            {isDark ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4" />}
+          </button>
+        </div>
       </SidebarSection>
     </SidebarRoot>
   );

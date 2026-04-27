@@ -242,7 +242,7 @@ export function ReviewsPage() {
       <ProductSelector />
       <AnalysisBanner />
 
-      <div className="card">
+      <div className="card sticky top-4 z-10 shadow-md">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-neutral-400" />

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Menu } from 'lucide-react';
+import { Menu, Moon, Sun } from 'lucide-react';
+import { useThemeStore } from '../store/theme.store';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 
@@ -39,7 +40,8 @@ export function Layout() {
           >
             <Menu className="h-5 w-5 text-neutral-600 dark:text-neutral-400" />
           </button>
-          <span className="text-sm font-bold text-neutral-700 dark:text-neutral-200">Hidden Issues</span>
+          <span className="text-sm font-bold text-neutral-700 dark:text-neutral-200 flex-1">Hidden Issues</span>
+          <ThemeToggle />
         </div>
 
         <div className="mx-auto max-w-7xl px-4 md:px-6 py-6">
@@ -47,5 +49,20 @@ export function Layout() {
         </div>
       </main>
     </div>
+  );
+}
+
+function ThemeToggle() {
+  const { isDark, toggle } = useThemeStore();
+  return (
+    <button
+      onClick={toggle}
+      className="p-1.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
+      title={isDark ? 'Светлая тема' : 'Тёмная тема'}
+    >
+      {isDark
+        ? <Sun className="h-4 w-4 text-amber-400" />
+        : <Moon className="h-4 w-4 text-neutral-500" />}
+    </button>
   );
 }
