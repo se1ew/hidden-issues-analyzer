@@ -7,7 +7,6 @@ import { AnalyticsPage } from './pages/AnalyticsPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { IssuesPage } from './pages/IssuesPage';
 import { LoginPage } from './pages/LoginPage';
-import { ParsingPage } from './pages/ParsingPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -42,7 +41,7 @@ export function App() {
         <Route path="/issues" element={<IssuesPage />} />
         <Route path="/reviews" element={<ReviewsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/parsing" element={<ParsingPage />} />
+        <Route path="/parsing" element={<Navigate to="/upload" replace />} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
       </Route>

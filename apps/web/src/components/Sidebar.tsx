@@ -2,7 +2,6 @@ import {
   AlertTriangle,
   BarChart3,
   FileText,
-  Globe,
   LayoutDashboard,
   LogOut,
   MessageSquare,
@@ -15,16 +14,21 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth.store';
 import clsx from 'clsx';
 
-const navItems = [
-  { to: '/dashboard', label: 'Главная', icon: LayoutDashboard },
-  { to: '/upload', label: 'Загрузка', icon: Upload },
-  { to: '/analytics', label: 'Аналитика', icon: BarChart3 },
-  { to: '/issues', label: 'Скрытые проблемы', icon: AlertTriangle },
-  { to: '/reviews', label: 'Отзывы', icon: MessageSquare },
-  { to: '/products', label: 'Товары', icon: Package },
-  { to: '/reports', label: 'Отчёты', icon: FileText },
-  { to: '/parsing', label: 'Парсинг', icon: Globe },
-  { to: '/profile', label: 'Профиль', icon: User },
+const navGroups = [
+  [
+    { to: '/dashboard', label: 'Обзор', icon: LayoutDashboard },
+    { to: '/issues', label: 'Проблемы', icon: AlertTriangle },
+    { to: '/reviews', label: 'Отзывы', icon: MessageSquare },
+    { to: '/analytics', label: 'Аналитика', icon: BarChart3 },
+  ],
+  [
+    { to: '/products', label: 'Товары', icon: Package },
+    { to: '/upload', label: 'Загрузка', icon: Upload },
+    { to: '/reports', label: 'Отчёты', icon: FileText },
+  ],
+  [
+    { to: '/profile', label: 'Профиль', icon: User },
+  ],
 ];
 
 function SidebarRoot({ children }: { children: React.ReactNode }) {
@@ -68,21 +72,25 @@ export function Sidebar() {
         </div>
       </SidebarSection>
 
-      <nav className="flex-1 space-y-0.5 px-3 py-4">
-        {navItems.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) =>
-              clsx(
-                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 sidebar-nav-item',
-                isActive ? 'sidebar-nav-active' : 'sidebar-nav-inactive',
-              )
-            }
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            {label}
-          </NavLink>
+      <nav className="flex-1 px-3 py-4 space-y-4">
+        {navGroups.map((group, gi) => (
+          <div key={gi} className={clsx('space-y-0.5', gi > 0 && 'border-t border-white/10 pt-3')}>
+            {group.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  clsx(
+                    'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 sidebar-nav-item',
+                    isActive ? 'sidebar-nav-active' : 'sidebar-nav-inactive',
+                  )
+                }
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {label}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
 
