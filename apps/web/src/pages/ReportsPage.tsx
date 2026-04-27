@@ -1,4 +1,5 @@
 import { Download, FileText, Loader2 } from 'lucide-react';
+import { ProductSelector } from '../components/ProductSelector';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useGenerateReport, useProducts, useReports } from '../lib/queries';
@@ -60,6 +61,8 @@ export function ReportsPage() {
           Сгенерируйте PDF или DOCX-отчёт по результатам анализа
         </p>
       </div>
+
+      <ProductSelector />
 
       <div className="card-hero">
         <h3 className="mb-4 text-white">Сгенерировать новый отчёт</h3>
