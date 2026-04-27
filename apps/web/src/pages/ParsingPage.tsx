@@ -1,8 +1,8 @@
-import { CheckCircle, Globe, Loader2 } from 'lucide-react';
+import { CheckCircle, Clock, Globe, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { useStartParsing } from '../lib/queries';
+import { useStartParsing, useParsingHistory } from '../lib/queries';
 
 export function ParsingPage() {
   const [url, setUrl] = useState('');
@@ -11,6 +11,7 @@ export function ParsingPage() {
   );
   const navigate = useNavigate();
   const startParsing = useStartParsing();
+  const history = useParsingHistory();
 
   const handleStart = async () => {
     if (!url.trim()) return;
@@ -89,6 +90,45 @@ export function ParsingPage() {
         <ul className="text-sm text-neutral-500 space-y-1 list-disc list-inside">
           <li>Wildberries (wildberries.ru) — через нативный feedbacks API</li>
         </ul>
+      </div>
+
+      <div>
+        <h2 className="mb-3 flex items-center gap-2">
+          <Clock className="h-5 w-5 text-primary-500" />
+          История парсинга
+        </h2>
+        {history.isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="card animate-pulse">
+                <div className="h-4 bg-neutral-200 rounded w-1/2 mb-1.5" />
+                <div className="h-3 bg-neutral-100 rounded w-1/4" />
+              </div>
+            ))}
+          </div>
+        ) : !history.data || history.data.items.length === 0 ? (
+          <div className="card text-center py-8">
+            <p className="text-sm text-neutral-400">История пуста — запустите парсинг выше</p>
+          </div>
+        ) : (
+          <div className="card divide-y divide-neutral-100">
+            {history.data.items.map((item) => (
+              <div key={item.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                <div>
+                  <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                    {item.filename ?? 'URL'}
+                  </div>
+                  <div className="text-xs text-neutral-400 mt-0.5">
+                    {new Date(item.createdAt).toLocaleString('ru-RU')}
+                  </div>
+                </div>
+                <span className="text-sm font-semibold text-primary-700">
+                  +{item.count}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
