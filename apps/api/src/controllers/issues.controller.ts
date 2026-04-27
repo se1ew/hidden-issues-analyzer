@@ -9,8 +9,10 @@ import {
 
 export async function list(req: Request, res: Response): Promise<void> {
   const productId = (req.query.productId as string) || undefined;
-  const items = await listHiddenIssues(productId);
-  res.json({ items });
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 20));
+  const result = await listHiddenIssues(productId, page, pageSize);
+  res.json(result);
 }
 
 export async function getById(req: Request, res: Response): Promise<void> {

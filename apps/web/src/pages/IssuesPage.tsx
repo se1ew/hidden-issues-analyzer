@@ -1,5 +1,6 @@
 import { AlertTriangle, ChevronDown, ChevronUp, Loader2, Package, RefreshCw, TrendingUp } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import { useHiddenIssues, useIssueDetail, useRecomputeIssues } from '../lib/queries';
 import { ProductSelector } from '../components/ProductSelector';
@@ -7,9 +8,12 @@ import { useProductStore } from '../store/product.store';
 
 export function IssuesPage() {
   const { selectedProductId } = useProductStore();
-  const { data, isLoading } = useHiddenIssues(selectedProductId);
+  const [page, setPage] = useState(1);
+  const { data, isLoading } = useHiddenIssues(selectedProductId, page, 20);
   const recompute = useRecomputeIssues();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  useEffect(() => { setPage(1); }, [selectedProductId]);
 
   const handleRecompute = async () => {
     try {
@@ -24,6 +28,7 @@ export function IssuesPage() {
   };
 
   const issues = data?.items ?? [];
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
     <div className="space-y-6">
@@ -145,6 +150,31 @@ export function IssuesPage() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {data && data.total > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2 text-sm">
+          <span className="text-neutral-400">
+            {data.total} проблем всего
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className={clsx('btn-outline px-3 py-1', page === 1 && 'opacity-50')}
+            >
+              Назад
+            </button>
+            <span className="px-2 text-neutral-500">{page} / {totalPages}</span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className={clsx('btn-outline px-3 py-1', page >= totalPages && 'opacity-50')}
+            >
+              Вперёд
+            </button>
+          </div>
         </div>
       )}
     </div>

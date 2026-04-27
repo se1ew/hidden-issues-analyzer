@@ -206,12 +206,19 @@ export function useRunAnalysis() {
 
 // ===== Issues =====
 
-export function useHiddenIssues(productId?: string | null) {
+export interface HiddenIssuesResponse {
+  items: HiddenIssue[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export function useHiddenIssues(productId?: string | null, page = 1, pageSize = 20) {
   return useQuery({
-    queryKey: ['issues', productId ?? null],
+    queryKey: ['issues', productId ?? null, page, pageSize],
     queryFn: async () => {
-      const { data } = await api.get<{ items: HiddenIssue[] }>('/api/issues', {
-        params: productId ? { productId } : {},
+      const { data } = await api.get<HiddenIssuesResponse>('/api/issues', {
+        params: { ...(productId ? { productId } : {}), page, pageSize },
       });
       return data;
     },

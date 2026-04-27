@@ -230,17 +230,27 @@ function avg(arr: number[]): number {
   return arr.reduce((s, x) => s + x, 0) / arr.length;
 }
 
-export async function listHiddenIssues(productId?: string) {
+export async function listHiddenIssues(
+  productId?: string,
+  page = 1,
+  pageSize = 20,
+) {
   const where = productId
     ? productId === '__unassigned__'
       ? { productId: null }
       : { productId }
     : {};
-  return prisma.hiddenIssue.findMany({
-    where,
-    orderBy: { hiddenScore: 'desc' },
-    include: { product: { select: { id: true, name: true } } },
-  });
+  const [items, total] = await Promise.all([
+    prisma.hiddenIssue.findMany({
+      where,
+      orderBy: { hiddenScore: 'desc' },
+      include: { product: { select: { id: true, name: true } } },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.hiddenIssue.count({ where }),
+  ]);
+  return { items, total, page, pageSize };
 }
 
 export async function getHiddenIssue(id: string) {
