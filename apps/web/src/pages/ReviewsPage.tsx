@@ -241,9 +241,24 @@ export function ReviewsPage() {
       <ProductSelector />
 
       <div className="card">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="h-4 w-4 text-neutral-400" />
-          <span className="text-sm font-medium text-neutral-600">Фильтры</span>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-neutral-400" />
+            <span className="text-sm font-medium text-neutral-600">Фильтры</span>
+            {(sentiment || rating || hasIssues || search) && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary-600 text-white">
+                {[sentiment, rating, hasIssues, search].filter(Boolean).length}
+              </span>
+            )}
+          </div>
+          {(sentiment || rating || hasIssues || search) && (
+            <button
+              onClick={() => setSearchParams(new URLSearchParams())}
+              className="text-xs text-neutral-400 hover:text-red-500 transition flex items-center gap-1"
+            >
+              <X className="h-3 w-3" /> Сбросить фильтры
+            </button>
+          )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <select
@@ -421,6 +436,12 @@ export function ReviewsPage() {
 }
 
 function ReviewModal({ review, onClose }: { review: ReviewListItem; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
   return (
     <div
       className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
