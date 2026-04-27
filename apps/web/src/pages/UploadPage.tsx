@@ -85,7 +85,7 @@ export function UploadPage() {
         </p>
       </div>
 
-      <div className="flex gap-2 border-b border-neutral-100">
+      <div className="flex gap-1 border-b border-primary-300/50 dark:border-primary-700/40">
         {[
           { key: 'csv' as const, label: 'CSV-файл', icon: FileText },
           { key: 'manual' as const, label: 'Ручной ввод', icon: Type },
@@ -94,10 +94,10 @@ export function UploadPage() {
             key={key}
             onClick={() => setTab(key)}
             className={clsx(
-              'flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition',
+              'flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-all duration-200',
               tab === key
-                ? 'border-primary-500 text-neutral-700'
-                : 'border-transparent text-neutral-400 hover:text-neutral-600',
+                ? 'border-primary-600 text-primary-800 dark:text-primary-300'
+                : 'border-transparent text-primary-500 dark:text-primary-500 hover:text-primary-700 dark:hover:text-primary-300',
             )}
           >
             <Icon className="h-4 w-4" />
@@ -110,29 +110,37 @@ export function UploadPage() {
         <div
           {...getRootProps()}
           className={clsx(
-            'card cursor-pointer text-center py-16 border-2 border-dashed transition',
+            'rounded-2xl cursor-pointer text-center py-16 border-2 border-dashed transition-all duration-300',
             isDragActive
-              ? 'border-primary-400 bg-primary-50'
-              : 'border-neutral-200 hover:border-primary-300 hover:bg-neutral-50',
+              ? 'border-primary-500 bg-primary-200/60 scale-[1.01]'
+              : 'border-primary-400/60 hover:border-primary-500 hover:bg-primary-200/40',
             uploadCsv.isPending && 'opacity-60 cursor-wait',
           )}
+          style={{ background: isDragActive ? 'rgba(183,239,255,0.5)' : 'rgba(207,244,255,0.35)' }}
         >
           <input {...getInputProps()} />
-          {uploadCsv.isPending ? (
-            <Loader2 className="h-12 w-12 mx-auto text-primary-500 mb-3 animate-spin" />
-          ) : (
-            <UploadIcon className="h-12 w-12 mx-auto text-primary-500 mb-3" />
-          )}
-          <p className="text-sm font-medium text-neutral-700">
-            {uploadCsv.isPending
-              ? 'Загрузка...'
-              : isDragActive
-                ? 'Отпустите файл здесь'
-                : 'Перетащите CSV-файл или кликните'}
-          </p>
-          <p className="text-xs text-neutral-400 mt-2">
-            Колонки: text/review/comment, rating/score (1-5), date (опц.)
-          </p>
+          <div className="flex flex-col items-center gap-3">
+            <div className={clsx(
+              'h-16 w-16 rounded-2xl flex items-center justify-center transition-all duration-300',
+              isDragActive ? 'bg-primary-500 shadow-lg' : 'bg-primary-300/70',
+            )}>
+              {uploadCsv.isPending ? (
+                <Loader2 className="h-8 w-8 text-primary-900 animate-spin" />
+              ) : (
+                <UploadIcon className="h-8 w-8 text-primary-900" />
+              )}
+            </div>
+            <p className="text-base font-semibold text-primary-900 dark:text-primary-100">
+              {uploadCsv.isPending
+                ? 'Загрузка...'
+                : isDragActive
+                  ? 'Отпустите файл здесь'
+                  : 'Перетащите CSV-файл или кликните'}
+            </p>
+            <p className="text-xs text-primary-600 dark:text-primary-400">
+              Колонки: text/review/comment, rating/score (1-5), date (опц.)
+            </p>
+          </div>
         </div>
       )}
 
@@ -174,7 +182,7 @@ export function UploadPage() {
         </div>
       )}
 
-      <div className="card bg-primary-50 border-primary-200 text-sm text-neutral-600">
+      <div className="card-brand text-sm text-primary-800 dark:text-primary-300">
         <strong>Совет:</strong> после загрузки перейдите в «Отзывы» и нажмите «Запустить анализ» —
         каждый отзыв будет проанализирован LLM на тональность, аспекты и проблемы.
       </div>

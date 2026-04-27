@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -10,8 +11,15 @@ import { RegisterPage } from './pages/RegisterPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ReviewsPage } from './pages/ReviewsPage';
 import { UploadPage } from './pages/UploadPage';
+import { useThemeStore } from './store/theme.store';
 
 export function App() {
+  const { isDark } = useThemeStore();
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark);
+  }, [isDark]);
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

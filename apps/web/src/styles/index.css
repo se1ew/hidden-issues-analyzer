@@ -5,81 +5,130 @@
 @layer base {
   html {
     font-family: 'Inter', system-ui, sans-serif;
-    color: theme('colors.neutral.700');
+    color: #2c5f72;
   }
+
   body {
     @apply min-h-screen antialiased;
-    /* Мягкий бренд-градиент вместо плоского серого фона */
     background:
-      radial-gradient(900px 600px at 0% 0%, theme('colors.primary.100') 0%, transparent 60%),
-      radial-gradient(800px 600px at 100% 100%, theme('colors.primary.200') 0%, transparent 65%),
-      theme('colors.primary.50');
+      radial-gradient(ellipse 1100px 700px at -10% -10%, #8EE2FA 0%, transparent 55%),
+      radial-gradient(ellipse 900px 700px at 110% 110%, #5DCEEF 0%, transparent 55%),
+      radial-gradient(ellipse 700px 500px at 50% 55%, #CFF4FF 0%, transparent 65%),
+      #D4F3FF;
     background-attachment: fixed;
   }
-  h1 {
-    @apply text-2xl font-semibold text-neutral-800;
+
+  /* ── Dark mode body ── */
+  .dark body {
+    color: #a8d8e8;
+    background:
+      radial-gradient(ellipse 900px 700px at -10% -10%, #0d3348 0%, transparent 55%),
+      radial-gradient(ellipse 800px 600px at 110% 110%, #082232 0%, transparent 55%),
+      #060f1a;
+    background-attachment: fixed;
   }
-  h2 {
-    @apply text-xl font-semibold text-neutral-800;
-  }
-  h3 {
-    @apply text-lg font-semibold text-neutral-700;
-  }
-  /* Стилизуем дефолтный select под light brand */
-  select.input {
-    background-color: white;
-  }
+
+  h1 { @apply text-2xl font-bold; color: #0e4a5c; }
+  h2 { @apply text-xl font-semibold; color: #0e4a5c; }
+  h3 { @apply text-lg font-semibold; color: #176E89; }
+
+  .dark h1, .dark h2 { color: #CFF4FF; }
+  .dark h3 { color: #8EE2FA; }
+
+  select.input { background-color: transparent; }
 }
 
 @layer components {
+  /* ── Buttons ── */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
   }
-  /* Главная кнопка — насыщенный бренд */
   .btn-primary {
-    @apply btn bg-primary-600 text-white shadow-card hover:bg-primary-700 active:bg-primary-800;
+    @apply btn bg-primary-600 text-white shadow-card hover:bg-primary-700 hover:shadow-md active:bg-primary-800;
   }
-  /* Светлая бренд-кнопка (вторичная) */
   .btn-soft {
     @apply btn bg-primary-200 text-primary-900 hover:bg-primary-300;
   }
   .btn-outline {
-    @apply btn border border-primary-300 bg-white/70 text-primary-800 hover:bg-primary-100;
+    @apply btn border border-primary-400 text-primary-800 hover:bg-primary-200;
+    background: rgba(207, 244, 255, 0.55);
   }
   .btn-ghost {
-    @apply btn text-neutral-600 hover:bg-primary-100 hover:text-primary-800;
+    @apply btn text-primary-700 hover:bg-primary-200 hover:text-primary-900;
   }
 
+  .dark .btn-outline {
+    border-color: #1e6080;
+    color: #8EE2FA;
+    background: rgba(23, 110, 137, 0.18);
+  }
+  .dark .btn-outline:hover {
+    background: rgba(23, 110, 137, 0.32);
+  }
+  .dark .btn-ghost {
+    @apply text-primary-300;
+  }
+  .dark .btn-ghost:hover {
+    @apply text-primary-100;
+    background: rgba(23, 110, 137, 0.25);
+  }
+
+  /* ── Inputs ── */
   .input {
-    @apply w-full rounded-lg border border-primary-200 bg-white px-3 py-2 text-sm text-neutral-700 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-300;
+    @apply w-full rounded-xl border border-primary-300 px-3 py-2.5 text-sm text-primary-900 placeholder:text-primary-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-300/60 transition-all duration-200;
+    background: rgba(229, 248, 255, 0.7);
+  }
+  .dark .input {
+    border-color: #1a4a62;
+    background: rgba(8, 26, 40, 0.75);
+    color: #b8e0ed;
+  }
+  .dark .input::placeholder { color: #3a6a7e; }
+  .dark .input:focus {
+    border-color: #34B4D8;
+    box-shadow: 0 0 0 3px rgba(52, 180, 216, 0.18);
   }
 
-  /* Карточка: легкая «стеклянная» заливка с brand-обводкой */
+  /* ── Cards ── */
   .card {
-    @apply rounded-xl border border-primary-200 bg-white/85 p-5 shadow-card backdrop-blur-sm;
+    @apply rounded-2xl border p-5 shadow-card backdrop-blur-sm;
+    border-color: #9de3f5;
+    background: rgba(212, 243, 255, 0.62);
   }
-  /* Бренд-карточка: цветная подложка для акцентных секций */
-  .card-brand {
-    @apply rounded-xl border border-primary-300 bg-primary-100 p-5 shadow-card;
-  }
-  /* Тёмная карточка-герой (большие KPI/CTA) */
-  .card-hero {
-    @apply rounded-xl bg-primary-800 text-white p-5 shadow-card;
+  .dark .card {
+    background: rgba(9, 27, 42, 0.72);
+    border-color: #1a4560;
   }
 
+  .card-brand {
+    @apply rounded-2xl border p-5 shadow-card;
+    border-color: #5DCEEF;
+    background: rgba(183, 239, 255, 0.5);
+  }
+  .dark .card-brand {
+    background: rgba(17, 55, 80, 0.7);
+    border-color: #1e6080;
+  }
+
+  .card-hero {
+    @apply rounded-2xl p-5 shadow-card text-white;
+    background: linear-gradient(135deg, #1E8FB1 0%, #114F62 100%);
+  }
+  .dark .card-hero {
+    background: linear-gradient(135deg, #0d3548 0%, #050f18 100%);
+  }
+
+  /* ── Badges ── */
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
   }
-  .badge-positive {
-    @apply badge bg-green-100 text-green-800;
-  }
-  .badge-negative {
-    @apply badge bg-red-100 text-red-800;
-  }
-  .badge-neutral {
-    @apply badge bg-primary-100 text-primary-800;
-  }
-  .badge-brand {
-    @apply badge bg-primary-200 text-primary-900;
-  }
+  .badge-positive { @apply badge bg-green-100 text-green-800; }
+  .badge-negative { @apply badge bg-red-100 text-red-800; }
+  .badge-neutral  { @apply badge bg-primary-200 text-primary-900; }
+  .badge-brand    { @apply badge bg-primary-300 text-primary-900; }
+
+  .dark .badge-neutral { background: rgba(30, 80, 100, 0.6); color: #8EE2FA; }
+  .dark .badge-brand   { background: rgba(30, 80, 100, 0.8); color: #CFF4FF; }
+  .dark .badge-positive { @apply bg-green-900/40 text-green-300; }
+  .dark .badge-negative { @apply bg-red-900/40 text-red-300; }
 }
