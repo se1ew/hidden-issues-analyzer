@@ -4,7 +4,7 @@ import { useDropzone } from 'react-dropzone';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import { useNavigate } from 'react-router-dom';
-import { useCreateManualReview, useUploadCsv } from '../lib/queries';
+import { useCreateManualReview, useProducts, useUploadCsv } from '../lib/queries';
 
 type Tab = 'csv' | 'manual';
 
@@ -17,6 +17,10 @@ export function UploadPage() {
 
   const uploadCsv = useUploadCsv();
   const createManual = useCreateManualReview();
+  const products = useProducts();
+  const productNames = (products.data?.items ?? [])
+    .filter((p) => p.id !== '__unassigned__')
+    .map((p) => p.name);
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -73,12 +77,18 @@ export function UploadPage() {
         </label>
         <input
           type="text"
+          list="product-names-list"
           value={productName}
           onChange={(e) => setProductName(e.target.value)}
           placeholder="Например: Кроссовки Nike Pegasus 40"
           className="input bg-white"
           maxLength={200}
         />
+        <datalist id="product-names-list">
+          {productNames.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
         <p className="text-xs text-neutral-500 mt-1.5">
           Указанное название создаст или дополнит товар в системе. Если оставить пустым — для CSV
           будет использовано имя файла.
