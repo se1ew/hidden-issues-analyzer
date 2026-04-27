@@ -3,8 +3,10 @@ import {
   BarChart3,
   FileText,
   Globe,
+  LayoutDashboard,
   LogOut,
   MessageSquare,
+  Package,
   Upload,
   User,
 } from 'lucide-react';
@@ -14,10 +16,12 @@ import { useAuthStore } from '../store/auth.store';
 import clsx from 'clsx';
 
 const navItems = [
+  { to: '/dashboard', label: 'Главная', icon: LayoutDashboard },
   { to: '/upload', label: 'Загрузка', icon: Upload },
   { to: '/analytics', label: 'Аналитика', icon: BarChart3 },
   { to: '/issues', label: 'Скрытые проблемы', icon: AlertTriangle },
   { to: '/reviews', label: 'Отзывы', icon: MessageSquare },
+  { to: '/products', label: 'Товары', icon: Package },
   { to: '/reports', label: 'Отчёты', icon: FileText },
   { to: '/parsing', label: 'Парсинг', icon: Globe },
   { to: '/profile', label: 'Профиль', icon: User },

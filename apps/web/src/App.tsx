@@ -3,9 +3,11 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { DashboardPage } from './pages/DashboardPage';
 import { IssuesPage } from './pages/IssuesPage';
 import { LoginPage } from './pages/LoginPage';
 import { ParsingPage } from './pages/ParsingPage';
+import { ProductsPage } from './pages/ProductsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { RegisterPage } from './pages/RegisterPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -32,17 +34,19 @@ export function App() {
           </ProtectedRoute>
         }
       >
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/upload" element={<UploadPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/issues" element={<IssuesPage />} />
         <Route path="/reviews" element={<ReviewsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/parsing" element={<ParsingPage />} />
+        <Route path="/products" element={<ProductsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
       </Route>
 
-      <Route path="/" element={<Navigate to="/upload" replace />} />
-      <Route path="*" element={<Navigate to="/upload" replace />} />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }

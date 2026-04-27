@@ -294,3 +294,89 @@ export function useProfileStats() {
     },
   });
 }
+
+// ===== Product mutations =====
+
+export function useRenameProduct() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const { data } = await api.patch(`/api/products/${id}`, { name });
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+  });
+}
+
+export function useDeleteProduct() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/api/products/${id}`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['reviews'] });
+      qc.invalidateQueries({ queryKey: ['stats'] });
+      qc.invalidateQueries({ queryKey: ['issues'] });
+    },
+  });
+}
+
+// ===== Review delete mutations =====
+
+export function useDeleteReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/api/reviews/${id}`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['reviews'] });
+      qc.invalidateQueries({ queryKey: ['stats'] });
+    },
+  });
+}
+
+export function useDeleteReviewsBulk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (productId?: string | null) => {
+      const { data } = await api.delete<{ deleted: number }>('/api/reviews', {
+        params: productId ? { productId } : {},
+      });
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['reviews'] });
+      qc.invalidateQueries({ queryKey: ['stats'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['issues'] });
+    },
+  });
+}
+
+// ===== Issue detail (with reviews) =====
+
+export function useIssueDetail(id: string | null) {
+  return useQuery({
+    queryKey: ['issues', 'detail', id],
+    queryFn: async () => {
+      const { data } = await api.get<IssueWithReviews>(`/api/issues/${id}`);
+      return data;
+    },
+    enabled: !!id,
+  });
+}
+
+// ===== Parsing history =====
+
+export function useParsingHistory() {
+  return useQuery({
+    queryKey: ['parsing', 'history'],
+    queryFn: async () => {
+      const { data } = await api.get<{ items: ParsingHistoryItem[] }>('/api/parsing/history');
+      return data;
+    },
+  });
+}
