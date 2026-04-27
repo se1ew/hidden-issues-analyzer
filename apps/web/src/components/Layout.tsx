@@ -1,12 +1,48 @@
+import { useState } from 'react';
+import { Menu } from 'lucide-react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 
 export function Layout() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar />
+      {/* Desktop sidebar */}
+      <div className="hidden md:flex">
+        <Sidebar />
+      </div>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* Mobile sidebar */}
+      <div
+        className={`fixed inset-y-0 left-0 z-50 flex md:hidden transition-transform duration-300 ${
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <Sidebar onNavigate={() => setMobileOpen(false)} />
+      </div>
+
       <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-7xl px-6 py-6">
+        {/* Mobile header */}
+        <div className="flex items-center gap-3 px-4 py-3 md:hidden border-b border-neutral-200 dark:border-neutral-800">
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="p-1.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
+          >
+            <Menu className="h-5 w-5 text-neutral-600 dark:text-neutral-400" />
+          </button>
+          <span className="text-sm font-bold text-neutral-700 dark:text-neutral-200">Hidden Issues</span>
+        </div>
+
+        <div className="mx-auto max-w-7xl px-4 md:px-6 py-6">
           <Outlet />
         </div>
       </main>

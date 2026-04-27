@@ -50,7 +50,7 @@ function SidebarSection({ children, border }: { children: React.ReactNode; borde
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const navigate = useNavigate();
   const { user, clear } = useAuthStore();
 
@@ -79,6 +79,7 @@ export function Sidebar() {
               <NavLink
                 key={to}
                 to={to}
+                onClick={onNavigate}
                 className={({ isActive }) =>
                   clsx(
                     'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 sidebar-nav-item',
