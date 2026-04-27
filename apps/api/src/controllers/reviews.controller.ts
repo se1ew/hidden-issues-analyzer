@@ -38,3 +38,15 @@ export async function createManual(req: Request, res: Response): Promise<void> {
   );
   res.status(201).json(result);
 }
+
+export async function deleteOne(req: Request, res: Response): Promise<void> {
+  const id = req.params.id as string;
+  await reviewsService.deleteReview(id);
+  res.status(204).end();
+}
+
+export async function deleteBulk(req: Request, res: Response): Promise<void> {
+  const productId = (req.query.productId as string) || undefined;
+  const count = await reviewsService.deleteReviewsBulk(productId);
+  res.json({ deleted: count });
+}

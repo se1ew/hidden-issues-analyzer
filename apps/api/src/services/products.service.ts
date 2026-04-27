@@ -60,6 +60,18 @@ export async function getUnassignedStats(): Promise<ProductWithStats | null> {
   };
 }
 
+export async function renameProduct(id: string, name: string): Promise<ProductWithStats | null> {
+  const existing = await prisma.product.findUnique({ where: { id } });
+  if (!existing) return null;
+  await prisma.product.update({ where: { id }, data: { name } });
+  const products = await listProducts();
+  return products.find((p) => p.id === id) ?? null;
+}
+
+export async function removeProduct(id: string): Promise<void> {
+  await prisma.product.delete({ where: { id } });
+}
+
 /**
  * Преобразует productId из query (UI) в условие WHERE для prisma.
  * - undefined → не фильтруем (все)

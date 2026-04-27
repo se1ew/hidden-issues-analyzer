@@ -19,6 +19,8 @@ const upload = multer({
 reviewsRouter.use(optionalAuth);
 
 reviewsRouter.get('/', validate(ListReviewsQuerySchema, 'query'), ctrl.list);
+reviewsRouter.delete('/', ctrl.deleteBulk);
 reviewsRouter.get('/:id', ctrl.getById);
+reviewsRouter.delete('/:id', ctrl.deleteOne);
 reviewsRouter.post('/upload/csv', upload.single('file'), ctrl.uploadCsv);
 reviewsRouter.post('/upload/text', validate(CreateManualReviewSchema), ctrl.createManual);

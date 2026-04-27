@@ -66,35 +66,58 @@ export async function getSentimentTimeseries(
     params.push(productId);
   }
 
-  const rows = await prisma.$queryRawUnsafe<
-    Array<{ bucket: Date; sentiment: string; count: bigint }>
-  >(
-    `
-    SELECT date_trunc($1, COALESCE("reviewDate", "createdAt")) AS bucket,
-           sentiment::text AS sentiment,
-           COUNT(*) AS count
-    FROM "Review"
-    WHERE COALESCE("reviewDate", "createdAt") >= $2
-      AND sentiment IS NOT NULL
-      ${productClause}
-    GROUP BY 1, 2
-    ORDER BY 1 ASC
-    `,
-    ...params,
-  );
+  const [rows, ratingRows] = await Promise.all([
+    prisma.$queryRawUnsafe<
+      Array<{ bucket: Date; sentiment: string; count: bigint }>
+    >(
+      `
+      SELECT date_trunc($1, COALESCE("reviewDate", "createdAt")) AS bucket,
+             sentiment::text AS sentiment,
+             COUNT(*) AS count
+      FROM "Review"
+      WHERE COALESCE("reviewDate", "createdAt") >= $2
+        AND sentiment IS NOT NULL
+        ${productClause}
+      GROUP BY 1, 2
+      ORDER BY 1 ASC
+      `,
+      ...params,
+    ),
+    prisma.$queryRawUnsafe<
+      Array<{ bucket: Date; avg_rating: number | null }>
+    >(
+      `
+      SELECT date_trunc($1, COALESCE("reviewDate", "createdAt")) AS bucket,
+             AVG(rating) AS avg_rating
+      FROM "Review"
+      WHERE COALESCE("reviewDate", "createdAt") >= $2
+        AND rating IS NOT NULL
+        ${productClause}
+      GROUP BY 1
+      ORDER BY 1 ASC
+      `,
+      ...params,
+    ),
+  ]);
 
-  // Преобразуем в формат: [{ date, positive, negative, neutral }]
+  // Преобразуем в формат: [{ date, positive, negative, neutral, avgRating }]
   const map = new Map<
     string,
-    { date: string; positive: number; negative: number; neutral: number }
+    { date: string; positive: number; negative: number; neutral: number; avgRating: number | null }
   >();
   for (const r of rows) {
     const key = r.bucket.toISOString().slice(0, 10);
     const entry =
-      map.get(key) ?? { date: key, positive: 0, negative: 0, neutral: 0 };
+      map.get(key) ?? { date: key, positive: 0, negative: 0, neutral: 0, avgRating: null };
     if (r.sentiment === 'positive') entry.positive = Number(r.count);
     if (r.sentiment === 'negative') entry.negative = Number(r.count);
     if (r.sentiment === 'neutral') entry.neutral = Number(r.count);
+    map.set(key, entry);
+  }
+  for (const r of ratingRows) {
+    const key = r.bucket.toISOString().slice(0, 10);
+    const entry = map.get(key) ?? { date: key, positive: 0, negative: 0, neutral: 0, avgRating: null };
+    entry.avgRating = r.avg_rating != null ? Math.round(Number(r.avg_rating) * 100) / 100 : null;
     map.set(key, entry);
   }
 

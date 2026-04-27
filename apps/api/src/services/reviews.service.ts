@@ -186,3 +186,20 @@ export async function getReview(id: string) {
   if (!review) throw new HttpError(404, 'Отзыв не найден');
   return review;
 }
+
+export async function deleteReview(id: string): Promise<void> {
+  const review = await prisma.review.findUnique({ where: { id } });
+  if (!review) throw new HttpError(404, 'Отзыв не найден');
+  await prisma.review.delete({ where: { id } });
+}
+
+export async function deleteReviewsBulk(productId?: string): Promise<number> {
+  const where =
+    productId === UNASSIGNED_PRODUCT_ID
+      ? { productId: null }
+      : productId
+        ? { productId }
+        : {};
+  const result = await prisma.review.deleteMany({ where });
+  return result.count;
+}

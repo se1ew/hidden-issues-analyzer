@@ -40,6 +40,26 @@ export interface TimeseriesBucket {
   positive: number;
   negative: number;
   neutral: number;
+  avgRating: number | null;
+}
+
+export interface IssueReview {
+  id: string;
+  text: string;
+  rating: number | null;
+  sentimentScore: number | null;
+  createdAt: string;
+}
+
+export interface IssueWithReviews extends HiddenIssue {
+  reviews: IssueReview[];
+}
+
+export interface ParsingHistoryItem {
+  id: string;
+  filename: string | null;
+  count: number;
+  createdAt: string;
 }
 
 export interface ReviewListItem {
