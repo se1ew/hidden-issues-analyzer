@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth.store';
 import { useStats, useReviews, useHiddenIssues } from '../lib/queries';
 import { useProductStore } from '../store/product.store';
+import { ProductSelector } from '../components/ProductSelector';
 
 export function DashboardPage() {
   const { user } = useAuthStore();
@@ -43,32 +44,50 @@ export function DashboardPage() {
       </div>
 
       {/* Key metrics */}
+      <ProductSelector />
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          icon={MessageSquare}
-          label="Всего отзывов"
-          value={s ? s.total.toString() : '—'}
-          sub={s ? `из них ${s.analyzed} проанализировано` : undefined}
-          hero
-        />
-        <MetricCard
-          icon={AlertTriangle}
-          label="Скрытых проблем"
-          value={s ? s.issuesCount.toString() : '—'}
-          accent="warn"
-        />
-        <MetricCard
-          icon={TrendingDown}
-          label="Негативных"
-          value={s ? `${s.negativePct.toFixed(1)}%` : '—'}
-          accent="negative"
-        />
-        <MetricCard
-          icon={Star}
-          label="Средний рейтинг"
-          value={s?.avgRating != null ? s.avgRating.toFixed(2) : '—'}
-          accent="positive"
-        />
+        {stats.isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className={`${i === 0 ? 'card-hero opacity-60' : 'card'} animate-pulse`}>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-white/30" />
+                <div className="space-y-2">
+                  <div className="h-2.5 bg-white/30 rounded w-20" />
+                  <div className="h-6 bg-white/30 rounded w-12" />
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          <>
+            <MetricCard
+              icon={MessageSquare}
+              label="Всего отзывов"
+              value={s ? s.total.toString() : '—'}
+              sub={s ? `из них ${s.analyzed} проанализировано` : undefined}
+              hero
+            />
+            <MetricCard
+              icon={AlertTriangle}
+              label="Скрытых проблем"
+              value={s ? s.issuesCount.toString() : '—'}
+              accent="warn"
+            />
+            <MetricCard
+              icon={TrendingDown}
+              label="Негативных"
+              value={s ? `${s.negativePct.toFixed(1)}%` : '—'}
+              accent="negative"
+            />
+            <MetricCard
+              icon={Star}
+              label="Средний рейтинг"
+              value={s?.avgRating != null ? s.avgRating.toFixed(2) : '—'}
+              accent="positive"
+            />
+          </>
+        )}
       </div>
 
       {/* Quick actions */}
