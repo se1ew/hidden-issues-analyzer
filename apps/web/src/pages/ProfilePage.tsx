@@ -27,22 +27,38 @@ export function ProfilePage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard
-          hero
-          icon={MessageSquare}
-          label="Отзывов в системе"
-          value={overallStats.data?.total.toString() ?? '—'}
-        />
-        <StatCard
-          icon={Upload}
-          label="Моих загрузок"
-          value={profileStats.data?.uploads.toString() ?? '—'}
-        />
-        <StatCard
-          icon={FileText}
-          label="Моих отчётов"
-          value={profileStats.data?.reports.toString() ?? '—'}
-        />
+        {overallStats.isLoading || profileStats.isLoading ? (
+          [true, false, false].map((hero, i) => (
+            <div key={i} className={`${hero ? 'card-hero opacity-60' : 'card'} animate-pulse`}>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-white/30" />
+                <div className="space-y-2">
+                  <div className="h-2.5 bg-white/20 rounded w-24" />
+                  <div className="h-6 bg-white/20 rounded w-10" />
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          <>
+            <StatCard
+              hero
+              icon={MessageSquare}
+              label="Отзывов в системе"
+              value={overallStats.data?.total.toString() ?? '—'}
+            />
+            <StatCard
+              icon={Upload}
+              label="Моих загрузок"
+              value={profileStats.data?.uploads.toString() ?? '—'}
+            />
+            <StatCard
+              icon={FileText}
+              label="Моих отчётов"
+              value={profileStats.data?.reports.toString() ?? '—'}
+            />
+          </>
+        )}
       </div>
 
       <div className="card">
