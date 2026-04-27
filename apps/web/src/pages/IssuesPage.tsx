@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronDown, ChevronUp, HelpCircle, Loader2, Package, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, Download, HelpCircle, Loader2, Package, RefreshCw, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -13,10 +13,21 @@ function getSeverityLevel(score: number) {
   return               { label: 'Низкий',  bg: 'bg-green-100', text: 'text-green-700', bar: 'bg-green-500' };
 }
 
+type SevFilter = 'all' | 'critical' | 'important' | 'low';
+
+function matchSeverity(score: number, f: SevFilter) {
+  if (f === 'all') return true;
+  if (f === 'critical') return score >= 0.7;
+  if (f === 'important') return score >= 0.4 && score < 0.7;
+  return score < 0.4;
+}
+
 export function IssuesPage() {
   const { selectedProductId } = useProductStore();
   const [page, setPage] = useState(1);
-  const { data, isLoading } = useHiddenIssues(selectedProductId, page, 20);
+  const [search, setSearch] = useState('');
+  const [sevFilter, setSevFilter] = useState<SevFilter>('all');
+  const { data, isLoading } = useHiddenIssues(selectedProductId, page, 50);
   const recompute = useRecomputeIssues();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -34,8 +45,32 @@ export function IssuesPage() {
     }
   };
 
-  const issues = data?.items ?? [];
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  const allIssues = data?.items ?? [];
+  const issues = allIssues
+    .filter((i) => matchSeverity(i.hiddenScore, sevFilter))
+    .filter((i) => !search.trim() || i.title.toLowerCase().includes(search.trim().toLowerCase()));
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / 50)) : 1;
+
+  const exportCsv = () => {
+    const rows = [
+      ['Проблема', 'Описание', 'Серьёзность', 'Score', 'Отзывов', 'Видимость', 'Товар'],
+      ...allIssues.map((i) => [
+        i.title,
+        i.description ?? '',
+        getSeverityLevel(i.hiddenScore).label,
+        (i.hiddenScore * 100).toFixed(0),
+        i.size.toString(),
+        (i.visibility * 100).toFixed(1) + '%',
+        i.product?.name ?? '',
+      ]),
+    ];
+    const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    a.download = `issues_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    toast.success('CSV скачан');
+  };
 
   return (
     <div className="space-y-6">
@@ -49,22 +84,59 @@ export function IssuesPage() {
             Кластеры повторяющихся жалоб, ранжированные по скрытости и серьёзности
           </p>
         </div>
-        <button
-          onClick={handleRecompute}
-          disabled={recompute.isPending}
-          className="btn-primary"
-        >
-          {recompute.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          {selectedProductId ? 'Пересчитать для товара' : 'Пересчитать все'}
-        </button>
+        <div className="flex gap-2">
+          <button onClick={exportCsv} disabled={allIssues.length === 0} className="btn-outline gap-2">
+            <Download className="h-4 w-4" /> CSV
+          </button>
+          <button onClick={handleRecompute} disabled={recompute.isPending} className="btn-primary">
+            {recompute.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {selectedProductId ? 'Пересчитать для товара' : 'Пересчитать все'}
+          </button>
+        </div>
       </div>
 
       <ProductSelector />
       <AnalysisBanner />
+
+      {/* Фильтры */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Поиск по названию..."
+            className="input pl-8 py-1.5 text-sm h-9"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2">
+              <X className="h-3.5 w-3.5 text-neutral-400" />
+            </button>
+          )}
+        </div>
+        {(['all', 'critical', 'important', 'low'] as SevFilter[]).map((f) => (
+          <button
+            key={f}
+            onClick={() => setSevFilter(f)}
+            className={clsx(
+              'text-xs px-3 py-1.5 rounded-lg font-medium transition border',
+              sevFilter === f
+                ? f === 'all' ? 'bg-primary-600 text-white border-primary-600'
+                  : f === 'critical' ? 'bg-red-100 text-red-700 border-red-300'
+                  : f === 'important' ? 'bg-amber-100 text-amber-700 border-amber-300'
+                  : 'bg-green-100 text-green-700 border-green-300'
+                : 'bg-white dark:bg-neutral-800 text-neutral-500 border-neutral-200 dark:border-neutral-700 hover:border-neutral-400',
+            )}
+          >
+            {f === 'all' ? 'Все' : f === 'critical' ? 'Критично' : f === 'important' ? 'Важно' : 'Низкий'}
+          </button>
+        ))}
+        {(search || sevFilter !== 'all') && (
+          <button onClick={() => { setSearch(''); setSevFilter('all'); }} className="text-xs text-neutral-400 hover:text-red-500 transition">
+            Сбросить
+          </button>
+        )}
+      </div>
 
       {isLoading ? (
         <div className="space-y-3">
