@@ -92,7 +92,7 @@ export function IssuesPage() {
             return (
               <div
                 key={issue.id}
-                className="card hover:border-primary-300 transition"
+                className="card hover:border-primary-300 transition animate-slide-in"
                 style={{ animationDelay: `${idx * 60}ms` }}
               >
                 <div className="flex justify-between items-start gap-4">

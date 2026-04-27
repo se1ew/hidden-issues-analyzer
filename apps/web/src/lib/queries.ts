@@ -339,7 +339,18 @@ export function useDeleteReview() {
     mutationFn: async (id: string) => {
       await api.delete(`/api/reviews/${id}`);
     },
-    onSuccess: () => {
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ['reviews'] });
+      const snapshots = qc.getQueriesData<ReviewsListResponse>({ queryKey: ['reviews'] });
+      qc.setQueriesData<ReviewsListResponse>({ queryKey: ['reviews'] }, (old) =>
+        old ? { ...old, items: old.items.filter((r) => r.id !== id), total: old.total - 1 } : old,
+      );
+      return { snapshots };
+    },
+    onError: (_err, _id, ctx) => {
+      ctx?.snapshots.forEach(([key, val]) => qc.setQueryData(key, val));
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ['reviews'] });
       qc.invalidateQueries({ queryKey: ['stats'] });
     },
