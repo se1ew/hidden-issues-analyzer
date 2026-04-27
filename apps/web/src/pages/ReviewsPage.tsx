@@ -1,4 +1,4 @@
-import { Filter, Loader2, Package, Play, X } from 'lucide-react';
+import { Download, Filter, Loader2, Package, Play, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -6,6 +6,8 @@ import { connectSocket } from '../lib/socket';
 import {
   useReviews,
   useRunAnalysis,
+  useDeleteReview,
+  useDeleteReviewsBulk,
   type ReviewListItem,
 } from '../lib/queries';
 import { ProductSelector } from '../components/ProductSelector';
@@ -28,6 +30,8 @@ export function ReviewsPage() {
   const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
 
   const { selectedProductId } = useProductStore();
+  const deleteReview = useDeleteReview();
+  const deleteReviewsBulk = useDeleteReviewsBulk();
 
   const { data, isLoading, refetch } = useReviews({
     page,
@@ -84,6 +88,50 @@ export function ReviewsPage() {
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
+  const handleDeleteReview = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await deleteReview.mutateAsync(id);
+      toast.success('Отзыв удалён');
+    } catch {
+      toast.error('Не удалось удалить отзыв');
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (!window.confirm(`Удалить все отзывы${selectedProductId ? ' этого товара' : ''}? Действие необратимо.`)) return;
+    try {
+      const res = await deleteReviewsBulk.mutateAsync(selectedProductId);
+      toast.success(`Удалено ${res.deleted} отзывов`);
+      setPage(1);
+    } catch {
+      toast.error('Не удалось удалить');
+    }
+  };
+
+  const handleExportCsv = () => {
+    if (!data || data.items.length === 0) return;
+    const headers = ['id', 'text', 'rating', 'sentiment', 'issues', 'date'];
+    const rows = data.items.map((r) => [
+      r.id,
+      `"${r.text.replace(/"/g, '""')}"`,
+      r.rating ?? '',
+      r.sentiment ?? '',
+      `"${(r.issues ?? []).join('; ')}"`,
+      new Date(r.createdAt).toLocaleDateString('ru-RU'),
+    ]);
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reviews-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-start">
@@ -93,20 +141,57 @@ export function ReviewsPage() {
             Все загруженные отзывы с результатами анализа
           </p>
         </div>
-        <button
-          onClick={handleRunAnalysis}
-          disabled={runAnalysis.isPending || progress !== null}
-          className="btn-primary"
-        >
-          {progress !== null ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Play className="h-4 w-4" />
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex gap-2">
+            <button
+              onClick={handleExportCsv}
+              disabled={!data || data.items.length === 0}
+              className="btn-outline"
+              title="Экспорт в CSV"
+            >
+              <Download className="h-4 w-4" />
+              CSV
+            </button>
+            <button
+              onClick={handleDeleteAll}
+              disabled={deleteReviewsBulk.isPending || !data || data.total === 0}
+              className="btn-outline text-red-600 border-red-200 hover:bg-red-50"
+              title="Удалить все отзывы"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={handleRunAnalysis}
+              disabled={runAnalysis.isPending || progress !== null}
+              className="btn-primary"
+            >
+              {progress !== null ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+              {progress !== null ? 'Анализ...' : 'Запустить анализ'}
+            </button>
+          </div>
+          {progress !== null && (
+            <div className="w-56">
+              <div className="flex justify-between text-xs text-neutral-500 mb-1">
+                <span>Анализ</span>
+                <span>{progress.processed}/{progress.total || '?'}</span>
+              </div>
+              <div className="h-1.5 w-full bg-neutral-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary-500 rounded-full transition-all duration-300"
+                  style={{
+                    width: progress.total > 0
+                      ? `${Math.round((progress.processed / progress.total) * 100)}%`
+                      : '5%',
+                  }}
+                />
+              </div>
+            </div>
           )}
-          {progress !== null
-            ? `Анализ: ${progress.processed}/${progress.total || '?'}`
-            : 'Запустить анализ'}
-        </button>
+        </div>
       </div>
 
       <ProductSelector />
@@ -213,7 +298,7 @@ export function ReviewsPage() {
                 return (
                   <tr
                     key={r.id}
-                    className="border-b border-neutral-50 hover:bg-primary-50 cursor-pointer transition"
+                    className="border-b border-neutral-50 hover:bg-primary-50 cursor-pointer transition group"
                     onClick={() => setSelected(r)}
                   >
                     <td className="py-3 pr-3 max-w-md truncate">{r.text}</td>
@@ -234,6 +319,15 @@ export function ReviewsPage() {
                     <td className="py-3 pr-3">{r.issues?.length ?? '—'}</td>
                     <td className="py-3 pr-3 text-xs text-neutral-400">
                       {new Date(r.createdAt).toLocaleDateString('ru-RU')}
+                    </td>
+                    <td className="py-3 pl-1">
+                      <button
+                        onClick={(e) => handleDeleteReview(r.id, e)}
+                        className="opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-red-500 transition"
+                        title="Удалить отзыв"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </td>
                   </tr>
                 );
