@@ -1,7 +1,6 @@
 # Hidden Issues Analyzer
 
 Интеллектуальная система анализа отзывов о товарах с **выявлением скрытых проблем**.
-Курсовая работа.
 
 ## Что умеет
 
@@ -9,9 +8,13 @@
 - Анализ через LLM (OpenRouter): тональность, аспекты, выделение проблем
 - Кластеризация жалоб через эмбеддинги (`@xenova/transformers`) + DBSCAN
 - Метрика **hidden_score = severity × (1 − visibility)** — ранжирует «скрытые» проблемы
-- 7 страниц UI: Загрузка, Аналитика, Скрытые проблемы, Отзывы, Отчёты, Парсинг, Профиль
+- AI executive summary — LLM формирует краткий аналитический вывод по продукту
+- Управление продуктами: фильтрация всех данных по продукту, переименование, удаление
+- Статус **resolved** для скрытых проблем с оптимистичным UI-переключением
+- 9 страниц UI: Дашборд, Загрузка, Аналитика, Скрытые проблемы, Отзывы, Отчёты, Парсинг, Продукты, Профиль
 - Real-time прогресс анализа через Socket.IO
 - Экспорт PDF / DOCX отчётов
+- Dark mode, мобильный sidebar с hamburger-меню
 
 ## Стек
 
@@ -39,18 +42,18 @@ hidden-issues-analyzer/
 │   │       ├── config/         # zod env
 │   │       ├── lib/            # prisma, redis, logger, openrouter, embeddings
 │   │       ├── middleware/     # auth, validate, error
-│   │       ├── routes/         # auth, reviews, analysis, issues, reports, parsing, profile
+│   │       ├── routes/         # auth, reviews, analysis, issues, reports, parsing, products, profile
 │   │       ├── controllers/
-│   │       ├── services/       # бизнес-логика
+│   │       ├── services/       # analyzer, clustering, summary, products, reports, parsing, stats, reviews, auth
 │   │       ├── schemas/        # zod
 │   │       ├── sockets/
 │   │       └── index.ts
 │   └── web/                    # React + Vite
 │       └── src/
-│           ├── components/     # Layout, Sidebar, ProtectedRoute
-│           ├── pages/          # 7 основных + Login/Register
+│           ├── components/     # Layout, Sidebar, ProductSelector, AiSummaryModal, AnalysisBanner, ProtectedRoute
+│           ├── pages/          # Dashboard, Upload, Analytics, Issues, Reviews, Reports, Parsing, Products, Profile + Login/Register
 │           ├── lib/            # api (axios), socket, queries (react-query)
-│           └── store/          # auth.store (zustand)
+│           └── store/          # auth.store, product.store (zustand)
 ├── docker-compose.yml          # postgres + redis
 ├── package.json                # workspaces root
 └── .env.example
@@ -97,11 +100,12 @@ npm run db:generate    # prisma generate
 ## Workflow использования
 
 1. **Регистрация** на `/register`
-2. **Загрузка** CSV (колонки: `text/review/comment`, опционально `rating/score`, `date`)
-3. На странице **Отзывы** нажать «Запустить анализ» — LLM проанализирует пачку
-4. На **Аналитика** появятся метрики и графики
-5. На **Скрытые проблемы** нажать «Пересчитать» — DBSCAN-кластеризация
-6. На **Отчёты** сгенерировать PDF или DOCX
+2. **Загрузка** CSV (колонки: `text/review/comment`, опционально `rating/score`, `date`) или парсинг WB-ссылки
+3. На **Дашборде** выбрать продукт через `ProductSelector` — все данные фильтруются глобально
+4. На странице **Отзывы** нажать «Запустить анализ» — LLM проанализирует пачку, прогресс — real-time
+5. На **Аналитика** появятся метрики, графики и кнопка «AI Summary» (LLM-вывод по продукту)
+6. На **Скрытые проблемы** нажать «Пересчитать» — DBSCAN-кластеризация; проблемы можно отметить как resolved
+7. На **Отчёты** сгенерировать PDF или DOCX
 
 ## Ключевые API эндпоинты
 
@@ -119,10 +123,16 @@ GET    /api/reviews/:id
 POST   /api/analysis/run         { limit? } — анализ pending отзывов (jobId)
 GET    /api/analysis/stats       сводка
 GET    /api/analysis/timeseries  динамика по дням
+GET    /api/analysis/summary     AI executive summary (LLM, ?productId)
 
-GET    /api/issues               список скрытых проблем
+GET    /api/issues               список скрытых проблем (?productId, ?severity, ?search)
 POST   /api/issues/recompute     пересчитать кластеры
 GET    /api/issues/:id
+PATCH  /api/issues/:id/resolve   переключить статус resolved
+
+GET    /api/products             список продуктов
+PATCH  /api/products/:id         переименовать продукт
+DELETE /api/products/:id         удалить продукт
 
 POST   /api/parsing/start        { url } — парсинг WB
 
