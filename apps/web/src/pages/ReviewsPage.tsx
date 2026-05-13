@@ -226,26 +226,33 @@ export function ReviewsPage() {
             <div className="w-64">
               <div className="flex justify-between text-xs text-neutral-500 mb-1">
                 <span className="font-medium truncate max-w-[160px]">{progress.label ?? 'Анализ...'}</span>
-                <span>{progress.processed}/{progress.total || '?'}</span>
+                <span>
+                  {progress.total > 0
+                    ? `${progress.processed}/${progress.total}`
+                    : progress.processed > 0 ? `${progress.processed}` : '...'}
+                </span>
               </div>
               <div className="h-1.5 w-full bg-neutral-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary-500 rounded-full transition-all duration-300"
-                  style={{
-                    width: progress.total > 0
-                      ? `${Math.round((progress.processed / progress.total) * 100)}%`
-                      : '8%',
-                  }}
-                />
+                {progress.total > 0 ? (
+                  <div
+                    className="h-full bg-primary-500 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.round((progress.processed / progress.total) * 100)}%` }}
+                  />
+                ) : (
+                  <div className="h-full bg-primary-400 rounded-full animate-pulse w-1/3" />
+                )}
               </div>
               <div className="flex gap-2 mt-1.5">
-                {['Тональность', 'Аспекты', 'Кластеры'].map((s, i) => (
-                  <div key={s} className={`flex-1 h-1 rounded-full transition-all duration-500 ${
-                    (progress.step === 'analyzing' && i === 0) ||
-                    (progress.step === 'analyzing' && i === 1 && progress.processed > 0) ||
-                    progress.step === 'done'
-                      ? 'bg-primary-500' : 'bg-neutral-200'
-                  }`} />
+                {[
+                  { label: 'Начало', active: true },
+                  { label: 'Анализ', active: progress.total > 0 && progress.processed > 0 || progress.step === 'done' },
+                  { label: 'Готово', active: progress.step === 'done' },
+                ].map(({ label, active }) => (
+                  <div
+                    key={label}
+                    title={label}
+                    className={`flex-1 h-1 rounded-full transition-all duration-500 ${active ? 'bg-primary-500' : 'bg-neutral-200'}`}
+                  />
                 ))}
               </div>
             </div>

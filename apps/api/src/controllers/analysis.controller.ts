@@ -3,11 +3,21 @@ import type { Request, Response } from 'express';
 import { runPendingAnalysis } from '../services/analyzer.service.js';
 import { getOverviewStats, getSentimentTimeseries, type Bucket } from '../services/stats.service.js';
 import { generateProductSummary } from '../services/summary.service.js';
-import { getIO } from '../sockets/index.js';
+import { getIO, setJobState, deleteJobState } from '../sockets/index.js';
 
 export async function run(req: Request, res: Response): Promise<void> {
   const limit = Number(req.body?.limit) || 200;
   const jobId = `analysis-${Date.now()}`;
+
+  // Сохраняем состояние ДО ответа клиенту — если клиент подпишется сразу после,
+  // он получит актуальный статус при job:subscribe (replay из jobStore)
+  setJobState(jobId, {
+    status: 'analyzing',
+    processed: 0,
+    total: 0,
+    step: 'analyzing',
+    label: 'Анализ тональности и аспектов',
+  });
 
   // Возвращаем jobId сразу, анализ идёт в фоне с прогресс-эвентами через socket.io
   res.status(202).json({ jobId, message: 'Анализ запущен' });
@@ -15,22 +25,24 @@ export async function run(req: Request, res: Response): Promise<void> {
   const io = getIO();
   const room = io.to(`job:${jobId}`);
 
-  room.emit('analysis:step', { jobId, step: 'analyzing', label: 'Анализ тональности и аспектов' });
-  room.emit('analysis:progress', { jobId, processed: 0, total: 0, step: 'analyzing' });
-
   runPendingAnalysis({
     limit,
     concurrency: 3,
     onProgress: (processed, total) => {
+      setJobState(jobId, { processed, total });
       room.emit('analysis:progress', { jobId, processed, total, step: 'analyzing' });
     },
   })
     .then(() => {
+      setJobState(jobId, { status: 'complete', step: 'done', label: 'Готово' });
       room.emit('analysis:step', { jobId, step: 'done', label: 'Готово' });
       room.emit('analysis:complete', { jobId });
+      setTimeout(() => deleteJobState(jobId), 30_000);
     })
     .catch((err: Error) => {
+      setJobState(jobId, { status: 'error', error: err.message });
       room.emit('analysis:error', { jobId, message: err.message });
+      setTimeout(() => deleteJobState(jobId), 30_000);
     });
 }
 

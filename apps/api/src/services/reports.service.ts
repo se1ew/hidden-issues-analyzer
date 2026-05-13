@@ -31,12 +31,12 @@ if (!fs.existsSync(REPORTS_DIR)) {
 interface ReportPayload {
   generatedAt: Date;
   stats: Awaited<ReturnType<typeof getOverviewStats>>;
-  issues: Awaited<ReturnType<typeof listHiddenIssues>>;
+  issues: Awaited<ReturnType<typeof listHiddenIssues>>['items'];
 }
 
 async function buildPayload(): Promise<ReportPayload> {
-  const [stats, issues] = await Promise.all([getOverviewStats(), listHiddenIssues()]);
-  return { generatedAt: new Date(), stats, issues };
+  const [stats, issuesResult] = await Promise.all([getOverviewStats(), listHiddenIssues()]);
+  return { generatedAt: new Date(), stats, issues: issuesResult.items };
 }
 
 export async function generateReport(

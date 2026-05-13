@@ -17,6 +17,32 @@ export interface ClientToServerEvents {
 
 export type AppIOServer = IOServer<ClientToServerEvents, ServerToClientEvents>;
 
+export interface JobState {
+  status: 'analyzing' | 'complete' | 'error';
+  processed: number;
+  total: number;
+  step: string;
+  label: string;
+  error?: string;
+}
+
+const jobStore = new Map<string, JobState>();
+
+export function setJobState(jobId: string, patch: Partial<JobState>): void {
+  const prev = jobStore.get(jobId) ?? {
+    status: 'analyzing' as const,
+    processed: 0,
+    total: 0,
+    step: 'analyzing',
+    label: 'Анализ...',
+  };
+  jobStore.set(jobId, { ...prev, ...patch });
+}
+
+export function deleteJobState(jobId: string): void {
+  jobStore.delete(jobId);
+}
+
 let io: AppIOServer | null = null;
 
 export function initSocketIO(httpServer: HTTPServer): AppIOServer {
@@ -43,6 +69,24 @@ export function initSocketIO(httpServer: HTTPServer): AppIOServer {
 
     socket.on('job:subscribe', (jobId: string) => {
       socket.join(`job:${jobId}`);
+      // Replay current job state so late-subscribing clients catch up
+      const state = jobStore.get(jobId);
+      if (state) {
+        if (state.status === 'complete') {
+          socket.emit('analysis:step', { jobId, step: 'done', label: 'Готово' });
+          socket.emit('analysis:complete', { jobId });
+        } else if (state.status === 'error') {
+          socket.emit('analysis:error', { jobId, message: state.error ?? 'Unknown error' });
+        } else {
+          socket.emit('analysis:step', { jobId, step: state.step, label: state.label });
+          socket.emit('analysis:progress', {
+            jobId,
+            processed: state.processed,
+            total: state.total,
+            step: state.step,
+          });
+        }
+      }
     });
 
     socket.on('disconnect', () => {
