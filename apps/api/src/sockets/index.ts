@@ -9,6 +9,7 @@ export interface ServerToClientEvents {
   'analysis:step': (data: { jobId: string; step: string; label: string }) => void;
   'analysis:complete': (data: { jobId: string }) => void;
   'analysis:error': (data: { jobId: string; message: string }) => void;
+  'analysis:cancelled': (data: { jobId: string }) => void;
 }
 
 export interface ClientToServerEvents {

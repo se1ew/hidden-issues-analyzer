@@ -75,6 +75,7 @@ export interface RunOptions {
   limit?: number;
   concurrency?: number;
   delayMs?: number;
+  signal?: AbortSignal;
   onProgress?: (processed: number, total: number) => void;
 }
 
@@ -110,6 +111,7 @@ export async function runPendingAnalysis(opts: RunOptions = {}): Promise<{
 
   async function worker(): Promise<void> {
     while (queue.length > 0) {
+      if (opts.signal?.aborted) break;
       const item = queue.shift();
       if (!item) break;
       try {

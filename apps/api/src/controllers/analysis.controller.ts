@@ -5,6 +5,8 @@ import { getOverviewStats, getSentimentTimeseries, type Bucket } from '../servic
 import { generateProductSummary } from '../services/summary.service.js';
 import { getIO, setJobState, deleteJobState } from '../sockets/index.js';
 
+const jobCancels = new Map<string, AbortController>();
+
 export async function run(req: Request, res: Response): Promise<void> {
   const limit = Number(req.body?.limit) || 200;
   const jobId = `analysis-${Date.now()}`;
@@ -25,25 +27,50 @@ export async function run(req: Request, res: Response): Promise<void> {
   const io = getIO();
   const room = io.to(`job:${jobId}`);
 
+  const controller = new AbortController();
+  jobCancels.set(jobId, controller);
+
+  const cleanup = () => {
+    jobCancels.delete(jobId);
+    setTimeout(() => deleteJobState(jobId), 30_000);
+  };
+
   runPendingAnalysis({
     limit,
-    concurrency: 3,
+    concurrency: 1,
+    signal: controller.signal,
     onProgress: (processed, total) => {
       setJobState(jobId, { processed, total });
       room.emit('analysis:progress', { jobId, processed, total, step: 'analyzing' });
     },
   })
     .then(() => {
+      if (controller.signal.aborted) return;
       setJobState(jobId, { status: 'complete', step: 'done', label: 'Готово' });
       room.emit('analysis:step', { jobId, step: 'done', label: 'Готово' });
       room.emit('analysis:complete', { jobId });
-      setTimeout(() => deleteJobState(jobId), 30_000);
+      cleanup();
     })
     .catch((err: Error) => {
       setJobState(jobId, { status: 'error', error: err.message });
       room.emit('analysis:error', { jobId, message: err.message });
-      setTimeout(() => deleteJobState(jobId), 30_000);
+      cleanup();
     });
+}
+
+export async function cancel(req: Request, res: Response): Promise<void> {
+  const { jobId } = req.params as { jobId: string };
+  const controller = jobCancels.get(jobId);
+  if (controller) {
+    controller.abort();
+    jobCancels.delete(jobId);
+    const io = getIO();
+    const room = io.to(`job:${jobId}`);
+    setJobState(jobId, { status: 'error', error: 'Анализ остановлен пользователем' });
+    room.emit('analysis:cancelled', { jobId });
+    setTimeout(() => deleteJobState(jobId), 30_000);
+  }
+  res.json({ ok: true, cancelled: !!controller });
 }
 
 export async function stats(req: Request, res: Response): Promise<void> {

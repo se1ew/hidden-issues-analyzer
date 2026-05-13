@@ -206,6 +206,15 @@ export function useRunAnalysis() {
   });
 }
 
+export function useCancelAnalysis() {
+  return useMutation({
+    mutationFn: async (jobId: string) => {
+      const { data } = await api.post(`/api/analysis/${jobId}/cancel`);
+      return data;
+    },
+  });
+}
+
 // ===== Issues =====
 
 export interface HiddenIssuesResponse {

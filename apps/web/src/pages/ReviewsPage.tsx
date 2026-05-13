@@ -8,6 +8,7 @@ import { connectSocket } from '../lib/socket';
 import {
   useReviews,
   useRunAnalysis,
+  useCancelAnalysis,
   useDeleteReview,
   useDeleteReviewsBulk,
   type ReviewListItem,
@@ -51,8 +52,9 @@ export function ReviewsPage() {
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
   const { selectedProductId } = useProductStore();
-  const { jobId, progress, startJob, updateProgress, finish } = useAnalysisStore();
+  const { jobId, progress, lastError, startJob, updateProgress, finish, setError, clearError } = useAnalysisStore();
   const qc = useQueryClient();
+  const cancelAnalysis = useCancelAnalysis();
   const deleteReview = useDeleteReview();
   const deleteReviewsBulk = useDeleteReviewsBulk();
 
@@ -83,20 +85,25 @@ export function ReviewsPage() {
       void qc.invalidateQueries({ queryKey: ['stats'] });
     };
     const onError = (e: { message: string }) => {
+      setError(e.message);
+    };
+    const onCancelled = () => {
       finish();
-      toast.error(e.message);
+      toast('Анализ остановлен');
     };
     socket.on('analysis:step', onStep);
     socket.on('analysis:progress', onProgress);
     socket.on('analysis:complete', onComplete);
     socket.on('analysis:error', onError);
+    socket.on('analysis:cancelled', onCancelled);
     return () => {
       socket.off('analysis:step', onStep);
       socket.off('analysis:progress', onProgress);
       socket.off('analysis:complete', onComplete);
       socket.off('analysis:error', onError);
+      socket.off('analysis:cancelled', onCancelled);
     };
-  }, [refetch, updateProgress, finish, qc]);
+  }, [refetch, updateProgress, finish, setError, qc]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -231,7 +238,23 @@ export function ReviewsPage() {
               )}
               {progress !== null ? 'Анализ...' : 'Запустить анализ'}
             </button>
+            {progress !== null && jobId && (
+              <button
+                onClick={() => cancelAnalysis.mutate(jobId)}
+                disabled={cancelAnalysis.isPending}
+                className="btn-outline text-red-600 border-red-200 hover:bg-red-50 px-3"
+                title="Остановить анализ"
+              >
+                {cancelAnalysis.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+              </button>
+            )}
           </div>
+          {lastError && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-3 py-2 text-xs text-red-700 dark:text-red-300 max-w-sm">
+              <span className="flex-1 leading-relaxed">{lastError}</span>
+              <button onClick={clearError} className="shrink-0 text-red-400 hover:text-red-600 mt-0.5">✕</button>
+            </div>
+          )}
           {progress !== null && (() => {
             const pct = progress.total > 0 ? Math.round((progress.processed / progress.total) * 100) : 0;
             const remaining = progress.total - progress.processed;
