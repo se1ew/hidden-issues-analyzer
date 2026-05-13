@@ -1,24 +1,36 @@
 import { Play, Zap } from 'lucide-react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStats, useRunAnalysis } from '../lib/queries';
 import { useProductStore } from '../store/product.store';
+import { useAnalysisStore } from '../store/analysis.store';
 import toast from 'react-hot-toast';
 
 export function AnalysisBanner() {
   const navigate = useNavigate();
   const { selectedProductId } = useProductStore();
+  const { progress, startJob } = useAnalysisStore();
   const stats = useStats(selectedProductId);
   const runAnalysis = useRunAnalysis();
 
   const s = stats.data;
   const unanalyzed = s ? s.total - s.analyzed : 0;
+  const isAnalyzing = progress !== null;
 
-  if (stats.isLoading || !s || unanalyzed === 0) return null;
+  useEffect(() => {
+    if (!isAnalyzing) return;
+    const id = setInterval(() => void stats.refetch(), 8_000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAnalyzing]);
+
+  if (stats.isLoading || !s || (unanalyzed === 0 && !isAnalyzing)) return null;
 
   const handleRun = async () => {
     try {
-      await runAnalysis.mutateAsync(undefined);
-      toast.success('Анализ запущен');
+      const res = await runAnalysis.mutateAsync(undefined);
+      startJob(res.jobId);
+      toast('Анализ запущен — перейдите в «Отзывы» для отслеживания');
       navigate('/reviews');
     } catch {
       toast.error('Не удалось запустить анализ');
@@ -44,11 +56,11 @@ export function AnalysisBanner() {
       </div>
       <button
         onClick={handleRun}
-        disabled={runAnalysis.isPending}
+        disabled={runAnalysis.isPending || isAnalyzing}
         className="btn-primary bg-amber-500 hover:bg-amber-600 border-amber-500 text-sm shrink-0 gap-2"
       >
         <Play className="h-3.5 w-3.5" />
-        Запустить анализ
+        {isAnalyzing ? 'Анализ идёт...' : 'Запустить анализ'}
       </button>
     </div>
   );

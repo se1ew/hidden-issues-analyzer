@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
+import { useQueryClient } from '@tanstack/react-query';
 import { connectSocket } from '../lib/socket';
 import {
   useReviews,
@@ -14,6 +15,7 @@ import {
 import { ProductSelector } from '../components/ProductSelector';
 import { AnalysisBanner } from '../components/AnalysisBanner';
 import { useProductStore } from '../store/product.store';
+import { useAnalysisStore } from '../store/analysis.store';
 
 const SENTIMENT_LABEL: Record<string, { label: string; cls: string }> = {
   positive: { label: 'позитив', cls: 'badge-positive' },
@@ -46,10 +48,11 @@ export function ReviewsPage() {
   const setSearch = (v: string) => setParam('search', v);
 
   const [selected, setSelected] = useState<ReviewListItem | null>(null);
-  const [progress, setProgress] = useState<{ processed: number; total: number; step?: string; label?: string } | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
   const { selectedProductId } = useProductStore();
+  const { jobId, progress, startJob, updateProgress, finish } = useAnalysisStore();
+  const qc = useQueryClient();
   const deleteReview = useDeleteReview();
   const deleteReviewsBulk = useDeleteReviewsBulk();
 
@@ -68,16 +71,19 @@ export function ReviewsPage() {
   useEffect(() => {
     const socket = connectSocket();
     const onStep = (s: { step: string; label: string }) =>
-      setProgress((prev) => prev ? { ...prev, step: s.step, label: s.label } : { processed: 0, total: 0, step: s.step, label: s.label });
-    const onProgress = (p: { processed: number; total: number; step?: string }) =>
-      setProgress((prev) => ({ processed: p.processed, total: p.total, step: p.step ?? prev?.step, label: prev?.label }));
+      updateProgress({ step: s.step, label: s.label });
+    const onProgress = (p: { processed: number; total: number; step?: string }) => {
+      updateProgress({ processed: p.processed, total: p.total, step: p.step });
+      void qc.invalidateQueries({ queryKey: ['stats'] });
+    };
     const onComplete = () => {
-      setProgress(null);
+      finish();
       toast.success('Анализ завершён');
       refetch();
+      void qc.invalidateQueries({ queryKey: ['stats'] });
     };
     const onError = (e: { message: string }) => {
-      setProgress(null);
+      finish();
       toast.error(e.message);
     };
     socket.on('analysis:step', onStep);
@@ -90,14 +96,18 @@ export function ReviewsPage() {
       socket.off('analysis:complete', onComplete);
       socket.off('analysis:error', onError);
     };
-  }, [refetch]);
+  }, [refetch, updateProgress, finish, qc]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    const socket = connectSocket();
+    socket.emit('job:subscribe', jobId);
+  }, [jobId]);
 
   const handleRunAnalysis = async () => {
     try {
       const res = await runAnalysis.mutateAsync(200);
-      const socket = connectSocket();
-      socket.emit('job:subscribe', res.jobId);
-      setProgress({ processed: 0, total: 0 });
+      startJob(res.jobId);
       toast(`Анализ запущен (job ${res.jobId.slice(-8)})`);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } };
@@ -222,41 +232,48 @@ export function ReviewsPage() {
               {progress !== null ? 'Анализ...' : 'Запустить анализ'}
             </button>
           </div>
-          {progress !== null && (
-            <div className="w-64">
-              <div className="flex justify-between text-xs text-neutral-500 mb-1">
-                <span className="font-medium truncate max-w-[160px]">{progress.label ?? 'Анализ...'}</span>
-                <span>
-                  {progress.total > 0
-                    ? `${progress.processed}/${progress.total}`
-                    : progress.processed > 0 ? `${progress.processed}` : '...'}
-                </span>
+          {progress !== null && (() => {
+            const pct = progress.total > 0 ? Math.round((progress.processed / progress.total) * 100) : 0;
+            const remaining = progress.total - progress.processed;
+            const etaSec = progress.total > 0 && progress.processed > 0 && progress.step !== 'done' ? remaining * 4 : null;
+            const eta = etaSec === null ? null : etaSec < 60 ? `~${etaSec} сек` : `~${Math.ceil(etaSec / 60)} мин`;
+            return (
+              <div className="w-72">
+                <div className="flex justify-between text-xs text-neutral-500 mb-1">
+                  <span className="font-medium truncate max-w-[180px]">{progress.label ?? 'Анализ...'}</span>
+                  <span className="shrink-0 ml-2">
+                    {progress.total > 0 ? `${pct}% · ${progress.processed}/${progress.total}` : '...'}
+                  </span>
+                </div>
+                <div className="h-2 w-full bg-neutral-200 rounded-full overflow-hidden">
+                  {progress.total > 0 ? (
+                    <div
+                      className="h-full bg-primary-500 rounded-full transition-all duration-500"
+                      style={{ width: `${pct}%` }}
+                    />
+                  ) : (
+                    <div className="h-full bg-primary-400 rounded-full animate-pulse w-1/3" />
+                  )}
+                </div>
+                <div className="flex justify-between items-center mt-1.5">
+                  <div className="flex gap-1.5">
+                    {[
+                      { label: 'Начало', active: true },
+                      { label: 'Анализ', active: (progress.total > 0 && progress.processed > 0) || progress.step === 'done' },
+                      { label: 'Готово', active: progress.step === 'done' },
+                    ].map(({ label, active }) => (
+                      <div
+                        key={label}
+                        title={label}
+                        className={`h-1 w-16 rounded-full transition-all duration-500 ${active ? 'bg-primary-500' : 'bg-neutral-200'}`}
+                      />
+                    ))}
+                  </div>
+                  {eta && <span className="text-xs text-neutral-400">{eta}</span>}
+                </div>
               </div>
-              <div className="h-1.5 w-full bg-neutral-200 rounded-full overflow-hidden">
-                {progress.total > 0 ? (
-                  <div
-                    className="h-full bg-primary-500 rounded-full transition-all duration-300"
-                    style={{ width: `${Math.round((progress.processed / progress.total) * 100)}%` }}
-                  />
-                ) : (
-                  <div className="h-full bg-primary-400 rounded-full animate-pulse w-1/3" />
-                )}
-              </div>
-              <div className="flex gap-2 mt-1.5">
-                {[
-                  { label: 'Начало', active: true },
-                  { label: 'Анализ', active: progress.total > 0 && progress.processed > 0 || progress.step === 'done' },
-                  { label: 'Готово', active: progress.step === 'done' },
-                ].map(({ label, active }) => (
-                  <div
-                    key={label}
-                    title={label}
-                    className={`flex-1 h-1 rounded-full transition-all duration-500 ${active ? 'bg-primary-500' : 'bg-neutral-200'}`}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
 
