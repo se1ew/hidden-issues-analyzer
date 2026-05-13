@@ -74,7 +74,12 @@ function clamp(n: number, min: number, max: number): number {
 export interface RunOptions {
   limit?: number;
   concurrency?: number;
+  delayMs?: number;
   onProgress?: (processed: number, total: number) => void;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -86,7 +91,8 @@ export async function runPendingAnalysis(opts: RunOptions = {}): Promise<{
   total: number;
 }> {
   const limit = opts.limit ?? 200;
-  const concurrency = Math.max(1, Math.min(8, opts.concurrency ?? 3));
+  const concurrency = Math.max(1, Math.min(8, opts.concurrency ?? 1));
+  const delayMs = opts.delayMs ?? 4_000;
 
   const pending = await prisma.review.findMany({
     where: { analyzedAt: null },
@@ -125,6 +131,7 @@ export async function runPendingAnalysis(opts: RunOptions = {}): Promise<{
         processed++;
         opts.onProgress?.(processed, total);
       }
+      if (queue.length > 0 && delayMs > 0) await sleep(delayMs);
     }
   }
 
