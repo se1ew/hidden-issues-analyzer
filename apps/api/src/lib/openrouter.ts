@@ -49,10 +49,19 @@ export async function chatCompletion(req: ChatCompletionRequest, _retries = 3): 
     body: JSON.stringify(body),
   });
 
-  if (res.status === 429 && _retries > 0) {
+  if (res.status === 429) {
     const resetHeader = res.headers.get('X-RateLimit-Reset');
     const resetMs = resetHeader ? parseInt(resetHeader) : Date.now() + 60_000;
-    const waitMs = Math.max(2_000, resetMs - Date.now() + 500);
+    const rawWaitMs = resetMs - Date.now();
+
+    if (rawWaitMs > 120_000 || _retries <= 0) {
+      const hoursLeft = Math.ceil(rawWaitMs / 3_600_000);
+      const text = await res.text();
+      logger.error({ waitMs: rawWaitMs, body: text.slice(0, 200) }, 'OpenRouter rate limit — daily cap exceeded');
+      throw new Error(`Дневной лимит OpenRouter исчерпан, сброс через ~${hoursLeft} ч. Попробуйте позже.`);
+    }
+
+    const waitMs = Math.max(2_000, rawWaitMs + 500);
     logger.warn({ waitMs, retriesLeft: _retries }, 'Rate limited by OpenRouter, waiting...');
     await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
     return chatCompletion(req, _retries - 1);
