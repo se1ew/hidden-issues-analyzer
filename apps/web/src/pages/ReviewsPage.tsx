@@ -109,7 +109,23 @@ export function ReviewsPage() {
     if (!jobId) return;
     const socket = connectSocket();
     socket.emit('job:subscribe', jobId);
-  }, [jobId]);
+    // If server sends no event within 3s, job is stale (server restarted)
+    const staleTimer = setTimeout(() => finish(), 3_000);
+    const clearTimer = () => clearTimeout(staleTimer);
+    socket.once('analysis:progress', clearTimer);
+    socket.once('analysis:step', clearTimer);
+    socket.once('analysis:complete', clearTimer);
+    socket.once('analysis:error', clearTimer);
+    socket.once('analysis:cancelled', clearTimer);
+    return () => {
+      clearTimeout(staleTimer);
+      socket.off('analysis:progress', clearTimer);
+      socket.off('analysis:step', clearTimer);
+      socket.off('analysis:complete', clearTimer);
+      socket.off('analysis:error', clearTimer);
+      socket.off('analysis:cancelled', clearTimer);
+    };
+  }, [jobId, finish]);
 
   const handleRunAnalysis = async () => {
     try {
@@ -240,7 +256,7 @@ export function ReviewsPage() {
             </button>
             {progress !== null && jobId && (
               <button
-                onClick={() => cancelAnalysis.mutate(jobId)}
+                onClick={() => cancelAnalysis.mutate(jobId, { onSettled: () => finish() })}
                 disabled={cancelAnalysis.isPending}
                 className="btn-outline text-red-600 border-red-200 hover:bg-red-50 px-3"
                 title="Остановить анализ"
