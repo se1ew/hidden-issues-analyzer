@@ -1,38 +1,43 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { prisma } from '../lib/prisma.js';
+import { parseWildberries } from './parsing.service.js';
 
-// Тестируем внутреннюю функцию extractWbId через module-import
-// Импортируем модуль целиком чтобы достать private-функцию через нестандартный экспорт тестового хелпера
-// Вместо этого дублируем логику (unit-тест самой regex)
+afterEach(() => vi.unstubAllGlobals());
 
-function extractWbIdFromUrl(url: string): number | null {
-  const m = url.match(/\/catalog\/(\d+)\//);
-  if (!m) return null;
-  const id = Number(m[1]);
-  return Number.isFinite(id) && id > 0 ? id : null;
-}
-
-describe('extractWbId', () => {
-  it('парсит стандартный URL WB', () => {
-    expect(extractWbIdFromUrl('https://www.wildberries.ru/catalog/123456789/detail.aspx')).toBe(
-      123456789,
-    );
+describe('parseWildberries', () => {
+  it.each(['https://ozon.ru/product/12345', 'https://wildberries.ru/brand/nike', '', 'https://wildberries.ru/catalog/0/'])('отклоняет адрес без корректного артикула: %s', async (url) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(parseWildberries(url)).rejects.toThrow('Не удалось извлечь ID');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(prisma.product.create).not.toHaveBeenCalled();
   });
 
-  it('парсит global.wildberries.ru с size-параметром', () => {
-    expect(
-      extractWbIdFromUrl(
-        'https://global.wildberries.ru/catalog/156438955/detail.aspx?size=260983012',
-      ),
-    ).toBe(156438955);
+  it.each(['https://www.wildberries.ru/catalog/123456789/detail.aspx', 'https://global.wildberries.ru/catalog/123456789/detail.aspx?size=260983012'])('импортирует отзывы через реальный парсер: %s', async (url) => {
+    vi.stubGlobal('fetch', vi.fn(async (request: string) => new Response(JSON.stringify(
+      request.endsWith('card.json') ? { imt_id: 77 } : {
+        feedbacks: [
+          { text: 'Хороший товар', pros: 'Удобный', cons: 'Шумит', productValuation: 4, createdDate: '2026-01-01T00:00:00Z' },
+          { text: 'Без оценки', productValuation: 0, createdDate: 'not-a-date' },
+          { text: '   ' },
+        ],
+      },
+    ), { status: 200 })));
+    vi.mocked(prisma.product.create).mockResolvedValue({ id: 'product-1' } as never);
+    vi.mocked(prisma.review.createMany).mockResolvedValue({ count: 2 });
+    expect(await parseWildberries(url)).toEqual({ source: 'wildberries', productId: 123456789, reviewsAdded: 2 });
+    expect(prisma.review.createMany).toHaveBeenCalledWith({ data: [
+      { text: 'Хороший товар\nПлюсы: Удобный\nМинусы: Шумит', rating: 4, reviewDate: new Date('2026-01-01T00:00:00Z'), productId: 'product-1' },
+      { text: 'Без оценки', rating: null, reviewDate: null, productId: 'product-1' },
+    ] });
   });
 
-  it('возвращает null для невалидного URL', () => {
-    expect(extractWbIdFromUrl('https://ozon.ru/product/12345')).toBeNull();
-    expect(extractWbIdFromUrl('https://wildberries.ru/brand/nike')).toBeNull();
-    expect(extractWbIdFromUrl('')).toBeNull();
-  });
-
-  it('возвращает null если ID равен 0', () => {
-    expect(extractWbIdFromUrl('https://www.wildberries.ru/catalog/0/detail.aspx')).toBeNull();
+  it('не создаёт товар при отсутствии отзывов', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (request: string) => new Response(JSON.stringify(
+      request.endsWith('card.json') ? { imt_id: 77 } : { feedbacks: [] },
+    ), { status: 200 })));
+    expect(await parseWildberries('https://wildberries.ru/catalog/123/detail.aspx')).toMatchObject({ reviewsAdded: 0 });
+    expect(prisma.product.create).not.toHaveBeenCalled();
+    expect(prisma.review.createMany).not.toHaveBeenCalled();
   });
 });

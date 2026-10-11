@@ -54,7 +54,7 @@ sakovich_es_23
 | Слой | Технологии |
 |---|---|
 | Frontend | React 18, TypeScript, Vite, **Recharts**, TanStack Query, Zustand, react-router-dom 6, react-dropzone, react-hot-toast, lucide-react |
-| Backend | Node.js 20+, Express 5, TypeScript, **Zod**, multer, helmet, cors, express-rate-limit, morgan, pino |
+| Backend | Node.js 24, Express 5, TypeScript, **Zod**, multer, helmet, cors, express-rate-limit, morgan, pino |
 | Realtime | Socket.IO |
 | Database | PostgreSQL 16 + **Prisma** ORM |
 | Cache | Redis 7 (ioredis) |
@@ -95,8 +95,9 @@ hidden-issues-analyzer/
 ## Запуск (с нуля)
 
 ```powershell
-# 1. Установить зависимости
-npm install
+# 1. Node.js 24 (точная проверенная версия в .nvmrc), npm 10 или 11
+# Docker Desktop должен быть запущен
+npm ci
 
 # 2. Поднять Postgres + Redis
 npm run docker:up
@@ -107,8 +108,10 @@ copy apps\api\.env.example apps\api\.env
 copy apps\web\.env.example apps\web\.env
 # ВАЖНО: в apps/api/.env вписать OPENROUTER_API_KEY
 
-# 4. Применить миграции БД
-npm run db:migrate
+# 4. Сгенерировать клиент и применить сохранённые миграции БД
+npm run db:generate
+npm run db:deploy
+npm run db:check
 
 # 5. Запустить dev (api + web параллельно)
 npm run dev
@@ -124,11 +127,20 @@ npm run dev            # api + web в dev-режиме
 npm run build          # production build
 npm run lint           # ESLint
 npm run test           # Vitest
+npm run typecheck      # TypeScript в обоих workspace, включая конфиги web
+npm run check          # typecheck + lint + test + production build
 npm run docker:up      # postgres + redis
 npm run docker:down    # остановить
-npm run db:migrate     # prisma migrate dev
+npm run db:migrate     # создать новую миграцию при изменении schema.prisma
+npm run db:deploy      # применить существующие миграции, включая чистую БД
 npm run db:generate    # prisma generate
+npm run db:check       # соединение с PostgreSQL, таблица Product и Redis PING
+npm run start:api      # API из production build
+npm run preview:web    # локальный просмотр собранного web
 ```
+
+Подробности воспроизводимости, ограничения worker и результаты проверки:
+[docs/development.md](docs/development.md).
 
 ## Workflow использования
 

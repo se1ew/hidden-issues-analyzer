@@ -1,66 +1,57 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { prisma } from '../lib/prisma.js';
+import { embed } from '../lib/embeddings.js';
+import { chatCompletion } from '../lib/openrouter.js';
+import { recomputeHiddenIssues } from './clustering.service.js';
 
-// Тестируем centroid-вычисление и cosineSimilarity — оба используются в clustering
+vi.mock('../lib/embeddings.js', () => ({ embed: vi.fn() }));
+vi.mock('../lib/openrouter.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../lib/openrouter.js')>(),
+  chatCompletion: vi.fn(),
+}));
 
-function cosineSimilarity(a: number[], b: number[]): number {
-  const dot = a.reduce((s, v, i) => s + v * b[i]!, 0);
-  const magA = Math.sqrt(a.reduce((s, v) => s + v * v, 0));
-  const magB = Math.sqrt(b.reduce((s, v) => s + v * v, 0));
-  if (magA === 0 || magB === 0) return 0;
-  return dot / (magA * magB);
-}
-
-function centroid(vectors: number[][]): number[] {
-  if (vectors.length === 0) return [];
-  const dim = vectors[0]!.length;
-  const sum = new Array<number>(dim).fill(0);
-  for (const v of vectors) {
-    for (let i = 0; i < dim; i++) sum[i]! += v[i]!;
-  }
-  return sum.map((s) => s / vectors.length);
-}
-
-describe('cosineSimilarity', () => {
-  it('идентичные векторы = 1', () => {
-    expect(cosineSimilarity([1, 2, 3], [1, 2, 3])).toBeCloseTo(1);
+describe('recomputeHiddenIssues — текущий production-пайплайн', () => {
+  it('при недостатке жалоб очищает только выбранную область', async () => {
+    vi.mocked(prisma.review.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.hiddenIssue.findMany).mockResolvedValue([{ id: 'old' }] as never);
+    expect(await recomputeHiddenIssues('product-a')).toEqual({ clustersCreated: 0, reviewsAssigned: 0, noisePoints: 0 });
+    expect(prisma.hiddenIssue.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['old'] } } });
+    expect(embed).not.toHaveBeenCalled();
+    expect(chatCompletion).not.toHaveBeenCalled();
   });
 
-  it('ортогональные векторы = 0', () => {
-    expect(cosineSimilarity([1, 0, 0], [0, 1, 0])).toBeCloseTo(0);
+  it('одинаковые жалобы разных товаров создают отдельные кластеры', async () => {
+    vi.mocked(prisma.review.findMany).mockResolvedValue([
+      { id: 'a1', productId: 'a', sentimentScore: 0.5, issues: ['крышка заедает'] },
+      { id: 'a2', productId: 'a', sentimentScore: 0.5, issues: ['заедает крышка'] },
+      { id: 'b1', productId: 'b', sentimentScore: 0.5, issues: ['крышка заедает'] },
+      { id: 'b2', productId: 'b', sentimentScore: 0.5, issues: ['заедает крышка'] },
+    ] as never);
+    vi.mocked(prisma.review.count).mockResolvedValue(10);
+    vi.mocked(embed).mockResolvedValue([[1, 0], [1, 0]]);
+    vi.mocked(chatCompletion).mockResolvedValue('{"title":"Заедает крышка","description":"Описание","keywords":["крышка"]}');
+    vi.mocked(prisma.hiddenIssue.create)
+      .mockResolvedValueOnce({ id: 'issue-a' } as never)
+      .mockResolvedValueOnce({ id: 'issue-b' } as never);
+    expect(await recomputeHiddenIssues()).toEqual({ clustersCreated: 2, reviewsAssigned: 4, noisePoints: 0 });
+    expect(prisma.hiddenIssue.create).toHaveBeenNthCalledWith(1, { data: expect.objectContaining({ productId: 'a', size: 2, severity: 0.5, visibility: 0.2, hiddenScore: 0.4 }) });
+    expect(prisma.hiddenIssue.create).toHaveBeenNthCalledWith(2, { data: expect.objectContaining({ productId: 'b', size: 2 }) });
+    expect(prisma.review.updateMany).toHaveBeenCalledWith({ where: { id: { in: ['a1', 'a2'] } }, data: { hiddenIssueId: 'issue-a' } });
+    expect(prisma.review.updateMany).toHaveBeenCalledWith({ where: { id: { in: ['b1', 'b2'] } }, data: { hiddenIssueId: 'issue-b' } });
   });
 
-  it('противоположные векторы = -1', () => {
-    expect(cosineSimilarity([1, 0], [-1, 0])).toBeCloseTo(-1);
-  });
-
-  it('нулевой вектор возвращает 0 (безопасно)', () => {
-    expect(cosineSimilarity([0, 0, 0], [1, 2, 3])).toBe(0);
-  });
-});
-
-describe('centroid', () => {
-  it('центроид одного вектора — сам вектор', () => {
-    expect(centroid([[1, 2, 3]])).toEqual([1, 2, 3]);
-  });
-
-  it('центроид двух векторов — среднее', () => {
-    const c = centroid([
-      [0, 0, 0],
-      [2, 4, 6],
-    ]);
-    expect(c).toEqual([1, 2, 3]);
-  });
-
-  it('пустой ввод возвращает пустой массив', () => {
-    expect(centroid([])).toEqual([]);
-  });
-
-  it('центроид трёх векторов', () => {
-    const c = centroid([
-      [3, 3],
-      [6, 6],
-      [9, 9],
-    ]);
-    expect(c).toEqual([6, 6]);
+  it('считает размер кластера по уникальным отзывам', async () => {
+    vi.mocked(prisma.review.findMany).mockResolvedValue([
+      { id: 'a1', productId: 'a', sentimentScore: 0.5, issues: ['крышка заедает', 'заедает крышка'] },
+      { id: 'a2', productId: 'a', sentimentScore: 0.5, issues: ['крышка заедает'] },
+    ] as never);
+    vi.mocked(prisma.hiddenIssue.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.review.count).mockResolvedValue(10);
+    vi.mocked(embed).mockResolvedValue([[1, 0], [1, 0], [1, 0]]);
+    vi.mocked(chatCompletion).mockResolvedValue('{"title":"Крышка","keywords":[]}');
+    vi.mocked(prisma.hiddenIssue.create).mockResolvedValue({ id: 'issue-a' } as never);
+    const result = await recomputeHiddenIssues('a');
+    expect(result.reviewsAssigned).toBe(2);
+    expect(prisma.hiddenIssue.create).toHaveBeenCalledWith({ data: expect.objectContaining({ size: 2, visibility: 0.2 }) });
   });
 });

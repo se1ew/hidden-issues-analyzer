@@ -1,14 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
-
-vi.mock('../lib/prisma.js', () => ({
-  prisma: {
-    product: { findFirst: vi.fn(), create: vi.fn() },
-    review: { create: vi.fn(), createMany: vi.fn(), findMany: vi.fn(), count: vi.fn(), findUnique: vi.fn() },
-    uploadBatch: { create: vi.fn() },
-  },
-}));
-vi.mock('../lib/logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
-vi.mock('../middleware/error.js', () => ({ HttpError: class HttpError extends Error { constructor(public status: number, message: string) { super(message); } } }));
+import { describe, expect, it } from 'vitest';
 
 import { parseReviewsCsv } from './reviews.service.js';
 

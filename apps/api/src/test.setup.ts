@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 
-vi.mock('../config/env.js', () => ({
+vi.mock('./config/env.js', () => ({
   env: {
     NODE_ENV: 'test',
     API_PORT: 4000,
@@ -21,18 +21,19 @@ vi.mock('../config/env.js', () => ({
   },
 }));
 
-vi.mock('../lib/prisma.js', () => ({
+vi.mock('./lib/prisma.js', () => ({
   prisma: {
     product: { findFirst: vi.fn(), create: vi.fn() },
-    review: { create: vi.fn(), findMany: vi.fn(), count: vi.fn(), findUnique: vi.fn(), createMany: vi.fn() },
+    review: { create: vi.fn(), findMany: vi.fn(), count: vi.fn(), findUnique: vi.fn(), createMany: vi.fn(), update: vi.fn(), updateMany: vi.fn(), aggregate: vi.fn(), groupBy: vi.fn() },
     uploadBatch: { create: vi.fn() },
-    hiddenIssue: { findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
+    hiddenIssue: { findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
+    $queryRawUnsafe: vi.fn(),
     $disconnect: vi.fn(),
   },
   disconnectPrisma: vi.fn(),
 }));
 
-vi.mock('../lib/logger.js', () => ({
+vi.mock('./lib/logger.js', () => ({
   logger: {
     info: vi.fn(),
     warn: vi.fn(),

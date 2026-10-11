@@ -325,12 +325,3 @@ function IssueReviews({ issueId }: { issueId: string }) {
     </div>
   );
 }
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-neutral-400">{label}</div>
-      <div className="text-neutral-700 font-medium">{value}</div>
-    </div>
-  );
-}

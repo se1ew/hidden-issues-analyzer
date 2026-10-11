@@ -7,7 +7,6 @@ export const redis: RedisClient = new RedisClient(env.REDIS_URL, {
 });
 
 redis.on('error', (err) => {
-  // eslint-disable-next-line no-console
   console.error('[redis] error:', err.message);
 });
 
