@@ -40,7 +40,7 @@ export function Layout() {
           >
             <Menu className="h-5 w-5 text-neutral-600 dark:text-neutral-400" />
           </button>
-          <span className="text-sm font-bold text-neutral-700 dark:text-neutral-200 flex-1">Hidden Issues</span>
+          <span className="text-sm font-bold text-neutral-700 dark:text-neutral-200 flex-1">ReviewLens</span>
           <ThemeToggle />
         </div>
 

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
+import { useProductStore } from '../store/product.store';
 
 export const UNASSIGNED_PRODUCT_ID = '__unassigned__';
 
@@ -106,7 +107,6 @@ export interface ReportItem {
   id: string;
   title: string;
   format: 'pdf' | 'docx';
-  filePath: string;
   createdAt: string;
 }
 
@@ -130,6 +130,37 @@ export function useReviews(params: {
   });
 }
 
+export type CsvField = 'text' | 'rating' | 'date' | 'externalId' | 'authorExternalId';
+export type CsvMapping = Partial<Record<CsvField, string>>;
+export interface CsvPreview {
+  headers: string[];
+  delimiter: ',' | ';' | '\t';
+  mapping: CsvMapping;
+  totalCount: number;
+  validCount: number;
+  errorCount: number;
+  errors: Array<{ rowNumber: number; field: string; message: string }>;
+  errorsTruncated: boolean;
+  sample: Array<{ rowNumber: number; values: string[] }>;
+}
+export interface CsvImportResult {
+  count: number; batchId: string; productId: string;
+  totalCount: number; validCount: number; skippedCount: number; errorCount: number;
+  status: 'completed' | 'partial';
+}
+
+export function usePreviewCsv() {
+  return useMutation({
+    mutationFn: async ({ file, delimiter, mapping }: { file: File; delimiter?: string; mapping?: CsvMapping }) => {
+      const form = new FormData();
+      form.append('file', file);
+      if (delimiter) form.append('delimiter', delimiter);
+      if (mapping) form.append('mapping', JSON.stringify(mapping));
+      return (await api.post<CsvPreview>('/api/reviews/upload/csv/preview', form)).data;
+    },
+  });
+}
+
 export function useCreateProduct() {
   const qc = useQueryClient();
   return useMutation({
@@ -141,11 +172,16 @@ export function useCreateProduct() {
 export function useUploadCsv() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ file, productName }: { file: File; productName?: string }) => {
+    mutationFn: async ({ file, productName, productId, delimiter, mapping }: {
+      file: File; productName?: string; productId?: string; delimiter?: string; mapping?: CsvMapping;
+    }) => {
       const formData = new FormData();
       formData.append('file', file);
       if (productName?.trim()) formData.append('productName', productName.trim());
-      const { data } = await api.post<{ count: number; batchId: string; productId: string | null }>(
+      if (productId) formData.append('productId', productId);
+      if (delimiter) formData.append('delimiter', delimiter);
+      if (mapping) formData.append('mapping', JSON.stringify(mapping));
+      const { data } = await api.post<CsvImportResult>(
         '/api/reviews/upload/csv',
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } },
@@ -163,8 +199,8 @@ export function useUploadCsv() {
 export function useCreateManualReview() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { text: string; rating?: number; productName?: string }) => {
-      const { data } = await api.post<{ id: string }>('/api/reviews/upload/text', input);
+    mutationFn: async (input: { text: string; rating?: number; productName?: string; productId?: string }) => {
+      const { data } = await api.post<{ id: string; productId: string }>('/api/reviews/upload/text', input);
       return data;
     },
     onSuccess: () => {
@@ -176,7 +212,6 @@ export function useCreateManualReview() {
 }
 
 // ===== Analysis =====
-
 export function useStats(productId?: string | null) {
   return useQuery({
     queryKey: ['stats', productId ?? null],
@@ -210,7 +245,8 @@ export function useTimeseries(
 export function useRunAnalysis() {
   return useMutation({
     mutationFn: async (limit?: number) => {
-      const { data } = await api.post<{ jobId: string }>('/api/analysis/run', { limit });
+      const productId = useProductStore.getState().selectedProductId;
+      const { data } = await api.post<{ jobId: string }>('/api/analysis/run', { limit, ...(productId ? { productId } : {}) });
       return data;
     },
   });

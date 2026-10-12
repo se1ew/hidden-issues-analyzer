@@ -1,11 +1,11 @@
-import { CheckCircle, Clock, Globe, Loader2, Upload as UploadIcon, FileText, Type } from 'lucide-react';
-import { useCallback, useState } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { CheckCircle, Clock, Globe, Loader2, FileText, Type } from 'lucide-react';
+import { useState } from 'react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import { useNavigate } from 'react-router-dom';
-import { useCreateManualReview, useParsingHistory, useProducts, useRunAnalysis, useStartParsing, useUploadCsv } from '../lib/queries';
-import { AnalysisPromptModal } from '../components/AnalysisPromptModal';
+import { useCreateManualReview, useParsingHistory, useProducts, useRunAnalysis, useStartParsing } from '../lib/queries';
+import { useProductStore } from '../store/product.store';
+import { CsvImportWizard } from '../components/CsvImportWizard';
 
 type Tab = 'csv' | 'manual' | 'parsing';
 
@@ -14,9 +14,12 @@ export function UploadPage() {
   const [text, setText] = useState('');
   const [rating, setRating] = useState<number | ''>('');
   const [productName, setProductName] = useState('');
+  const [productChoice, setProductChoice] = useState('');
+  const productId = productChoice && productChoice !== '__new__' ? productChoice : undefined;
+  const newProductName = productChoice === '__new__' ? productName.trim() : undefined;
+  const productReady = Boolean(productId || newProductName);
   const navigate = useNavigate();
 
-  const uploadCsv = useUploadCsv();
   const createManual = useCreateManualReview();
   const runAnalysis = useRunAnalysis();
   const startParsing = useStartParsing();
@@ -25,34 +28,17 @@ export function UploadPage() {
   const [uploadedCount, setUploadedCount] = useState<number | null>(null);
   const [parseUrl, setParseUrl] = useState('');
   const [parseResult, setParseResult] = useState<{ source: string; reviewsAdded: number } | null>(null);
-  const productNames = (products.data?.items ?? [])
-    .filter((p) => p.id !== '__unassigned__')
-    .map((p) => p.name);
-
-  const onDrop = useCallback(
-    async (acceptedFiles: File[]) => {
-      if (acceptedFiles.length === 0) return;
-      const file = acceptedFiles[0];
-      try {
-        const result = await uploadCsv.mutateAsync({ file, productName });
-        toast.success(`Загружено ${result.count} отзывов`);
-        setUploadedCount(result.count);
-      } catch (err: unknown) {
-        const e = err as { response?: { data?: { error?: string } } };
-        toast.error(e.response?.data?.error ?? 'Ошибка загрузки');
-      }
-    },
-    [uploadCsv, productName],
-  );
-
   const handleManualSubmit = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() || !productReady) return;
     try {
-      await createManual.mutateAsync({
-        text: text.trim(),
+      const result = await createManual.mutateAsync({
+        text,
         rating: rating === '' ? undefined : Number(rating),
-        productName: productName.trim() || undefined,
+        productName: newProductName,
+        productId,
       });
+      useProductStore.getState().setSelectedProductId(result.productId);
+      setProductChoice(result.productId);
       setText('');
       setRating('');
       toast.success('Отзыв добавлен');
@@ -61,13 +47,6 @@ export function UploadPage() {
       toast.error(e.response?.data?.error ?? 'Ошибка');
     }
   };
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: { 'text/csv': ['.csv'], 'application/vnd.ms-excel': ['.csv'] },
-    maxFiles: 1,
-    disabled: uploadCsv.isPending,
-  });
 
   const handleAnalyzeNow = async () => {
     setUploadedCount(null);
@@ -88,11 +67,13 @@ export function UploadPage() {
   return (
     <div className="space-y-6">
       {uploadedCount !== null && (
-        <AnalysisPromptModal
-          count={uploadedCount}
-          onAnalyze={handleAnalyzeNow}
-          onLater={handleAnalyzeLater}
-        />
+        <div className="card space-y-3">
+          <p>Добавлено отзывов: {uploadedCount}. Можно запустить анализ выбранного товара.</p>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-primary" disabled={runAnalysis.isPending} onClick={handleAnalyzeNow}>Запустить анализ</button>
+            <button className="btn-secondary" onClick={handleAnalyzeLater}>Перейти к отзывам</button>
+          </div>
+        </div>
       )}
       <div>
         <h1>Загрузка отзывов</h1>
@@ -101,29 +82,19 @@ export function UploadPage() {
         </p>
       </div>
 
-      <div className="card bg-primary-100 border-primary-300">
-        <label className="block text-sm font-medium text-neutral-700 mb-1">
-          Название товара (опционально)
-        </label>
-        <input
-          type="text"
-          list="product-names-list"
-          value={productName}
-          onChange={(e) => setProductName(e.target.value)}
-          placeholder="Например: Кроссовки Nike Pegasus 40"
-          className="input bg-white"
-          maxLength={200}
-        />
-        <datalist id="product-names-list">
-          {productNames.map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
-        <p className="text-xs text-neutral-500 mt-1.5">
-          Указанное название создаст или дополнит товар в системе. Если оставить пустым — для CSV
-          будет использовано имя файла.
-        </p>
-      </div>
+      {tab !== 'parsing' && <div className="card bg-primary-100 border-primary-300">
+        <label htmlFor="import-product" className="block text-sm font-medium text-neutral-700 mb-1">Товар *</label>
+        <select id="import-product" className="input" value={productChoice} onChange={(event) => setProductChoice(event.target.value)}>
+          <option value="">Выберите товар</option><option value="__new__">Создать новый товар</option>
+          {(products.data?.items ?? []).filter((product) => product.id !== '__unassigned__').map((product) =>
+            <option key={product.id} value={product.id}>{product.name}{product.sourceUrl ? ' · ' + product.sourceUrl : ''}</option>)}
+        </select>
+        {productChoice === '__new__' && <label className="block text-sm mt-3">Название нового товара
+          <input type="text" value={productName} onChange={(event) => setProductName(event.target.value)}
+            placeholder="Например: Кроссовки Nike Pegasus 40" className="input" maxLength={200} />
+        </label>}
+        <p className="text-xs text-neutral-500 mt-1.5">Отзывы добавляются в выбранный товар. Новый товар создаётся при успешном импорте.</p>
+      </div>}
 
       <div className="flex gap-1 border-b border-primary-300/50 dark:border-primary-700/40">
         {[
@@ -147,43 +118,11 @@ export function UploadPage() {
         ))}
       </div>
 
-      {tab === 'csv' && (
-        <div
-          {...getRootProps()}
-          className={clsx(
-            'rounded-2xl cursor-pointer text-center py-16 border-2 border-dashed transition-all duration-300',
-            isDragActive
-              ? 'border-primary-500 bg-primary-200/60 scale-[1.01]'
-              : 'border-primary-400/60 hover:border-primary-500 hover:bg-primary-200/40',
-            uploadCsv.isPending && 'opacity-60 cursor-wait',
-          )}
-          style={{ background: isDragActive ? 'rgba(184,216,245,0.55)' : 'rgba(211,233,248,0.45)' }}
-        >
-          <input {...getInputProps()} />
-          <div className="flex flex-col items-center gap-3">
-            <div className={clsx(
-              'h-16 w-16 rounded-2xl flex items-center justify-center transition-all duration-300',
-              isDragActive ? 'bg-primary-500 shadow-lg' : 'bg-primary-300/70',
-            )}>
-              {uploadCsv.isPending ? (
-                <Loader2 className="h-8 w-8 text-primary-900 animate-spin" />
-              ) : (
-                <UploadIcon className="h-8 w-8 text-primary-900" />
-              )}
-            </div>
-            <p className="text-base font-semibold text-primary-900 dark:text-primary-100">
-              {uploadCsv.isPending
-                ? 'Загрузка...'
-                : isDragActive
-                  ? 'Отпустите файл здесь'
-                  : 'Перетащите CSV-файл или кликните'}
-            </p>
-            <p className="text-xs text-primary-600 dark:text-primary-400">
-              Колонки: text/review/comment, rating/score (1-5), date (опц.)
-            </p>
-          </div>
-        </div>
-      )}
+      {tab === 'csv' && <CsvImportWizard productId={productId} productName={newProductName} onImported={(result) => {
+        useProductStore.getState().setSelectedProductId(result.productId);
+        setProductChoice(result.productId);
+        if (result.count > 0) setUploadedCount(result.count);
+      }} />}
 
       {tab === 'parsing' && (
         <div className="space-y-4">
@@ -272,6 +211,7 @@ export function UploadPage() {
       {tab === 'manual' && (
         <div className="card space-y-4">
           <textarea
+            maxLength={10_000}
             value={text}
             onChange={(e) => setText(e.target.value)}
             className="input min-h-[200px] resize-y"
@@ -297,7 +237,7 @@ export function UploadPage() {
             </div>
             <button
               onClick={handleManualSubmit}
-              disabled={!text.trim() || createManual.isPending}
+              disabled={!text.trim() || !productReady || createManual.isPending}
               className="btn-primary"
             >
               {createManual.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
