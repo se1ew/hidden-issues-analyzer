@@ -15,8 +15,9 @@ export const ListReviewsQuerySchema = z.object({
 export type ListReviewsQuery = z.infer<typeof ListReviewsQuerySchema>;
 
 export const CreateManualReviewSchema = z.object({
-  text: z.string().trim().min(1).max(10_000),
+  text: z.string().min(1).max(10_000).refine((text) => text.trim().length > 0, 'Текст не может быть пустым'),
   rating: z.coerce.number().int().min(1).max(5).optional(),
+  productId: z.string().min(1).max(60).optional(),
   productName: z.string().trim().min(1).max(200).optional(),
 });
 export type CreateManualReviewInput = z.infer<typeof CreateManualReviewSchema>;

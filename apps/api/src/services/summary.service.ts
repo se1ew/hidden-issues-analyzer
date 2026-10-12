@@ -1,12 +1,9 @@
+import { ownedProductScope } from './ownership.service.js';
 import { prisma } from '../lib/prisma.js';
 import { chatCompletion } from '../lib/openrouter.js';
 
-export async function generateProductSummary(productId?: string): Promise<string> {
-  const where = productId
-    ? productId === '__unassigned__'
-      ? { productId: null }
-      : { productId }
-    : {};
+export async function generateProductSummary(userId: string, productId?: string): Promise<string> {
+  const where = ownedProductScope(userId, productId);
 
   const [issues, reviewCount, stats] = await Promise.all([
     prisma.hiddenIssue.findMany({
@@ -15,10 +12,10 @@ export async function generateProductSummary(productId?: string): Promise<string
       take: 10,
       select: { title: true, description: true, hiddenScore: true, size: true, resolved: true },
     }),
-    prisma.review.count({ where: productId ? (productId === '__unassigned__' ? { productId: null } : { productId }) : {} }),
+    prisma.review.count({ where }),
     prisma.review.groupBy({
       by: ['sentiment'],
-      where: productId ? (productId === '__unassigned__' ? { productId: null } : { productId }) : {},
+      where,
       _count: { id: true },
     }),
   ]);

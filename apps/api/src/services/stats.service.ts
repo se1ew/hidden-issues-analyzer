@@ -1,14 +1,8 @@
 import { prisma } from '../lib/prisma.js';
-import { UNASSIGNED_PRODUCT_ID } from './products.service.js';
+import { ownedProductScope } from './ownership.service.js';
 
-function productWhere(productId?: string): { productId: string | null } | object {
-  if (!productId) return {};
-  if (productId === UNASSIGNED_PRODUCT_ID) return { productId: null };
-  return { productId };
-}
-
-export async function getOverviewStats(productId?: string) {
-  const where = productWhere(productId);
+export async function getOverviewStats(userId: string, productId?: string) {
+  const where = ownedProductScope(userId, productId);
   const [total, analyzed, avgRating, sentimentCounts, issuesCount] = await Promise.all([
     prisma.review.count({ where }),
     prisma.review.count({ where: { ...where, analyzedAt: { not: null } } }),
@@ -19,11 +13,7 @@ export async function getOverviewStats(productId?: string) {
       where: { ...where, sentiment: { not: null } },
     }),
     prisma.hiddenIssue.count({
-      where: productId
-        ? productId === UNASSIGNED_PRODUCT_ID
-          ? { productId: null }
-          : { productId }
-        : {},
+      where,
     }),
   ]);
 
@@ -49,6 +39,7 @@ export async function getOverviewStats(productId?: string) {
 export type Bucket = 'day' | 'week' | 'month';
 
 export async function getSentimentTimeseries(
+  userId: string,
   bucket: Bucket = 'day',
   days = 30,
   productId?: string,
@@ -56,13 +47,14 @@ export async function getSentimentTimeseries(
   const trunc = bucket === 'month' ? 'month' : bucket === 'week' ? 'week' : 'day';
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  // Параметризуем productId-условие безопасно через $3 (или NULL = NULL для unassigned)
-  let productClause = '';
-  const params: unknown[] = [trunc, since];
-  if (productId === UNASSIGNED_PRODUCT_ID) {
-    productClause = 'AND "productId" IS NULL';
+  // Owner and optional product are bound SQL parameters, never interpolated values.
+  if (!userId) throw new Error('User is required');
+  let productClause = 'AND EXISTS (SELECT 1 FROM "Product" p WHERE p.id = "Review"."productId" AND p."userId" = $3)';
+  const params: unknown[] = [trunc, since, userId];
+  if (productId === '__unassigned__') {
+    productClause += ' AND "productId" IS NULL';
   } else if (productId) {
-    productClause = 'AND "productId" = $3';
+    productClause += ' AND "productId" = $4';
     params.push(productId);
   }
 

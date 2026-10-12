@@ -1,17 +1,23 @@
+import { requireOwnedProduct } from './ownership.service.js';
+import { HttpError } from '../middleware/error.js';
+import { hasActiveJob } from '../sockets/index.js';
 import { prisma } from '../lib/prisma.js';
 
 export interface ProductWithStats {
   id: string;
   name: string;
   sourceUrl: string | null;
+  source: string | null;
+  externalId: string | null;
   reviewsCount: number;
   analyzedCount: number;
   avgRating: number | null;
   createdAt: Date;
 }
 
-export async function listProducts(): Promise<ProductWithStats[]> {
+export async function listProducts(userId: string): Promise<ProductWithStats[]> {
   const products = await prisma.product.findMany({
+    where: { userId },
     orderBy: { createdAt: 'desc' },
     include: {
       _count: { select: { reviews: true } },
@@ -28,6 +34,8 @@ export async function listProducts(): Promise<ProductWithStats[]> {
       id: p.id,
       name: p.name,
       sourceUrl: p.sourceUrl,
+      source: p.source,
+      externalId: p.externalId,
       reviewsCount: p._count.reviews,
       analyzedCount,
       avgRating: ratings.length > 0 ? ratings.reduce((s, x) => s + x, 0) / ratings.length : null,
@@ -41,49 +49,30 @@ export async function listProducts(): Promise<ProductWithStats[]> {
  */
 export const UNASSIGNED_PRODUCT_ID = '__unassigned__';
 
-export async function getUnassignedStats(): Promise<ProductWithStats | null> {
-  const where = { productId: null };
-  const [total, analyzed, avg] = await Promise.all([
-    prisma.review.count({ where }),
-    prisma.review.count({ where: { ...where, analyzedAt: { not: null } } }),
-    prisma.review.aggregate({ where, _avg: { rating: true } }),
-  ]);
-  if (total === 0) return null;
-  return {
-    id: UNASSIGNED_PRODUCT_ID,
-    name: 'Без привязки к товару',
-    sourceUrl: null,
-    reviewsCount: total,
-    analyzedCount: analyzed,
-    avgRating: avg._avg.rating,
-    createdAt: new Date(0),
-  };
-}
-
-export async function renameProduct(id: string, name: string): Promise<ProductWithStats | null> {
-  const existing = await prisma.product.findUnique({ where: { id } });
+export async function renameProduct(id: string, name: string, userId: string): Promise<ProductWithStats | null> {
+  const existing = await prisma.product.findFirst({ where: { id, userId } });
   if (!existing) return null;
-  await prisma.product.update({ where: { id }, data: { name } });
-  const products = await listProducts();
+  await prisma.product.updateMany({ where: { id, userId }, data: { name } });
+  const products = await listProducts(userId);
   return products.find((p) => p.id === id) ?? null;
 }
 
-export async function removeProduct(id: string): Promise<void> {
-  await prisma.$transaction([
-    prisma.hiddenIssue.deleteMany({ where: { productId: id } }),
-    prisma.review.deleteMany({ where: { productId: id } }),
-    prisma.product.delete({ where: { id } }),
-  ]);
-}
-
-/**
- * Преобразует productId из query (UI) в условие WHERE для prisma.
- * - undefined → не фильтруем (все)
- * - UNASSIGNED_PRODUCT_ID → productId: null
- * - конкретный id → productId: id
- */
-export function productIdToWhere(productId?: string): { productId: string | null } | object {
-  if (!productId) return {};
-  if (productId === UNASSIGNED_PRODUCT_ID) return { productId: null };
-  return { productId };
+export async function removeProduct(id: string, userId: string): Promise<void> {
+  await requireOwnedProduct(userId, id);
+  if (hasActiveJob(userId, id)) throw new HttpError(409, 'Сначала остановите активный анализ');
+  await prisma.$transaction(async (tx) => {
+    if (await tx.analysisRun.count({ where: { productId: id, status: { in: ['queued', 'running'] } } })) {
+      throw new HttpError(409, 'Сначала остановите активный анализ');
+    }
+    // Artifact cleanup and historical data deletion are implemented with the new pipeline.
+    if (await tx.analysisRun.count({ where: { productId: id } })) {
+      throw new HttpError(409, 'Удаление товара с историей запусков ещё не поддерживается');
+    }
+    await tx.report.deleteMany({ where: { productId: id, userId } });
+    await tx.problem.deleteMany({ where: { productId: id } });
+    await tx.hiddenIssue.deleteMany({ where: { productId: id } });
+    await tx.review.deleteMany({ where: { productId: id, product: { userId } } });
+    await tx.uploadBatch.deleteMany({ where: { productId: id, userId } });
+    await tx.product.deleteMany({ where: { id, userId } });
+  });
 }

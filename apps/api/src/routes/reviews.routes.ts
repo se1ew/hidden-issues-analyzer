@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 
 import * as ctrl from '../controllers/reviews.controller.js';
-import { optionalAuth } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
   CreateManualReviewSchema,
@@ -13,10 +13,10 @@ export const reviewsRouter = Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
+  limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-reviewsRouter.use(optionalAuth);
+reviewsRouter.use(requireAuth);
 
 reviewsRouter.get('/', validate(ListReviewsQuerySchema, 'query'), ctrl.list);
 reviewsRouter.delete('/', ctrl.deleteBulk);

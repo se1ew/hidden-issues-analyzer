@@ -14,8 +14,9 @@ beforeEach(() => {
 
 describe('getOverviewStats', () => {
   it.each([[undefined, {}], ['__unassigned__', { productId: null }], ['product-1', { productId: 'product-1' }]])(
-    'применяет область %s к запросам статистики', async (productId, where) => {
-      const result = await getOverviewStats(productId);
+    'применяет область %s к запросам статистики', async (productId, scope) => {
+      const where = { ...scope, product: { userId: 'owner' } };
+      const result = await getOverviewStats('owner', productId);
       expect(prisma.review.count).toHaveBeenNthCalledWith(1, { where });
       expect(prisma.review.count).toHaveBeenNthCalledWith(2, { where: { ...where, analyzedAt: { not: null } } });
       expect(prisma.hiddenIssue.count).toHaveBeenCalledWith({ where });
@@ -29,7 +30,7 @@ describe('getOverviewStats', () => {
     vi.mocked(prisma.review.aggregate).mockResolvedValue({ _avg: { rating: null } } as never);
     vi.mocked(prisma.review.groupBy).mockResolvedValue([] as never);
     vi.mocked(prisma.hiddenIssue.count).mockResolvedValue(0);
-    expect(await getOverviewStats('empty')).toEqual({
+    expect(await getOverviewStats('owner', 'empty')).toEqual({
       total: 0, analyzed: 0, pending: 0, avgRating: null,
       sentiment: { positive: 0, negative: 0, neutral: 0 }, negativePct: 0, issuesCount: 0,
     });
@@ -45,27 +46,29 @@ describe('getSentimentTimeseries', () => {
         { bucket: new Date('2026-01-02'), avg_rating: 2 },
       ]);
     const productId = "product' OR true --";
-    const result = await getSentimentTimeseries('week', 30, productId);
+    const result = await getSentimentTimeseries('owner', 'week', 30, productId);
     expect(result.buckets).toEqual([
       { date: '2026-01-01', positive: 0, negative: 0, neutral: 0, avgRating: 4.57 },
       { date: '2026-01-02', positive: 0, negative: 2, neutral: 0, avgRating: 2 },
     ]);
     const calls = vi.mocked(prisma.$queryRawUnsafe).mock.calls;
-    for (const [sql, bucket, since, id] of calls) {
-      expect(sql).toContain('"productId" = $3');
+    for (const [sql, bucket, since, userId, id] of calls) {
+      expect(sql).toContain('"productId" = $4');
       expect(sql).not.toContain(productId);
       expect(bucket).toBe('week');
       expect(since).toBeInstanceOf(Date);
       expect(id).toBe(productId);
+      expect(userId).toBe('owner');
+      expect(sql).toContain('p."userId" = $3');
     }
   });
 
   it('для непривязанных отзывов использует IS NULL без третьего параметра', async () => {
     vi.mocked(prisma.$queryRawUnsafe).mockResolvedValue([]);
-    expect(await getSentimentTimeseries('day', 7, '__unassigned__')).toEqual({ buckets: [] });
+    expect(await getSentimentTimeseries('owner', 'day', 7, '__unassigned__')).toEqual({ buckets: [] });
     for (const call of vi.mocked(prisma.$queryRawUnsafe).mock.calls) {
       expect(call[0]).toContain('"productId" IS NULL');
-      expect(call).toHaveLength(3);
+      expect(call).toHaveLength(4);
     }
   });
 });

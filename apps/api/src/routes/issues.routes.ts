@@ -1,11 +1,11 @@
 import { Router } from 'express';
 
 import * as ctrl from '../controllers/issues.controller.js';
-import { optionalAuth } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 
 export const issuesRouter = Router();
 
-issuesRouter.use(optionalAuth);
+issuesRouter.use(requireAuth);
 
 issuesRouter.get('/', ctrl.list);
 issuesRouter.get('/:id', ctrl.getById);

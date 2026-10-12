@@ -1,3 +1,4 @@
+import { requestUserId } from '../middleware/auth.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Request, Response } from 'express';
@@ -19,17 +20,14 @@ export async function list(req: Request, res: Response): Promise<void> {
 
 export async function generate(req: Request, res: Response): Promise<void> {
   const parsed = GenerateSchema.parse(req.body);
-  const result = await service.generateReport(parsed.format, req.user?.sub ?? null, parsed.title);
+  const result = await service.generateReport(parsed.format, requestUserId(req), parsed.title);
   res.status(201).json(result);
 }
 
 export async function download(req: Request, res: Response): Promise<void> {
   const id = req.params.id as string;
-  const report = await service.getReport(id);
+  const report = await service.getReport(id, requestUserId(req));
   if (!report) throw new HttpError(404, 'Report not found');
-  if (req.user && report.userId && report.userId !== req.user.sub) {
-    throw new HttpError(403, 'Forbidden');
-  }
   if (!fs.existsSync(report.filePath)) {
     throw new HttpError(410, 'Report file is missing');
   }
@@ -43,6 +41,5 @@ export async function download(req: Request, res: Response): Promise<void> {
       ? 'application/pdf'
       : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   );
-  res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
-  fs.createReadStream(report.filePath).pipe(res);
+  res.download(report.filePath, downloadName);
 }

@@ -1,3 +1,4 @@
+import { ownedProductScope } from './ownership.service.js';
 import type { Sentiment } from '@prisma/client';
 
 import { prisma } from '../lib/prisma.js';
@@ -72,6 +73,8 @@ function clamp(n: number, min: number, max: number): number {
 }
 
 export interface RunOptions {
+  userId: string;
+  productId?: string;
   limit?: number;
   concurrency?: number;
   delayMs?: number;
@@ -86,7 +89,7 @@ function sleep(ms: number): Promise<void> {
 /**
  * Запускает анализ всех непроанализированных отзывов.
  */
-export async function runPendingAnalysis(opts: RunOptions = {}): Promise<{
+export async function runPendingAnalysis(opts: RunOptions): Promise<{
   processed: number;
   failed: number;
   total: number;
@@ -96,7 +99,7 @@ export async function runPendingAnalysis(opts: RunOptions = {}): Promise<{
   const delayMs = opts.delayMs ?? 4_000;
 
   const pending = await prisma.review.findMany({
-    where: { analyzedAt: null },
+    where: { ...ownedProductScope(opts.userId, opts.productId), analyzedAt: null },
     take: limit,
     select: { id: true, text: true },
     orderBy: { createdAt: 'asc' },
@@ -116,14 +119,15 @@ export async function runPendingAnalysis(opts: RunOptions = {}): Promise<{
       if (!item) break;
       try {
         const result = await analyzeReviewText(item.text);
-        await prisma.review.update({
-          where: { id: item.id },
+        await prisma.review.updateMany({
+          where: { id: item.id, ...ownedProductScope(opts.userId, opts.productId) },
           data: {
             sentiment: result.sentiment,
             sentimentScore: result.sentiment_score,
             aspects: result.aspects,
             issues: result.issues,
             analyzedAt: new Date(),
+            legacyAnalysis: true,
           },
         });
       } catch (err) {

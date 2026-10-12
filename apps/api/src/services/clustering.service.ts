@@ -1,3 +1,4 @@
+import { ownedProductScope } from './ownership.service.js';
 // @ts-expect-error — у пакета нет типов
 import densityClustering from 'density-clustering';
 
@@ -89,9 +90,9 @@ export interface ClusterRunResult {
  *
  * @param productId Если указан — пересчитывает только для этого товара. Иначе — для всех.
  */
-export async function recomputeHiddenIssues(productId?: string): Promise<ClusterRunResult> {
+export async function recomputeHiddenIssues(userId: string, productId?: string): Promise<ClusterRunResult> {
   // 1. Собираем все issue-точки (опционально ограничиваем по товару)
-  const reviewWhere = productId ? { productId } : {};
+  const reviewWhere = ownedProductScope(userId, productId);
   const reviews = await prisma.review.findMany({
     where: { ...reviewWhere, analyzedAt: { not: null }, issues: { not: null as never } },
     select: { id: true, sentimentScore: true, issues: true, productId: true },
@@ -114,12 +115,12 @@ export async function recomputeHiddenIssues(productId?: string): Promise<Cluster
 
   if (points.length < 3) {
     logger.warn({ points: points.length }, 'Not enough issue points to cluster');
-    await resetIssuesForScope(productId);
+    await resetIssuesForScope(userId, productId);
     return { clustersCreated: 0, reviewsAssigned: 0, noisePoints: points.length };
   }
 
   // 2. Очищаем старые HiddenIssue только в пределах scope
-  await resetIssuesForScope(productId);
+  await resetIssuesForScope(userId, productId);
 
   // 3. Группируем точки по productId — кластеризуем независимо
   const groups = new Map<string | null, { points: ReviewIssuePoint[]; indices: number[] }>();
@@ -143,7 +144,7 @@ export async function recomputeHiddenIssues(productId?: string): Promise<Cluster
 
     // Подсчёт всех отзывов в этом товаре (для visibility)
     const totalReviewsInGroup = await prisma.review.count({
-      where: groupProductId === null ? { productId: null } : { productId: groupProductId },
+      where: ownedProductScope(userId, groupProductId ?? undefined),
     });
 
     logger.info(
@@ -185,7 +186,7 @@ export async function recomputeHiddenIssues(productId?: string): Promise<Cluster
       });
 
       await prisma.review.updateMany({
-        where: { id: { in: uniqueReviewIds } },
+        where: { id: { in: uniqueReviewIds }, ...ownedProductScope(userId) },
         data: { hiddenIssueId: hiddenIssue.id },
       });
 
@@ -201,28 +202,12 @@ export async function recomputeHiddenIssues(productId?: string): Promise<Cluster
   return { clustersCreated, reviewsAssigned, noisePoints: totalNoise };
 }
 
-async function resetIssuesForScope(productId?: string): Promise<void> {
-  // Snimaem связь с reviews и удаляем HiddenIssue в нужном scope
-  if (productId) {
-    const issues = await prisma.hiddenIssue.findMany({
-      where: { productId },
-      select: { id: true },
-    });
-    const ids = issues.map((i) => i.id);
-    if (ids.length > 0) {
-      await prisma.review.updateMany({
-        where: { hiddenIssueId: { in: ids } },
-        data: { hiddenIssueId: null },
-      });
-      await prisma.hiddenIssue.deleteMany({ where: { id: { in: ids } } });
-    }
-  } else {
-    await prisma.review.updateMany({
-      where: { hiddenIssueId: { not: null } },
-      data: { hiddenIssueId: null },
-    });
-    await prisma.hiddenIssue.deleteMany({});
-  }
+async function resetIssuesForScope(userId: string, productId?: string): Promise<void> {
+  const where = ownedProductScope(userId, productId);
+  await prisma.$transaction(async (tx) => {
+    await tx.review.updateMany({ where, data: { hiddenIssueId: null } });
+    await tx.hiddenIssue.deleteMany({ where });
+  });
 }
 
 function avg(arr: number[]): number {
@@ -231,15 +216,12 @@ function avg(arr: number[]): number {
 }
 
 export async function listHiddenIssues(
+  userId: string,
   productId?: string,
   page = 1,
   pageSize = 20,
 ) {
-  const where = productId
-    ? productId === '__unassigned__'
-      ? { productId: null }
-      : { productId }
-    : {};
+  const where = ownedProductScope(userId, productId);
   const [items, total] = await Promise.all([
     prisma.hiddenIssue.findMany({
       where,
@@ -253,21 +235,22 @@ export async function listHiddenIssues(
   return { items, total, page, pageSize };
 }
 
-export async function toggleResolvedIssue(id: string) {
-  const existing = await prisma.hiddenIssue.findUnique({ where: { id } });
+export async function toggleResolvedIssue(id: string, userId: string) {
+  const existing = await prisma.hiddenIssue.findFirst({ where: { id, ...ownedProductScope(userId) } });
   if (!existing) return null;
   const newResolved = !existing.resolved;
   return prisma.hiddenIssue.update({
-    where: { id },
+    where: { id, ...ownedProductScope(userId) },
     data: { resolved: newResolved, resolvedAt: newResolved ? new Date() : null },
   });
 }
 
-export async function getHiddenIssue(id: string) {
-  const issue = await prisma.hiddenIssue.findUnique({
-    where: { id },
+export async function getHiddenIssue(id: string, userId: string) {
+  const issue = await prisma.hiddenIssue.findFirst({
+    where: { id, ...ownedProductScope(userId) },
     include: {
       reviews: {
+        where: ownedProductScope(userId),
         select: {
           id: true,
           text: true,

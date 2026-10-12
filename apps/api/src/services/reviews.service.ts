@@ -1,8 +1,8 @@
 import { parse } from 'csv-parse/sync';
 import type { Prisma } from '@prisma/client';
-
 import { prisma } from '../lib/prisma.js';
-import { logger } from '../lib/logger.js';
+import { persistImport } from './imports.service.js';
+import { ownedProductScope } from './ownership.service.js';
 import { HttpError } from '../middleware/error.js';
 import type { CreateManualReviewInput, ListReviewsQuery } from '../schemas/reviews.schema.js';
 import { UNASSIGNED_PRODUCT_ID } from './products.service.js';
@@ -11,6 +11,8 @@ export interface ParsedCsvRow {
   text: string;
   rating?: number;
   date?: Date;
+  externalId?: string;
+  authorExternalId?: string;
 }
 
 /**
@@ -26,7 +28,7 @@ export function parseReviewsCsv(buffer: Buffer): ParsedCsvRow[] {
     columns: (headers: string[]) =>
       headers.map((h) => h.toString().toLowerCase().trim().replace(/\s+/g, '_')),
     skip_empty_lines: true,
-    trim: true,
+    trim: false,
     relax_quotes: true,
     relax_column_count: true,
   }) as Record<string, string>[];
@@ -48,7 +50,9 @@ export function parseReviewsCsv(buffer: Buffer): ParsedCsvRow[] {
     }
 
     rows.push({
-      text: text.trim(),
+      text,
+      externalId: (r.external_id ?? r.review_id ?? '').trim() || undefined,
+      authorExternalId: (r.author_id ?? '').trim() || undefined,
       rating: Number.isFinite(rating) && rating! >= 1 && rating! <= 5 ? Math.round(rating!) : undefined,
       date,
     });
@@ -58,87 +62,25 @@ export function parseReviewsCsv(buffer: Buffer): ParsedCsvRow[] {
 }
 
 export async function importReviewsFromCsv(
-  buffer: Buffer,
-  filename: string,
-  userId: string | null,
-  productName?: string,
-): Promise<{ count: number; batchId: string; productId: string | null }> {
+  buffer: Buffer, filename: string, userId: string, productName?: string, productId?: string,
+) {
   const rows = parseReviewsCsv(buffer);
-  if (rows.length === 0) {
-    throw new HttpError(422, 'CSV не содержит валидных строк (нет колонки text/review/comment)');
-  }
-
-  // Если указано имя товара — создаём/находим его, иначе используем имя файла
-  let productId: string | null = null;
-  const finalProductName = productName?.trim() || deriveProductNameFromFilename(filename);
-  if (finalProductName) {
-    const existing = await prisma.product.findFirst({ where: { name: finalProductName } });
-    const product = existing ?? (await prisma.product.create({ data: { name: finalProductName } }));
-    productId = product.id;
-  }
-
-  const batch = await prisma.uploadBatch.create({
-    data: {
-      userId,
-      source: 'csv',
-      filename,
-      count: rows.length,
-    },
-  });
-
-  // Чанки по 500 строк, чтобы не упереться в лимиты БД
-  const CHUNK = 500;
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK);
-    await prisma.review.createMany({
-      data: chunk.map((r) => ({
-        text: r.text,
-        rating: r.rating ?? null,
-        reviewDate: r.date ?? null,
-        productId,
-      })),
-    });
-  }
-
-  logger.info({ batchId: batch.id, count: rows.length, userId, productId }, 'CSV import complete');
-  return { count: rows.length, batchId: batch.id, productId };
+  if (!rows.length) throw new HttpError(422, 'CSV не содержит валидных строк');
+  const result = await persistImport({ userId, productId,
+    productName: productName?.trim() || filename.replace(/\.[a-z0-9]+$/i, '').slice(0, 200) || 'Импорт CSV',
+    source: 'csv', filename, rows });
+  const { reviewIds: _ids, ...summary } = result;
+  return summary;
 }
 
-function deriveProductNameFromFilename(filename: string): string | null {
-  if (!filename) return null;
-  const base = filename.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim();
-  return base ? base.slice(0, 200) : null;
+export async function createManualReview(input: CreateManualReviewInput, userId: string): Promise<{ id: string; productId: string }> {
+  const result = await persistImport({ userId, productId: input.productId,
+    productName: input.productName || 'Отзывы вручную', source: 'manual', rows: [{ text: input.text, rating: input.rating }] });
+  return { id: result.reviewIds[0], productId: result.productId };
 }
 
-export async function createManualReview(
-  input: CreateManualReviewInput,
-  userId: string | null,
-): Promise<{ id: string }> {
-  let productId: string | null = null;
-  if (input.productName) {
-    const existing = await prisma.product.findFirst({ where: { name: input.productName } });
-    const product =
-      existing ?? (await prisma.product.create({ data: { name: input.productName } }));
-    productId = product.id;
-  }
-
-  const review = await prisma.review.create({
-    data: {
-      text: input.text,
-      rating: input.rating ?? null,
-      productId,
-    },
-  });
-
-  await prisma.uploadBatch.create({
-    data: { userId, source: 'manual', count: 1 },
-  });
-
-  return { id: review.id };
-}
-
-export async function listReviews(query: ListReviewsQuery) {
-  const where: Prisma.ReviewWhereInput = {};
+export async function listReviews(query: ListReviewsQuery, userId: string) {
+  const where: Prisma.ReviewWhereInput = ownedProductScope(userId, query.productId);
   if (query.sentiment) where.sentiment = query.sentiment;
   if (query.rating) where.rating = query.rating;
   if (query.hasIssues !== undefined) {
@@ -178,28 +120,25 @@ export async function listReviews(query: ListReviewsQuery) {
   return { items, total, page: query.page, pageSize: query.pageSize };
 }
 
-export async function getReview(id: string) {
-  const review = await prisma.review.findUnique({
-    where: { id },
+export async function getReview(id: string, userId: string) {
+  const review = await prisma.review.findFirst({
+    where: { id, ...ownedProductScope(userId) },
     include: { hiddenIssue: true, product: true },
   });
   if (!review) throw new HttpError(404, 'Отзыв не найден');
+  if (review.hiddenIssue && review.hiddenIssue.productId !== review.productId) {
+    review.hiddenIssue = null;
+  }
   return review;
 }
 
-export async function deleteReview(id: string): Promise<void> {
-  const review = await prisma.review.findUnique({ where: { id } });
+export async function deleteReview(id: string, userId: string): Promise<void> {
+  const review = await prisma.review.findFirst({ where: { id, ...ownedProductScope(userId) } });
   if (!review) throw new HttpError(404, 'Отзыв не найден');
-  await prisma.review.delete({ where: { id } });
+  await prisma.review.deleteMany({ where: { id, ...ownedProductScope(userId) } });
 }
 
-export async function deleteReviewsBulk(productId?: string): Promise<number> {
-  const where =
-    productId === UNASSIGNED_PRODUCT_ID
-      ? { productId: null }
-      : productId
-        ? { productId }
-        : {};
-  const result = await prisma.review.deleteMany({ where });
+export async function deleteReviewsBulk(userId: string, productId?: string): Promise<number> {
+  const result = await prisma.review.deleteMany({ where: ownedProductScope(userId, productId) });
   return result.count;
 }

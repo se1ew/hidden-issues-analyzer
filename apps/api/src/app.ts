@@ -25,13 +25,10 @@ export function createApp(): Express {
       origin: (origin, cb) => {
         // Allow same-origin (no origin header) and configured origin
         if (!origin || origin === env.WEB_ORIGIN) return cb(null, true);
-        // In development also allow any localhost / 127.0.0.1 port (IDE previews, curl, etc.)
-        if (env.NODE_ENV === 'development' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-          return cb(null, true);
-        }
         cb(new Error(`CORS: origin ${origin} not allowed`));
       },
       credentials: true,
+      exposedHeaders: ['Content-Disposition'],
     }),
   );
   app.use(express.json({ limit: '10mb' }));

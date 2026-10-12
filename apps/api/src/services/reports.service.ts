@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,19 +35,19 @@ interface ReportPayload {
   issues: Awaited<ReturnType<typeof listHiddenIssues>>['items'];
 }
 
-async function buildPayload(): Promise<ReportPayload> {
-  const [stats, issuesResult] = await Promise.all([getOverviewStats(), listHiddenIssues()]);
+async function buildPayload(userId: string): Promise<ReportPayload> {
+  const [stats, issuesResult] = await Promise.all([getOverviewStats(userId), listHiddenIssues(userId)]);
   return { generatedAt: new Date(), stats, issues: issuesResult.items };
 }
 
 export async function generateReport(
   format: 'pdf' | 'docx',
-  userId: string | null,
+  userId: string,
   title?: string,
-): Promise<{ id: string; filePath: string; downloadUrl: string }> {
-  const payload = await buildPayload();
+): Promise<{ id: string; downloadUrl: string }> {
+  const payload = await buildPayload(userId);
   const reportTitle = title?.trim() || 'Отчёт по анализу отзывов';
-  const filename = `report-${Date.now()}.${format}`;
+  const filename = `report-${randomUUID()}.${format}`;
   const filePath = path.join(REPORTS_DIR, filename);
 
   if (format === 'pdf') {
@@ -61,20 +62,29 @@ export async function generateReport(
       title: reportTitle,
       format,
       filePath,
+      parameters: { ownerScope: userId },
     },
   });
 
   logger.info({ reportId: report.id, format, filePath }, 'Report generated');
-  return { id: report.id, filePath, downloadUrl: `/api/reports/${report.id}/download` };
+  return { id: report.id, downloadUrl: `/api/reports/${report.id}/download` };
 }
 
-export async function getReport(id: string) {
-  return prisma.report.findUnique({ where: { id } });
+export async function getReport(id: string, userId: string) {
+  return prisma.report.findFirst({ where: { id, ...accessibleReports(userId) } });
+}
+
+function accessibleReports(userId: string) {
+  return { userId, OR: [
+    { product: { userId } },
+    { legacy: true, parameters: { path: ['ownerScope'], equals: userId } },
+  ] };
 }
 
 export async function listReports(userId: string) {
   return prisma.report.findMany({
-    where: { userId },
+    where: accessibleReports(userId),
+    select: { id: true, title: true, format: true, createdAt: true, legacy: true },
     orderBy: { createdAt: 'desc' },
     take: 50,
   });

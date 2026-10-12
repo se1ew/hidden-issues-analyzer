@@ -19,6 +19,8 @@ export interface ClientToServerEvents {
 export type AppIOServer = IOServer<ClientToServerEvents, ServerToClientEvents>;
 
 export interface JobState {
+  userId?: string;
+  productId?: string;
   status: 'analyzing' | 'complete' | 'error';
   processed: number;
   total: number;
@@ -44,6 +46,15 @@ export function deleteJobState(jobId: string): void {
   jobStore.delete(jobId);
 }
 
+export function ownsJob(jobId: string, userId: string): boolean {
+  return jobStore.get(jobId)?.userId === userId;
+}
+
+export function hasActiveJob(userId: string, productId?: string): boolean {
+  return [...jobStore.values()].some((job) => job.userId === userId && job.status === 'analyzing'
+    && (!productId || !job.productId || job.productId === productId));
+}
+
 let io: AppIOServer | null = null;
 
 export function initSocketIO(httpServer: HTTPServer): AppIOServer {
@@ -51,24 +62,30 @@ export function initSocketIO(httpServer: HTTPServer): AppIOServer {
     cors: { origin: env.WEB_ORIGIN, credentials: true },
   });
 
-  // Опциональная JWT-аутентификация по handshake.auth.token
+  // Every connection and room subscription requires an authenticated owner.
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (token) {
       try {
         const payload = verifyAccessToken(token);
         socket.data.user = payload;
-      } catch {
-        // anonymous socket
-      }
+      } catch { next(new Error('Unauthorized')); return; }
+    } else {
+      next(new Error('Unauthorized')); return;
     }
     next();
   });
 
   io.on('connection', (socket) => {
+    const expiresAt = socket.data.user.exp;
+    const expirationTimer = typeof expiresAt === 'number'
+      ? setTimeout(() => socket.disconnect(true), Math.max(0, expiresAt * 1000 - Date.now()))
+      : undefined;
+    expirationTimer?.unref();
     logger.debug({ id: socket.id, user: socket.data.user?.email }, 'socket connected');
 
     socket.on('job:subscribe', (jobId: string) => {
+      if (typeof jobId !== 'string' || !ownsJob(jobId, socket.data.user.sub)) return;
       socket.join(`job:${jobId}`);
       // Replay current job state so late-subscribing clients catch up
       const state = jobStore.get(jobId);
@@ -91,6 +108,7 @@ export function initSocketIO(httpServer: HTTPServer): AppIOServer {
     });
 
     socket.on('disconnect', () => {
+      if (expirationTimer) clearTimeout(expirationTimer);
       logger.debug({ id: socket.id }, 'socket disconnected');
     });
   });

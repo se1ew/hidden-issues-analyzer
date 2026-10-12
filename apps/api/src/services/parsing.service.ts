@@ -1,14 +1,16 @@
-import { prisma } from '../lib/prisma.js';
+import { persistImport } from './imports.service.js';
 import { logger } from '../lib/logger.js';
 
 export interface ParsedReview {
   text: string;
   rating?: number;
   date?: Date;
+  externalId?: string;
 }
 
 interface WbFeedbackResponse {
   feedbacks?: Array<{
+    id?: string | number;
     text?: string;
     productValuation?: number;
     createdDate?: string;
@@ -58,6 +60,7 @@ async function fetchWbFeedbacksByImtId(imtId: number): Promise<ParsedReview[]> {
         if (parts.length === 0) continue;
         const date = fb.createdDate ? new Date(fb.createdDate) : undefined;
         out.push({
+          externalId: fb.id === undefined ? undefined : String(fb.id),
           text: parts.join('\n'),
           rating:
             fb.productValuation && fb.productValuation >= 1 && fb.productValuation <= 5
@@ -104,10 +107,13 @@ async function fetchWbImtId(productId: number): Promise<number | null> {
   return null;
 }
 
-export async function parseWildberries(url: string): Promise<{
+export async function parseWildberries(url: string, userId: string): Promise<{
   source: 'wildberries';
   productId: number;
   reviewsAdded: number;
+  internalProductId?: string;
+  batchId?: string;
+  skippedCount?: number;
 }> {
   const productId = extractWbId(url);
   if (!productId) {
@@ -129,35 +135,17 @@ export async function parseWildberries(url: string): Promise<{
     return { source: 'wildberries', productId, reviewsAdded: 0 };
   }
 
-  // Создаём Product и Reviews
-  const product = await prisma.product.create({
-    data: { name: `WB ${productId}`, sourceUrl: url },
-  });
-
-  await prisma.review.createMany({
-    data: reviews.map((r) => ({
-      text: r.text,
-      rating: r.rating ?? null,
-      reviewDate: r.date ?? null,
-      productId: product.id,
-    })),
-  });
-
-  return { source: 'wildberries', productId, reviewsAdded: reviews.length };
+  const result = await persistImport({ userId, productName: `WB ${productId}`,
+    source: 'parsing', externalSource: 'wildberries', productExternalId: String(productId),
+    sourceUrl: url, filename: url.slice(0, 200), rows: reviews });
+  return { source: 'wildberries', productId, reviewsAdded: result.count,
+    internalProductId: result.productId, batchId: result.batchId, skippedCount: result.skippedCount };
 }
 
-export async function parseUrl(url: string, userId: string | null) {
-  if (/wildberries\.ru/.test(url)) {
-    const result = await parseWildberries(url);
-    await prisma.uploadBatch.create({
-      data: {
-        userId,
-        source: 'parsing',
-        filename: url.slice(0, 200),
-        count: result.reviewsAdded,
-      },
-    });
-    return result;
+export async function parseUrl(url: string, userId: string) {
+  const hostname = new URL(url).hostname;
+  if (hostname === 'wildberries.ru' || hostname.endsWith('.wildberries.ru')) {
+    return parseWildberries(url, userId);
   }
   throw new Error(
     'Поддерживается только wildberries.ru. Для других источников используйте загрузку CSV.',
