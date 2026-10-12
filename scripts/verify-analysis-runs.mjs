@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const name = `hia-run-check-${randomUUID().slice(0, 8)}`;
 const containers = [];
-let db;
+let db, worker, queueModule, modelServer;
+let fixtureMode = 'normal';
+const pendingModelReplies = [];
+let inferenceCalls = 0;
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', ...options });
   assert.equal(result.status, 0, result.stderr || result.error?.message || 'Command failed');
@@ -23,11 +28,34 @@ try {
   }
   assert(ready, 'Temporary PostgreSQL did not start');
   const port = run('docker', ['port', postgres, '5432']).trim().split(':').at(-1);
+  const redis = `${name}-redis`; containers.push(redis);
+  run('docker', ['run', '-d', '--name', redis, '-p', '127.0.0.1::6379', 'redis:7-alpine']);
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if (spawnSync('docker', ['exec', redis, 'redis-cli', 'ping'], { encoding: 'utf8' }).stdout?.includes('PONG')) break;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  const redisPort = run('docker', ['port', redis, '6379']).trim().split(':').at(-1);
+  modelServer = createServer(async (req, res) => {
+    let body = ''; for await (const chunk of req) body += chunk.toString();
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url === '/v1/models') return res.end(JSON.stringify({ data: [{ id: 'fixture-model' }] }));
+    assert.equal(JSON.parse(body).model, 'fixture-model', 'Worker must use the saved model, not current environment defaults');
+    inferenceCalls++;
+    const complete = () => { if (!res.destroyed) res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: {
+      content: JSON.stringify({ sentiment: fixtureMode === 'invalid' ? 'invalid' : 'positive', sentiment_score: 0.5,
+        aspects: [{ name: 'качество', sentiment: 'positive' }], issues: [] }),
+    } }] })); };
+    if (fixtureMode === 'hold') pendingModelReplies.push(complete); else complete();
+  });
+  modelServer.listen(0, '127.0.0.1'); await once(modelServer, 'listening');
   Object.assign(process.env, {
     NODE_ENV: 'test', DATABASE_URL: `postgresql://check:check@127.0.0.1:${port}/check`,
-    REDIS_URL: 'redis://127.0.0.1:6379', JWT_ACCESS_SECRET: 'run-check-access-secret-xxxxxxxxxxxx',
+    REDIS_URL: `redis://127.0.0.1:${redisPort}`, JWT_ACCESS_SECRET: 'run-check-access-secret-xxxxxxxxxxxx',
     JWT_REFRESH_SECRET: 'run-check-refresh-secret-xxxxxxxxxxxx', LLM_PROVIDER: 'local',
     LLM_MODEL: 'fixture-model', LLM_RETRIES: '0',
+    LLM_BASE_URL: `http://127.0.0.1:${modelServer.address().port}/v1`,
+    LLM_TIMEOUT_MS: '5000', ANALYSIS_QUEUE_NAME: name, ANALYSIS_HEARTBEAT_MS: '100',
+    ANALYSIS_LEASE_MS: '1000', ANALYSIS_DISPATCH_MS: '100',
   });
   run(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy', '--schema', 'apps/api/prisma/schema.prisma'], { env: process.env });
   const { prisma } = await import('../apps/api/dist/lib/prisma.js'); db = prisma;
@@ -137,7 +165,67 @@ try {
   assert.equal(unchanged.sentiment, previous.sentiment);
   assert.equal(unchanged.analyzedAt.getTime(), previous.analyzedAt.getTime());
   console.log('Run terminal states: all failures, successful empty grouping, empty selection and preserved publication after cancellation passed.');
+  queueModule = await import('../apps/api/dist/lib/analysis-queue.js');
+  let workerOutput = '';
+  const startWorker = () => {
+    worker = spawn(process.execPath, ['apps/api/dist/worker.js'], { cwd: root, env: process.env,
+      windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    worker.stdout.on('data', chunk => { workerOutput = (workerOutput + chunk.toString()).slice(-3000); });
+    worker.stderr.on('data', chunk => { workerOutput = (workerOutput + chunk.toString()).slice(-3000); });
+  };
+  const waitFor = async (condition, label) => {
+    for (let attempt = 0; attempt < 150; attempt++) {
+      if (await condition()) return;
+      if (worker?.exitCode !== null && worker?.exitCode !== undefined) assert.fail(`Worker exited: ${workerOutput}`);
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.fail(`Timed out: ${label}; ${workerOutput}`);
+  };
+  const reanalyze = { ...input, mode: 'reanalyze' };
+  const delivered = await runs.createAnalysisRun('a', reanalyze);
+  process.env.LLM_MODEL = 'changed-worker-default';
+  // Deliberately do not enqueue: the worker dispatcher must recover the committed row.
+  startWorker();
+  await waitFor(async () => (await runs.getAnalysisRun(delivered.id, 'a')).status === 'completed', 'outbox recovery');
+  assert.equal((await runs.getAnalysisRun(delivered.id, 'a')).succeeded, delivered.total);
+  assert.equal(await db.aspectMention.count({ where: { analysis: { runId: delivered.id } } }), delivered.total);
+  const countBeforeRedelivery = inferenceCalls;
+  await queueModule.enqueueAnalysisRun(delivered.id);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.equal(inferenceCalls, countBeforeRedelivery);
+  assert.equal(await db.aspectMention.count({ where: { analysis: { runId: delivered.id } } }), delivered.total);
+
+  fixtureMode = 'invalid';
+  const invalidRun = await runs.createAnalysisRun('a', reanalyze);
+  await Promise.all([queueModule.enqueueAnalysisRun(invalidRun.id), queueModule.enqueueAnalysisRun(invalidRun.id)]);
+  await waitFor(async () => (await runs.getAnalysisRun(invalidRun.id, 'a')).status === 'failed', 'all model errors');
+  assert.equal((await runs.getAnalysisRun(invalidRun.id, 'a')).failed, invalidRun.total);
+
+  fixtureMode = 'hold';
+  const activeCancel = await runs.createAnalysisRun('a', reanalyze);
+  await waitFor(() => pendingModelReplies.length > 0, 'active model request');
+  await runs.cancelAnalysisRun(activeCancel.id, 'a');
+  await waitFor(async () => (await runs.getAnalysisRun(activeCancel.id, 'a')).status === 'cancelled', 'active HTTP cancellation');
+  for (const complete of pendingModelReplies.splice(0)) complete();
+  assert.equal((await runs.getAnalysisRun(activeCancel.id, 'a')).succeeded, 0);
+
+  const crashing = await runs.createAnalysisRun('a', reanalyze);
+  await waitFor(() => pendingModelReplies.length > 0, 'crashing worker request');
+  const exited = once(worker, 'exit'); worker.kill('SIGKILL'); await exited; worker = undefined;
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  await runs.interruptExpiredRuns();
+  assert.equal((await runs.getAnalysisRun(crashing.id, 'a')).status, 'interrupted');
+  for (const complete of pendingModelReplies.splice(0)) complete();
+  fixtureMode = 'normal';
+  const afterRestart = await runs.createAnalysisRun('a', reanalyze);
+  startWorker();
+  await waitFor(async () => (await runs.getAnalysisRun(afterRestart.id, 'a')).status === 'completed', 'worker restart');
+  assert.equal((await runs.getAnalysisRun(crashing.id, 'a')).status, 'interrupted');
+  console.log('BullMQ worker: committed-row recovery, separate process, immutable configuration, duplicate delivery, model failure, active cancellation and worker crash/restart passed.');
 } finally {
+  if (worker && worker.exitCode === null) { const exited = once(worker, 'exit'); worker.kill('SIGKILL'); await exited; }
+  if (queueModule) await queueModule.closeAnalysisQueue();
+  if (modelServer) { modelServer.closeAllConnections(); await new Promise(resolve => modelServer.close(resolve)); }
   if (db) await db.$disconnect();
   for (const container of containers.reverse()) spawnSync('docker', ['rm', '-f', container], { encoding: 'utf8' });
 }

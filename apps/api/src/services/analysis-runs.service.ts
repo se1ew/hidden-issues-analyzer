@@ -206,6 +206,7 @@ export async function finishAnalysisRun(runId: string, token: string, errorCode?
     });
     const processed = current.succeeded + current.failed;
     const status = current.cancelRequestedAt ? 'cancelled'
+      : errorCode === 'worker_shutdown' ? 'interrupted'
       : current.total === 0 ? 'completed'
       : current.succeeded === 0 ? 'failed'
       : current.failed || errorCode || processed < current.total || hasComplaints ? 'partial' : 'completed';
