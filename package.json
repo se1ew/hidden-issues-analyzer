@@ -7,7 +7,7 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm-run-all --parallel dev:api dev:web",
+    "dev": "npm-run-all --parallel dev:api dev:web dev:worker",
     "dev:api": "npm run dev --workspace=@hia/api",
     "dev:web": "npm run dev --workspace=@hia/web",
     "dev:worker": "npm run dev:worker --workspace=@hia/api",

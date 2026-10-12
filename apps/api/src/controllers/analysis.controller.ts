@@ -1,17 +1,14 @@
 import type { Request, Response } from 'express';
-import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
 import { requestUserId } from '../middleware/auth.js';
-import { HttpError } from '../middleware/error.js';
 import { requireOwnedProduct } from '../services/ownership.service.js';
 
-import { runPendingAnalysis } from '../services/analyzer.service.js';
 import { getOverviewStats, getSentimentTimeseries, type Bucket } from '../services/stats.service.js';
 import { generateProductSummary } from '../services/summary.service.js';
-import { getIO, setJobState, deleteJobState, ownsJob, hasActiveJob } from '../sockets/index.js';
+import { CreateAnalysisRunSchema, ListAnalysisRunsSchema } from '../schemas/analysis-runs.schema.js';
+import { createAnalysisRun, getAnalysisRun, listAnalysisRuns, cancelAnalysisRun } from '../services/analysis-runs.service.js';
+import { enqueueAnalysisRun, notifyAnalysisRun } from '../lib/analysis-queue.js';
+import { logger } from '../lib/logger.js';
 import { llm, publicProviderConfiguration } from '../lib/llm.js';
-
-const jobCancels = new Map<string, AbortController>();
 
 export async function provider(_req: Request, res: Response): Promise<void> {
   res.json(publicProviderConfiguration());
@@ -25,92 +22,32 @@ export async function checkProvider(_req: Request, res: Response): Promise<void>
 }
 
 export async function run(req: Request, res: Response): Promise<void> {
-  const { limit, productId } = z.object({
-    limit: z.coerce.number().int().min(1).max(2000).default(200),
-    productId: z.string().min(1).max(60).optional(),
-  }).parse(req.body ?? {});
+  const input = CreateAnalysisRunSchema.parse(req.body ?? {});
   const userId = requestUserId(req);
-  if (productId) await requireOwnedProduct(userId, productId);
-  if (hasActiveJob(userId, productId)) throw new HttpError(409, 'Анализ уже выполняется');
+  await requireOwnedProduct(userId, input.productId);
   const preflight = new AbortController();
   res.once('close', () => { if (!res.writableEnded) preflight.abort(); });
   await llm.check(preflight.signal);
-  // The availability request yields; another start may have been accepted meanwhile.
-  if (hasActiveJob(userId, productId)) throw new HttpError(409, 'Анализ уже выполняется');
-  const jobId = `analysis-${randomUUID()}`;
-  const io = getIO();
-
-  // Сохраняем состояние ДО ответа клиенту — если клиент подпишется сразу после,
-  // он получит актуальный статус при job:subscribe (replay из jobStore)
-  setJobState(jobId, {
-    userId,
-    productId,
-    status: 'analyzing',
-    processed: 0,
-    total: 0,
-    step: 'analyzing',
-    label: 'Анализ тональности и аспектов',
-  });
-
-  // Возвращаем jobId сразу, анализ идёт в фоне с прогресс-эвентами через socket.io
-  res.status(202).json({ jobId, message: 'Анализ запущен' });
-
-  const room = io.to(`job:${jobId}`);
-
-  const controller = new AbortController();
-  jobCancels.set(jobId, controller);
-
-  const cleanup = () => {
-    jobCancels.delete(jobId);
-    setTimeout(() => deleteJobState(jobId), 30_000);
-  };
-
-  runPendingAnalysis({
-    userId,
-    productId,
-    limit,
-    concurrency: llm.config.concurrency,
-    signal: controller.signal,
-    onProgress: (processed, total) => {
-      setJobState(jobId, { processed, total });
-      room.emit('analysis:progress', { jobId, processed, total, step: 'analyzing' });
-    },
-  })
-    .then((result) => {
-      if (controller.signal.aborted) return;
-      if (result.failed > 0) {
-        const message = `Анализ завершён с ошибками: ${result.failed} из ${result.total} отзывов не обработаны`;
-        setJobState(jobId, { status: 'error', error: message });
-        room.emit('analysis:error', { jobId, message });
-        cleanup();
-        return;
-      }
-      setJobState(jobId, { status: 'complete', step: 'done', label: 'Готово' });
-      room.emit('analysis:step', { jobId, step: 'done', label: 'Готово' });
-      room.emit('analysis:complete', { jobId });
-      cleanup();
-    })
-    .catch((err: Error) => {
-      setJobState(jobId, { status: 'error', error: err.message });
-      room.emit('analysis:error', { jobId, message: err.message });
-      cleanup();
-    });
+  const created = await createAnalysisRun(userId, input);
+  let dispatchPending = false;
+  try { await enqueueAnalysisRun(created.id); }
+  catch { dispatchPending = true; logger.warn({ runId: created.id }, 'Run committed; queue delivery awaits dispatcher'); }
+  res.status(202).json({ ...created, runId: created.id, jobId: created.id, dispatchPending });
 }
 
 export async function cancel(req: Request, res: Response): Promise<void> {
-  const { jobId } = req.params as { jobId: string };
-  if (!ownsJob(jobId, requestUserId(req))) throw new HttpError(404, 'Запуск не найден');
-  const controller = jobCancels.get(jobId);
-  if (controller) {
-    controller.abort();
-    jobCancels.delete(jobId);
-    const io = getIO();
-    const room = io.to(`job:${jobId}`);
-    setJobState(jobId, { status: 'error', error: 'Анализ остановлен пользователем' });
-    room.emit('analysis:cancelled', { jobId });
-    setTimeout(() => deleteJobState(jobId), 30_000);
-  }
-  res.json({ ok: true, cancelled: !!controller });
+  const runId = (req.params.runId ?? req.params.jobId) as string;
+  const state = await cancelAnalysisRun(runId, requestUserId(req));
+  void notifyAnalysisRun(runId);
+  res.json({ ...state, ok: true, cancelled: !!state.cancelRequestedAt });
+}
+
+export async function getRun(req: Request, res: Response): Promise<void> {
+  res.json(await getAnalysisRun(req.params.runId as string, requestUserId(req)));
+}
+
+export async function listRuns(req: Request, res: Response): Promise<void> {
+  res.json(await listAnalysisRuns(requestUserId(req), ListAnalysisRunsSchema.parse(req.query)));
 }
 
 export async function stats(req: Request, res: Response): Promise<void> {

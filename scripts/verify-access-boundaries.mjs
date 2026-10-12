@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import path from 'node:path';
@@ -13,7 +13,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const name = `hia-access-check-${randomUUID().slice(0, 8)}`;
 const reportFiles = [];
 const sockets = [];
-let db, io, server, modelServer;
+let db, io, server, modelServer, worker, closeRunNotifications, closeAnalysisQueue;
 let fixtureAvailable = false;
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', ...options });
@@ -49,14 +49,18 @@ try {
     LLM_PROVIDER: 'local', LLM_MODEL: 'fixture-model',
     LLM_BASE_URL: `http://127.0.0.1:${modelServer.address().port}/v1`,
     LLM_RETRIES: '0', LLM_TIMEOUT_MS: '1000',
+    ANALYSIS_QUEUE_NAME: name, ANALYSIS_DISPATCH_MS: '100',
   });
   run(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy', '--schema', 'apps/api/prisma/schema.prisma'], { env: process.env });
   const { createApp } = await import('../apps/api/dist/app.js');
   const { prisma } = await import('../apps/api/dist/lib/prisma.js');
   db = prisma;
   const { signAccessToken } = await import('../apps/api/dist/middleware/auth.js');
-  const { initSocketIO, setJobState } = await import('../apps/api/dist/sockets/index.js');
+  const { initSocketIO } = await import('../apps/api/dist/sockets/index.js');
+  ({ closeRunNotifications } = await import('../apps/api/dist/sockets/index.js'));
+  ({ closeAnalysisQueue } = await import('../apps/api/dist/lib/analysis-queue.js'));
   const { persistImport } = await import('../apps/api/dist/services/imports.service.js');
+  const { createAnalysisRun } = await import('../apps/api/dist/services/analysis-runs.service.js');
   const app = createApp();
   const sessionHeaders = { 'X-ReviewLens-CSRF': '1', Origin: 'http://localhost:5173' };
   const credentials = { email: 'cookie-session@test.invalid', password: 'test-password-123' };
@@ -184,8 +188,8 @@ try {
   assert.equal(concurrentResults.reduce((sum, result) => sum + result.count, 0), 1);
   console.log('Import integrity: source text, external-ID deduplication, first provenance, repeated sightings, rollback and concurrent imports passed.');
 
-  setJobState('owned-job', { userId: 'a', productId: reviewA.productId, status: 'analyzing', processed: 2, total: 3 });
-  await request(app).post('/api/analysis/owned-job/cancel').set(headersB).expect(404);
+  const ownedRun = await createAnalysisRun('a', { productId: reviewA.productId, mode: 'reanalyze' });
+  await request(app).post(`/api/analysis/${ownedRun.id}/cancel`).set(headersB).expect(404);
   await request(app).delete(`/api/products/${reviewA.productId}`).set(headersA).expect(409);
   const anonymous = connect(wsUrl, { autoConnect: false, reconnection: false }); sockets.push(anonymous);
   const refused = once(anonymous, 'connect_error'); anonymous.connect(); await refused;
@@ -195,13 +199,13 @@ try {
   own.connect(); other.connect(); await Promise.all([connectedOwn, connectedOther]);
   let foreignProgress = false;
   other.on('analysis:progress', () => { foreignProgress = true; });
-  other.emit('job:subscribe', 'owned-job');
+  other.emit('job:subscribe', ownedRun.id);
   const replay = once(own, 'analysis:progress');
-  own.emit('job:subscribe', 'owned-job');
-  assert.equal((await replay)[0].processed, 2);
+  own.emit('job:subscribe', ownedRun.id);
+  assert.equal((await replay)[0].processed, 0);
   await new Promise(resolve => setTimeout(resolve, 150));
   assert.equal(foreignProgress, false);
-  assert.equal(io.sockets.adapter.rooms.get('job:owned-job')?.size, 1);
+  assert.equal(io.sockets.adapter.rooms.get('job:' + ownedRun.id)?.size, 1);
   console.log('Socket boundaries: authenticated handshake, owner-only replay/subscription/cancellation and active deletion guard passed.');
 
   await request(app).post('/api/products').expect(401);
@@ -289,17 +293,34 @@ try {
   fixtureAvailable = true;
   const modelReady = await request(app).post('/api/analysis/provider/check').set(headersA).expect(200);
   assert.equal(modelReady.body.available, true);
+  worker = spawn(process.execPath, ['apps/api/dist/worker.js'], { cwd: root, env: process.env, windowsHide: true, stdio: 'ignore' });
   const started = await request(app).post('/api/analysis/run').set(headersA)
     .send({ productId: newReview.body.productId }).expect(202);
   assert(started.body.jobId);
-  for (let attempt = 0; attempt < 40; attempt++) {
+  assert.equal(started.body.runId, started.body.jobId);
+  const replayedRun = new Promise(resolve => {
+    const listener = state => {
+      if (state.runId === started.body.runId) { own.off('analysis:state', listener); resolve(state); }
+    };
+    own.on('analysis:state', listener);
+  });
+  own.emit('job:subscribe', started.body.runId);
+  assert.equal((await replayedRun).runId, started.body.runId);
+  await request(app).get(`/api/analysis/runs/${started.body.runId}`).set(headersB).expect(404);
+  await request(app).post(`/api/analysis/runs/${started.body.runId}/cancel`).set(headersB).expect(404);
+  const ownRuns = await request(app).get('/api/analysis/runs').set(headersA).expect(200);
+  assert.equal(ownRuns.body.items[0].runId, started.body.runId);
+  for (let attempt = 0; attempt < 150; attempt++) {
     const analyzed = await db.review.findUniqueOrThrow({ where: { id: newReview.body.id } });
     if (analyzed.analyzedAt) { assert.equal(analyzed.sentiment, 'positive'); break; }
-    if (attempt === 39) assert.fail('Fixture analysis did not finish');
-    await new Promise(resolve => setTimeout(resolve, 25));
+    if (attempt === 149) assert.fail('Fixture analysis did not finish');
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
   console.log('LLM API: authenticated configuration, no secret exposure, preflight rejection without analysis, explicit local readiness and fixture analysis passed.');
 } finally {
+  if (worker && worker.exitCode === null) { const exited = once(worker, 'exit'); worker.kill('SIGKILL'); await exited; }
+  if (closeRunNotifications) await closeRunNotifications();
+  if (closeAnalysisQueue) await closeAnalysisQueue();
   for (const socket of sockets) socket.disconnect();
   if (io) await new Promise(resolve => io.close(resolve));
   if (server?.listening) await new Promise(resolve => server.close(resolve));

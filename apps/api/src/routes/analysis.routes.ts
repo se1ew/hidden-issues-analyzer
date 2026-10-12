@@ -8,6 +8,10 @@ export const analysisRouter = Router();
 analysisRouter.use(requireAuth);
 analysisRouter.get('/provider', ctrl.provider);
 analysisRouter.post('/provider/check', ctrl.checkProvider);
+analysisRouter.get('/runs', ctrl.listRuns);
+analysisRouter.get('/runs/:runId', ctrl.getRun);
+analysisRouter.post('/runs', ctrl.run);
+analysisRouter.post('/runs/:runId/cancel', ctrl.cancel);
 
 analysisRouter.post('/run', ctrl.run);
 analysisRouter.post('/:jobId/cancel', ctrl.cancel);

@@ -1,6 +1,5 @@
 import { requireOwnedProduct } from './ownership.service.js';
 import { HttpError } from '../middleware/error.js';
-import { hasActiveJob } from '../sockets/index.js';
 import { prisma } from '../lib/prisma.js';
 
 export interface ProductWithStats {
@@ -72,7 +71,6 @@ export async function renameProduct(id: string, name: string, userId: string): P
 
 export async function removeProduct(id: string, userId: string): Promise<void> {
   await requireOwnedProduct(userId, id);
-  if (hasActiveJob(userId, id)) throw new HttpError(409, 'Сначала остановите активный анализ');
   await prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM "Product" WHERE id = ${id} AND "userId" = ${userId} FOR UPDATE`;
