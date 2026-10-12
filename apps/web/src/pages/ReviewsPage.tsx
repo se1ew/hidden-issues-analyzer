@@ -15,6 +15,7 @@ import {
 } from '../lib/queries';
 import { ProductSelector } from '../components/ProductSelector';
 import { AnalysisBanner } from '../components/AnalysisBanner';
+import { LlmStatus } from '../components/LlmStatus';
 import { useProductStore } from '../store/product.store';
 import { useAnalysisStore } from '../store/analysis.store';
 
@@ -318,6 +319,7 @@ export function ReviewsPage() {
 
       <ProductSelector />
       <AnalysisBanner />
+      <LlmStatus />
 
       <div className="card sticky top-4 z-10 shadow-md">
         <div className="flex items-center justify-between mb-3">

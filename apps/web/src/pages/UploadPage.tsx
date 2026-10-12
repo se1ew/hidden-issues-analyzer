@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { useCreateManualReview, useParsingHistory, useProducts, useRunAnalysis, useStartParsing } from '../lib/queries';
 import { useProductStore } from '../store/product.store';
 import { CsvImportWizard } from '../components/CsvImportWizard';
+import { LlmStatus } from '../components/LlmStatus';
 
 type Tab = 'csv' | 'manual' | 'parsing';
 
@@ -66,6 +67,7 @@ export function UploadPage() {
 
   return (
     <div className="space-y-6">
+      <LlmStatus />
       {uploadedCount !== null && (
         <div className="card space-y-3">
           <p>Добавлено отзывов: {uploadedCount}. Можно запустить анализ выбранного товара.</p>

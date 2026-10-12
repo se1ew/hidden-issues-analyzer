@@ -212,6 +212,22 @@ export function useCreateManualReview() {
 }
 
 // ===== Analysis =====
+export interface LlmConfiguration {
+  provider: 'local' | 'openrouter'; model: string; contextTokens: number;
+  concurrency: number; responseFormat: string;
+}
+export function useLlmConfiguration() {
+  return useQuery({
+    queryKey: ['llm-configuration'],
+    queryFn: async () => (await api.get<LlmConfiguration>('/api/analysis/provider')).data,
+  });
+}
+export function useCheckLlm() {
+  return useMutation({
+    mutationFn: async () => (await api.post<LlmConfiguration & { available: boolean }>('/api/analysis/provider/check')).data,
+  });
+}
+
 export function useStats(productId?: string | null) {
   return useQuery({
     queryKey: ['stats', productId ?? null],
