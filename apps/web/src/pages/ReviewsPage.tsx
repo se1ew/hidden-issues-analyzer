@@ -16,6 +16,7 @@ import {
 import { ProductSelector } from '../components/ProductSelector';
 import { AnalysisBanner } from '../components/AnalysisBanner';
 import { LlmStatus } from '../components/LlmStatus';
+import { AnalysisRunHistory } from '../components/AnalysisRunHistory';
 import { useProductStore } from '../store/product.store';
 import { useAnalysisStore } from '../store/analysis.store';
 
@@ -73,22 +74,27 @@ export function ReviewsPage() {
 
   useEffect(() => {
     const socket = connectSocket();
-    const onStep = (s: { step: string; label: string }) =>
-      updateProgress({ step: s.step, label: s.label });
-    const onProgress = (p: { processed: number; total: number; step?: string }) => {
+    const onStep = (s: { jobId: string; step: string; label: string }) => {
+      if (s.jobId === useAnalysisStore.getState().jobId) updateProgress({ step: s.step, label: s.label });
+    };
+    const onProgress = (p: { jobId: string; processed: number; total: number; step?: string }) => {
+      if (p.jobId !== useAnalysisStore.getState().jobId) return;
       updateProgress({ processed: p.processed, total: p.total, step: p.step });
       void qc.invalidateQueries({ queryKey: ['stats'] });
     };
-    const onComplete = () => {
+    const onComplete = (event: { jobId: string }) => {
+      if (event.jobId !== useAnalysisStore.getState().jobId) return;
       finish();
       toast.success('Анализ завершён');
       refetch();
       void qc.invalidateQueries({ queryKey: ['stats'] });
     };
-    const onError = (e: { message: string }) => {
+    const onError = (e: { jobId: string; message: string }) => {
+      if (e.jobId !== useAnalysisStore.getState().jobId) return;
       setError(e.message);
     };
-    const onCancelled = () => {
+    const onCancelled = (event: { jobId: string }) => {
+      if (event.jobId !== useAnalysisStore.getState().jobId) return;
       finish();
       toast('Анализ остановлен');
     };
@@ -110,23 +116,7 @@ export function ReviewsPage() {
     if (!jobId) return;
     const socket = connectSocket();
     socket.emit('job:subscribe', jobId);
-    // If server sends no event within 3s, job is stale (server restarted)
-    const staleTimer = setTimeout(() => finish(), 3_000);
-    const clearTimer = () => clearTimeout(staleTimer);
-    socket.once('analysis:progress', clearTimer);
-    socket.once('analysis:step', clearTimer);
-    socket.once('analysis:complete', clearTimer);
-    socket.once('analysis:error', clearTimer);
-    socket.once('analysis:cancelled', clearTimer);
-    return () => {
-      clearTimeout(staleTimer);
-      socket.off('analysis:progress', clearTimer);
-      socket.off('analysis:step', clearTimer);
-      socket.off('analysis:complete', clearTimer);
-      socket.off('analysis:error', clearTimer);
-      socket.off('analysis:cancelled', clearTimer);
-    };
-  }, [jobId, finish]);
+  }, [jobId]);
 
   const handleRunAnalysis = async () => {
     try {
@@ -245,7 +235,7 @@ export function ReviewsPage() {
             )}
             <button
               onClick={handleRunAnalysis}
-              disabled={runAnalysis.isPending || progress !== null}
+              disabled={runAnalysis.isPending || progress !== null || !selectedProductId}
               className="btn-primary"
             >
               {progress !== null ? (
@@ -320,6 +310,7 @@ export function ReviewsPage() {
       <ProductSelector />
       <AnalysisBanner />
       <LlmStatus />
+      <AnalysisRunHistory />
 
       <div className="card sticky top-4 z-10 shadow-md">
         <div className="flex items-center justify-between mb-3">

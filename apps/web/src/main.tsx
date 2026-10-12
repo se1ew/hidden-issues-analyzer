@@ -9,6 +9,7 @@ import { useAuthStore } from './store/auth.store';
 import { useProductStore } from './store/product.store';
 import { disconnectSocket } from './lib/socket';
 import { restoreSession } from './lib/api';
+import { useAnalysisStore } from './store/analysis.store';
 import './styles/index.css';
 
 const queryClient = new QueryClient({
@@ -31,6 +32,7 @@ useAuthStore.subscribe((state, previous) => {
     queryClient.clear();
     disconnectSocket();
     useProductStore.getState().setSelectedProductId(null);
+    useAnalysisStore.getState().clear();
   }
 });
 

@@ -2,6 +2,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { useProductStore } from '../store/product.store';
 
+export interface AnalysisRunItem {
+  id: string; runId: string; productId: string;
+  status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'interrupted';
+  stage: string; total: number; succeeded: number; failed: number; processed: number; remaining: number;
+  stateVersion: number; createdAt: string; startedAt: string | null; finishedAt: string | null;
+  cancelRequestedAt: string | null; finishReason: string | null; provider: string; model: string;
+}
+
+export function useAnalysisRuns(productId?: string | null) {
+  return useQuery({
+    queryKey: ['analysis-runs', productId ?? null],
+    queryFn: async () => (await api.get<{ items: AnalysisRunItem[]; total: number }>('/api/analysis/runs', {
+      params: { ...(productId ? { productId } : {}), pageSize: 20 },
+    })).data,
+    refetchInterval: (query) => query.state.data?.items.some((run) => ['queued', 'running'].includes(run.status)) ? 1000 : 5000,
+  });
+}
+
 export const UNASSIGNED_PRODUCT_ID = '__unassigned__';
 
 export interface Product {
@@ -259,21 +277,26 @@ export function useTimeseries(
 }
 
 export function useRunAnalysis() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (limit?: number) => {
       const productId = useProductStore.getState().selectedProductId;
-      const { data } = await api.post<{ jobId: string }>('/api/analysis/run', { limit, ...(productId ? { productId } : {}) });
+      if (!productId) throw new Error('Выберите товар перед запуском анализа');
+      const { data } = await api.post<AnalysisRunItem & { jobId: string }>('/api/analysis/runs', { limit, productId });
       return data;
     },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['analysis-runs'] }); },
   });
 }
 
 export function useCancelAnalysis() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (jobId: string) => {
       const { data } = await api.post(`/api/analysis/${jobId}/cancel`);
       return data;
     },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['analysis-runs'] }); },
   });
 }
 

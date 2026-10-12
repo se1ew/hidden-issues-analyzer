@@ -56,11 +56,11 @@ export function AnalysisBanner() {
       </div>
       <button
         onClick={handleRun}
-        disabled={runAnalysis.isPending || isAnalyzing}
+        disabled={runAnalysis.isPending || isAnalyzing || !selectedProductId}
         className="btn-primary bg-amber-500 hover:bg-amber-600 border-amber-500 text-sm shrink-0 gap-2"
       >
         <Play className="h-3.5 w-3.5" />
-        {isAnalyzing ? 'Анализ идёт...' : 'Запустить анализ'}
+        {isAnalyzing ? 'Анализ идёт...' : !selectedProductId ? 'Сначала выберите товар' : 'Запустить анализ'}
       </button>
     </div>
   );
