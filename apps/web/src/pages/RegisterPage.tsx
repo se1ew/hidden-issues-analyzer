@@ -18,7 +18,7 @@ export function RegisterPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const { data } = await api.post<{ user: User; accessToken: string; refreshToken: string }>(
+      const { data } = await api.post<{ user: User; accessToken: string }>(
         '/api/auth/register',
         { name: name || undefined, email, password },
       );
@@ -50,8 +50,8 @@ export function RegisterPage() {
             <AlertTriangle className="h-6 w-6 text-white" />
           </div>
           <div>
-            <div className="text-xl font-bold" style={{ color: '#1A2D40' }}>Hidden Issues</div>
-            <div className="text-sm" style={{ color: '#7A96B0' }}>Analyzer</div>
+            <div className="text-xl font-bold" style={{ color: '#1A2D40' }}>ReviewLens</div>
+            <div className="text-sm" style={{ color: '#7A96B0' }}>Review analytics</div>
           </div>
         </div>
 

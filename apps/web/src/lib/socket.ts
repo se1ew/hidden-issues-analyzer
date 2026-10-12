@@ -9,7 +9,7 @@ export function getSocket(): Socket {
   if (!socket) {
     socket = io(WS_URL, {
       autoConnect: false,
-      auth: () => ({ token: useAuthStore.getState().accessToken }),
+      auth: (callback) => callback({ token: useAuthStore.getState().accessToken }),
     });
   }
   return socket;
@@ -22,5 +22,5 @@ export function connectSocket(): Socket {
 }
 
 export function disconnectSocket(): void {
-  if (socket?.connected) socket.disconnect();
+  socket?.disconnect();
 }

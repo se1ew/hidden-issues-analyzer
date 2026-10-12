@@ -16,6 +16,8 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth.store';
 import { useThemeStore } from '../store/theme.store';
 import clsx from 'clsx';
+import { logoutSession } from '../lib/api';
+import toast from 'react-hot-toast';
 
 const navGroups = [
   [
@@ -55,12 +57,20 @@ function SidebarSection({ children, border }: { children: React.ReactNode; borde
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const navigate = useNavigate();
-  const { user, clear } = useAuthStore();
+  const { user } = useAuthStore();
+  const [loggingOut, setLoggingOut] = React.useState(false);
   const { isDark, toggle: toggleTheme } = useThemeStore();
 
-  const handleLogout = () => {
-    clear();
-    navigate('/login');
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logoutSession();
+      navigate('/login');
+    } catch {
+      toast.error('Не удалось завершить сессию. Повторите выход.');
+    } finally {
+      setLoggingOut(false);
+    }
   };
 
   return (
@@ -71,8 +81,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           <AlertTriangle className="h-5 w-5 text-white" />
         </div>
         <div>
-          <div className="text-sm font-bold tracking-wide sidebar-title">Hidden Issues</div>
-          <div className="text-xs sidebar-subtitle">Analyzer</div>
+          <div className="text-sm font-bold tracking-wide sidebar-title">ReviewLens</div>
+          <div className="text-xs sidebar-subtitle">Review analytics</div>
         </div>
       </SidebarSection>
 
@@ -109,6 +119,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         <div className="flex items-center gap-2 w-full">
           <button
             onClick={handleLogout}
+            disabled={loggingOut}
             className="flex flex-1 items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 sidebar-nav-item sidebar-nav-inactive"
           >
             <LogOut className="h-4 w-4" />

@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 
 export interface User {
   id: string;
@@ -7,28 +6,33 @@ export interface User {
   name?: string | null;
 }
 
+export interface Session {
+  user: User;
+  accessToken: string;
+}
+
 interface AuthState {
   user: User | null;
   accessToken: string | null;
-  refreshToken: string | null;
-  setSession: (data: { user: User; accessToken: string; refreshToken: string }) => void;
-  setAccessToken: (token: string) => void;
+  initialized: boolean;
+  revision: number;
+  setSession: (data: Session) => void;
   clear: () => void;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      user: null,
-      accessToken: null,
-      refreshToken: null,
-      setSession: ({ user, accessToken, refreshToken }) =>
-        set({ user, accessToken, refreshToken }),
-      setAccessToken: (accessToken) => set({ accessToken }),
-      clear: () => set({ user: null, accessToken: null, refreshToken: null }),
-    }),
-    {
-      name: 'hia-auth',
-    },
-  ),
-);
+// Remove credentials persisted by the previous client version.
+try { localStorage.removeItem('hia-auth'); } catch { /* Storage may be unavailable. */ }
+
+export const useAuthStore = create<AuthState>((set) => ({
+  user: null,
+  accessToken: null,
+  initialized: false,
+  revision: 0,
+  setSession: ({ user, accessToken }) => set((state) => ({
+    user, accessToken, initialized: true,
+    revision: state.revision + (state.user?.id !== user.id ? 1 : 0),
+  })),
+  clear: () => set((state) => ({
+    user: null, accessToken: null, initialized: true, revision: state.revision + 1,
+  })),
+}));

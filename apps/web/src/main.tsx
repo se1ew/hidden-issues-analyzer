@@ -5,6 +5,10 @@ import { Toaster } from 'react-hot-toast';
 import { BrowserRouter } from 'react-router-dom';
 
 import { App } from './App';
+import { useAuthStore } from './store/auth.store';
+import { useProductStore } from './store/product.store';
+import { disconnectSocket } from './lib/socket';
+import { restoreSession } from './lib/api';
 import './styles/index.css';
 
 const queryClient = new QueryClient({
@@ -20,6 +24,17 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+useAuthStore.subscribe((state, previous) => {
+  if (state.user?.id !== previous.user?.id) {
+    void queryClient.cancelQueries();
+    queryClient.clear();
+    disconnectSocket();
+    useProductStore.getState().setSelectedProductId(null);
+  }
+});
+
+void restoreSession();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

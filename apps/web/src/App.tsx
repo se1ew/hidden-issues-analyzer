@@ -14,13 +14,17 @@ import { ReportsPage } from './pages/ReportsPage';
 import { ReviewsPage } from './pages/ReviewsPage';
 import { UploadPage } from './pages/UploadPage';
 import { useThemeStore } from './store/theme.store';
+import { useAuthStore } from './store/auth.store';
 
 export function App() {
   const { isDark } = useThemeStore();
+  const initialized = useAuthStore((state) => state.initialized);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
   }, [isDark]);
+
+  if (!initialized) return <div role="status" className="p-8 text-center">Восстановление сессии…</div>;
 
   return (
     <ErrorBoundary>
