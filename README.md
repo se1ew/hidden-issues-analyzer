@@ -122,7 +122,7 @@ npm run db:generate
 npm run db:deploy
 npm run db:check
 
-# 5. Запустить dev (api + web параллельно)
+# 5. Запустить dev (api + web + worker параллельно)
 npm run dev
 ```
 
@@ -132,7 +132,7 @@ npm run dev
 ## Команды
 
 ```bash
-npm run dev            # api + web в dev-режиме
+npm run dev            # api + web + worker в dev-режиме
 npm run build          # production build
 npm run lint           # ESLint
 npm run test           # Vitest
@@ -145,6 +145,7 @@ npm run db:deploy      # применить существующие мигра�
 npm run db:generate    # prisma generate
 npm run db:check       # соединение с PostgreSQL, таблица Product и Redis PING
 npm run start:api      # API из production build
+npm run start:worker   # отдельный worker из production build
 npm run preview:web    # локальный просмотр собранного web
 ```
 
@@ -213,3 +214,6 @@ server → client: 'analysis:progress' { jobId, processed, total }
 server → client: 'analysis:complete' { jobId }
 server → client: 'analysis:error'    { jobId, message }
 ```
+
+Устойчивая очередь, история запусков, отмена и проверка worker:
+[docs/analysis-worker.md](docs/analysis-worker.md). Запуск требует выбранного товара.

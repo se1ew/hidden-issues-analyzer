@@ -50,14 +50,14 @@ npm run dev
 
 | Команда | Назначение |
 | --- | --- |
-| `npm run dev` | API и web параллельно |
-| `npm run dev:api` / `npm run dev:web` | Отдельный dev-процесс |
+| `npm run dev` | API, web и worker параллельно |
+| `npm run dev:api` / `npm run dev:web` / `npm run dev:worker` | Отдельный dev-процесс |
 | `npm run typecheck` | TypeScript обоих workspace и конфигов web без генерации JS |
 | `npm run lint` | ESLint API и web с общей flat config |
 | `npm test` | API и web тесты параллельно |
 | `npm run check` | typecheck → lint → test → build |
 | `npm run build` | API, затем web; web-конфиги не генерируют JS рядом с исходниками |
-| `npm run start:api` | Собранный API |
+| `npm run start:api` / `npm run start:worker` | Собранные API / worker |
 | `npm run preview:web` | Локальная проверка web production build |
 | `npm run db:generate` / `db:deploy` / `db:migrate` | Клиент / существующие миграции / новая миграция |
 | `npm run db:check` | Read-only проверка схемы PostgreSQL и Redis PING |
@@ -67,15 +67,12 @@ npm run dev
 доступны `npm run typecheck`, `lint`, `test`, `build`.
 При test:watch используется `npm run test:watch` в соответствующем workspace.
 
-## Worker: незавершённая часть команд запуска
+## Worker
 
-Сейчас анализ выполняется внутри процесса API (`analysis.controller.ts`),
-задания и отмены находятся в памяти. Отдельного worker и устойчивой очереди
-ещё нет. Анализ обслуживается запущенным API; отдельно запустить его нельзя.
-Команды `dev:worker` и `start:worker` следует добавить с настоящей точкой входа
-при реализации фазы 7. Запускать вторую копию API под видом worker нельзя:
-это создаёт конфликт порта и не даёт устойчивой обработки задач.
-Поэтому пункт плана о всех командах, включая worker, пока остаётся открытым.
+Отдельный `src/worker.ts` выполняет BullMQ-задания, API сохраняет запуск и
+снимок в PostgreSQL. Команды dev:worker/start:worker используют ту же
+конфигурацию apps/api/.env. Настройки lease, доставки, ограничения и проверки
+описаны в [analysis-worker.md](analysis-worker.md).
 
 ## Проверка 11 октября 2026
 
