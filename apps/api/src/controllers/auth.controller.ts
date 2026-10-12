@@ -1,28 +1,34 @@
 import type { Request, Response } from 'express';
 import * as authService from '../services/auth.service.js';
 import { HttpError } from '../middleware/error.js';
-import type { LoginInput, RefreshInput, RegisterInput } from '../schemas/auth.schema.js';
+import type { LoginInput, RegisterInput } from '../schemas/auth.schema.js';
+import { clearRefreshCookie, REFRESH_COOKIE, setRefreshCookie } from '../middleware/session.js';
 
 export async function register(req: Request, res: Response): Promise<void> {
   const result = await authService.register(req.body as RegisterInput);
-  res.status(201).json(result);
+  setRefreshCookie(res, result.refreshToken);
+  res.set('Cache-Control', 'no-store').status(201).json({ user: result.user, accessToken: result.accessToken });
 }
 
 export async function login(req: Request, res: Response): Promise<void> {
   const result = await authService.login(req.body as LoginInput);
-  res.json(result);
+  setRefreshCookie(res, result.refreshToken);
+  res.set('Cache-Control', 'no-store').json({ user: result.user, accessToken: result.accessToken });
 }
 
 export async function refresh(req: Request, res: Response): Promise<void> {
-  const { refreshToken } = req.body as RefreshInput;
+  const refreshToken: unknown = req.cookies?.[REFRESH_COOKIE];
+  if (typeof refreshToken !== 'string') throw new HttpError(401, 'Missing refresh cookie');
   const result = await authService.refresh(refreshToken);
-  res.json(result);
+  setRefreshCookie(res, result.refreshToken);
+  res.set('Cache-Control', 'no-store').json({ user: result.user, accessToken: result.accessToken });
 }
 
 export async function logout(req: Request, res: Response): Promise<void> {
-  const { refreshToken } = req.body as RefreshInput;
-  await authService.logout(refreshToken);
-  res.status(204).end();
+  const refreshToken: unknown = req.cookies?.[REFRESH_COOKIE];
+  if (typeof refreshToken === 'string') await authService.logout(refreshToken);
+  clearRefreshCookie(res);
+  res.set('Cache-Control', 'no-store').status(204).end();
 }
 
 export async function me(req: Request, res: Response): Promise<void> {

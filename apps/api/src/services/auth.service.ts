@@ -11,8 +11,6 @@ import {
 } from '../middleware/auth.js';
 import type { LoginInput, RegisterInput } from '../schemas/auth.schema.js';
 
-const REFRESH_TTL_DAYS = 7;
-
 function hashRefresh(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
@@ -24,7 +22,7 @@ async function issueTokens(payload: AuthPayload): Promise<{ accessToken: string;
     data: {
       userId: payload.sub,
       tokenHash: hashRefresh(refreshToken),
-      expiresAt: new Date(Date.now() + REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(verifyRefreshToken(refreshToken).exp! * 1000),
     },
   });
   return { accessToken, refreshToken };
@@ -64,37 +62,48 @@ export async function refresh(refreshToken: string) {
 
   const tokenHash = hashRefresh(refreshToken);
   const stored = await prisma.refreshToken.findUnique({ where: { tokenHash } });
-  if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
+  if (!stored || stored.userId !== payload.sub || stored.revokedAt || stored.expiresAt <= new Date()) {
     throw new HttpError(401, 'Refresh token revoked or expired');
   }
 
   // Ротация: помечаем старый, выдаём новый
-  const accessToken = signAccessToken(payload);
+  const accessToken = signAccessToken({ sub: payload.sub, email: payload.email });
   const newRefreshToken = signRefreshToken(payload);
   const newHash = hashRefresh(newRefreshToken);
 
-  await prisma.$transaction([
-    prisma.refreshToken.update({
-      where: { id: stored.id },
+  await prisma.$transaction(async (tx) => {
+    const consumed = await tx.refreshToken.updateMany({
+      where: { id: stored.id, revokedAt: null, expiresAt: { gt: new Date() } },
       data: { revokedAt: new Date(), replacedBy: newHash },
-    }),
-    prisma.refreshToken.create({
+    });
+    if (consumed.count !== 1) throw new HttpError(401, 'Refresh token revoked or expired');
+    await tx.refreshToken.create({
       data: {
         userId: payload.sub,
         tokenHash: newHash,
-        expiresAt: new Date(Date.now() + REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000),
+        expiresAt: new Date(verifyRefreshToken(newRefreshToken).exp! * 1000),
       },
-    }),
-  ]);
+    });
+  });
 
-  return { accessToken, refreshToken: newRefreshToken };
+  const user = await getMe(payload.sub);
+  return { user, accessToken, refreshToken: newRefreshToken };
 }
 
 export async function logout(refreshToken: string): Promise<void> {
-  const tokenHash = hashRefresh(refreshToken);
-  await prisma.refreshToken.updateMany({
-    where: { tokenHash, revokedAt: null },
-    data: { revokedAt: new Date() },
+  // Follow rotation successors so logout also wins a race with another tab's refresh.
+  await prisma.$transaction(async (tx) => {
+    let tokenHash: string | null = hashRefresh(refreshToken);
+    while (tokenHash) {
+      await tx.refreshToken.updateMany({
+        where: { tokenHash, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      const stored: { replacedBy: string | null } | null = await tx.refreshToken.findUnique({
+        where: { tokenHash }, select: { replacedBy: true },
+      });
+      tokenHash = stored?.replacedBy ?? null;
+    }
   });
 }
 
