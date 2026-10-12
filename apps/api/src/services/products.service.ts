@@ -74,6 +74,9 @@ export async function removeProduct(id: string, userId: string): Promise<void> {
   await requireOwnedProduct(userId, id);
   if (hasActiveJob(userId, id)) throw new HttpError(409, 'Сначала остановите активный анализ');
   await prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Product" WHERE id = ${id} AND "userId" = ${userId} FOR UPDATE`;
+    if (!locked.length) throw new HttpError(404, 'Товар не найден');
     if (await tx.analysisRun.count({ where: { productId: id, status: { in: ['queued', 'running'] } } })) {
       throw new HttpError(409, 'Сначала остановите активный анализ');
     }

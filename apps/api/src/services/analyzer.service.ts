@@ -26,7 +26,8 @@ export const ANALYSIS_JSON_SCHEMA = {
   },
 };
 
-const SYSTEM_PROMPT = `Ты — опытный аналитик потребительских отзывов. Получив отзыв на товар, ты определяешь:
+export const ANALYSIS_PROMPT_VERSION = 'legacy-review-v1';
+export const ANALYSIS_PROMPT = `Ты — опытный аналитик потребительских отзывов. Получив отзыв на товар, ты определяешь:
 1. Общую тональность (positive / negative / neutral)
 2. Численную оценку тональности от -1.0 (крайне негативно) до 1.0 (крайне позитивно)
 3. Упоминаемые аспекты товара (качество, цена, доставка, упаковка, размер, материал и т.п.) с их тональностью
@@ -46,7 +47,7 @@ function buildUserPrompt(reviewText: string): string {
  */
 export async function analyzeReviewText(text: string, signal?: AbortSignal): Promise<AnalysisResult> {
   return llm.completeJson({
-    messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: buildUserPrompt(text) }],
+    messages: [{ role: 'system', content: ANALYSIS_PROMPT }, { role: 'user', content: buildUserPrompt(text) }],
     temperature: 0.1, max_tokens: 600, jsonSchema: ANALYSIS_JSON_SCHEMA, schemaName: 'review_analysis',
   }, AnalysisResultSchema, signal);
 }
