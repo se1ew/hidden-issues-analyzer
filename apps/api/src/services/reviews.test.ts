@@ -49,12 +49,10 @@ describe('parseReviewsCsv', () => {
     expect(rows).toHaveLength(0);
   });
 
-  it('обрезает рейтинг до диапазона 1-5', () => {
+  it('отклоняет строки с рейтингом вне диапазона вместо потери рейтинга', () => {
     const csv = Buffer.from('text,rating\nText1,0\nText2,6\nText3,3\n');
     const rows = parseReviewsCsv(csv);
-    // 0 и 6 вне диапазона — должны быть null/undefined
-    expect(rows.find((r) => r.text === 'Text1')?.rating).toBeUndefined();
-    expect(rows.find((r) => r.text === 'Text2')?.rating).toBeUndefined();
+    expect(rows).toHaveLength(1);
     expect(rows.find((r) => r.text === 'Text3')?.rating).toBe(3);
   });
 

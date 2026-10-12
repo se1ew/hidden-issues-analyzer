@@ -6,6 +6,46 @@ import { z } from 'zod';
 import { HttpError } from '../middleware/error.js';
 import * as reviewsService from '../services/reviews.service.js';
 import type { CreateManualReviewInput, ListReviewsQuery } from '../schemas/reviews.schema.js';
+import { CsvOptionsSchema, inspectReviewsCsv } from '../services/csv.service.js';
+import { ImportProductSchema } from '../schemas/products.schema.js';
+import { prisma } from '../lib/prisma.js';
+
+function csvOptions(req: Request) {
+  let mapping: unknown;
+  try { mapping = req.body?.mapping ? JSON.parse(req.body.mapping as string) : undefined; }
+  catch { throw new HttpError(422, 'Некорректное сопоставление колонок'); }
+  return CsvOptionsSchema.parse({ delimiter: req.body?.delimiter || undefined, mapping });
+}
+
+export async function previewCsv(req: Request, res: Response): Promise<void> {
+  if (!req.file) throw new HttpError(400, 'Файл не загружен (поле: file)');
+  const { rows: _rows, errors, ...result } = inspectReviewsCsv(req.file.buffer, csvOptions(req));
+  res.json({ ...result, errors: errors.slice(0, 100), errorsTruncated: errors.length > 100 });
+}
+
+export async function importDetails(req: Request, res: Response): Promise<void> {
+  const batch = await prisma.uploadBatch.findFirst({ where: {
+    id: req.params.id as string, userId: requestUserId(req), product: { userId: requestUserId(req) }, source: 'csv',
+  }, select: { id: true, productId: true, filename: true, status: true, count: true,
+    addedCount: true, skippedCount: true, errorCount: true, diagnostics: true, createdAt: true } });
+  if (!batch) throw new HttpError(404, 'Импорт не найден');
+  res.json(batch);
+}
+
+export async function downloadImportErrors(req: Request, res: Response): Promise<void> {
+  const batch = await prisma.uploadBatch.findFirst({ where: {
+    id: req.params.id as string, userId: requestUserId(req), product: { userId: requestUserId(req) }, source: 'csv',
+  }, select: { diagnostics: true } });
+  if (!batch) throw new HttpError(404, 'Импорт не найден');
+  const diagnostics = z.object({ errors: z.array(z.object({
+    rowNumber: z.number().int().positive(), field: z.string(), message: z.string(),
+  })) }).safeParse(batch.diagnostics);
+  if (!diagnostics.success) throw new HttpError(404, 'Диагностика строк недоступна');
+  const cell = (value: string) => `"${value.replace(/^[=+@-]/, "'$&").replace(/"/g, '""')}"`;
+  const csv = ['record,field,error', ...diagnostics.data.errors.map((error) =>
+    `${error.rowNumber},${cell(error.field)},${cell(error.message)}`)].join('\r\n');
+  res.attachment('import-errors.csv').type('text/csv; charset=utf-8').send(`\uFEFF${csv}`);
+}
 
 export async function list(req: Request, res: Response): Promise<void> {
   const result = await reviewsService.listReviews(req.query as unknown as ListReviewsQuery, requestUserId(req));
@@ -21,13 +61,14 @@ export async function getById(req: Request, res: Response): Promise<void> {
 export async function uploadCsv(req: Request, res: Response): Promise<void> {
   const file = (req as Request & { file?: Express.Multer.File }).file;
   if (!file) throw new HttpError(400, 'Файл не загружен (поле: file)');
-  const { productName, productId } = z.object({ productName: z.string().trim().min(1).max(200).optional(), productId: z.string().min(1).max(60).optional() }).parse(req.body ?? {});
+  const { productName, productId } = ImportProductSchema.parse(req.body ?? {});
   const result = await reviewsService.importReviewsFromCsv(
     file.buffer,
     file.originalname,
     requestUserId(req),
     productName,
     productId,
+    csvOptions(req),
   );
   res.status(201).json(result);
 }

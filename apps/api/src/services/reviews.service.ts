@@ -1,11 +1,13 @@
-import { parse } from 'csv-parse/sync';
 import type { Prisma } from '@prisma/client';
+
 import { prisma } from '../lib/prisma.js';
 import { persistImport } from './imports.service.js';
 import { ownedProductScope } from './ownership.service.js';
 import { HttpError } from '../middleware/error.js';
 import type { CreateManualReviewInput, ListReviewsQuery } from '../schemas/reviews.schema.js';
 import { UNASSIGNED_PRODUCT_ID } from './products.service.js';
+import { inspectReviewsCsv, type CsvOptions } from './csv.service.js';
+import { ImportProductSchema } from '../schemas/products.schema.js';
 
 export interface ParsedCsvRow {
   text: string;
@@ -20,62 +22,34 @@ export interface ParsedCsvRow {
  * заголовки text/review/comment, rating/score/stars, date/created_at.
  */
 export function parseReviewsCsv(buffer: Buffer): ParsedCsvRow[] {
-  const text = buffer.toString('utf8').replace(/^\uFEFF/, '');
-  const delimiter = (text.split('\n', 1)[0] ?? '').includes(';') ? ';' : ',';
-
-  const records = parse(text, {
-    delimiter,
-    columns: (headers: string[]) =>
-      headers.map((h) => h.toString().toLowerCase().trim().replace(/\s+/g, '_')),
-    skip_empty_lines: true,
-    trim: false,
-    relax_quotes: true,
-    relax_column_count: true,
-  }) as Record<string, string>[];
-
-  const rows: ParsedCsvRow[] = [];
-  for (const r of records) {
-    const text =
-      r.text ?? r.review ?? r.comment ?? r.feedback ?? r.review_text ?? r.content ?? '';
-    if (!text || text.trim().length < 3) continue;
-
-    const ratingRaw = r.rating ?? r.score ?? r.stars ?? r.mark;
-    const rating = ratingRaw ? Number(ratingRaw.replace(',', '.')) : undefined;
-
-    const dateRaw = r.date ?? r.created_at ?? r.review_date ?? r.published_at;
-    let date: Date | undefined;
-    if (dateRaw) {
-      const d = new Date(dateRaw);
-      if (!Number.isNaN(d.getTime())) date = d;
-    }
-
-    rows.push({
-      text,
-      externalId: (r.external_id ?? r.review_id ?? '').trim() || undefined,
-      authorExternalId: (r.author_id ?? '').trim() || undefined,
-      rating: Number.isFinite(rating) && rating! >= 1 && rating! <= 5 ? Math.round(rating!) : undefined,
-      date,
-    });
-  }
-
-  return rows;
+  return inspectReviewsCsv(buffer).rows;
 }
 
 export async function importReviewsFromCsv(
-  buffer: Buffer, filename: string, userId: string, productName?: string, productId?: string,
+  buffer: Buffer, filename: string, userId: string, productName?: string, productId?: string, options: CsvOptions = {},
 ) {
-  const rows = parseReviewsCsv(buffer);
-  if (!rows.length) throw new HttpError(422, 'CSV не содержит валидных строк');
+  ImportProductSchema.parse({ productId, productName });
+  const inspected = inspectReviewsCsv(buffer, options);
+  if (!inspected.mapping.text || inspected.rows.length === 0) {
+    throw new HttpError(422, 'CSV не содержит валидных строк. Проверьте колонки и значения.',
+      { totalCount: inspected.totalCount, errorCount: inspected.errorCount, errors: inspected.errors.slice(0, 100) });
+  }
   const result = await persistImport({ userId, productId,
-    productName: productName?.trim() || filename.replace(/\.[a-z0-9]+$/i, '').slice(0, 200) || 'Импорт CSV',
-    source: 'csv', filename, rows });
+    productName: productName?.trim() ?? '', createNewProduct: !productId,
+    source: 'csv', filename: filename.slice(0, 200), rows: inspected.rows,
+    totalCount: inspected.totalCount, errorCount: inspected.errorCount,
+    diagnostics: { sha256: inspected.sha256, delimiter: inspected.delimiter,
+      mapping: inspected.mapping, errors: inspected.errors.map((error) => ({ ...error })),
+      noExternalIdCount: inspected.rows.filter((row) => !row.externalId).length } });
   const { reviewIds: _ids, ...summary } = result;
   return summary;
 }
 
 export async function createManualReview(input: CreateManualReviewInput, userId: string): Promise<{ id: string; productId: string }> {
+  ImportProductSchema.parse(input);
   const result = await persistImport({ userId, productId: input.productId,
-    productName: input.productName || 'Отзывы вручную', source: 'manual', rows: [{ text: input.text, rating: input.rating }] });
+    productName: input.productName ?? '', source: 'manual', createNewProduct: !input.productId,
+    rows: [{ text: input.text, rating: input.rating }] });
   return { id: result.reviewIds[0], productId: result.productId };
 }
 

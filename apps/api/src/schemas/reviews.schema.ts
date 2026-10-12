@@ -19,5 +19,6 @@ export const CreateManualReviewSchema = z.object({
   rating: z.coerce.number().int().min(1).max(5).optional(),
   productId: z.string().min(1).max(60).optional(),
   productName: z.string().trim().min(1).max(200).optional(),
-});
+}).refine((value) => Boolean(value.productId) !== Boolean(value.productName),
+  'Выберите товар или укажите название нового товара');
 export type CreateManualReviewInput = z.infer<typeof CreateManualReviewSchema>;
