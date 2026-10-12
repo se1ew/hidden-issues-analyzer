@@ -1,13 +1,15 @@
 import { Check, Edit2, Package, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { useDeleteProduct, useProducts, useRenameProduct } from '../lib/queries';
+import { useCreateProduct, useDeleteProduct, useProducts, useRenameProduct } from '../lib/queries';
 import { useProductStore } from '../store/product.store';
 
 export function ProductsPage() {
   const { data, isLoading } = useProducts();
   const renameProduct = useRenameProduct();
   const deleteProduct = useDeleteProduct();
+  const createProduct = useCreateProduct();
+  const [newName, setNewName] = useState('');
   const { selectedProductId, setSelectedProductId } = useProductStore();
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -51,9 +53,25 @@ export function ProductsPage() {
           Товары
         </h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Управление товарами: переименование и удаление
+          Создание товаров и управление отзывами
         </p>
       </div>
+
+      <form className="card flex flex-wrap gap-3" onSubmit={async (event) => {
+        event.preventDefault();
+        if (!newName.trim()) return;
+        try {
+          const product = await createProduct.mutateAsync(newName.trim());
+          setSelectedProductId(product.id); setNewName('');
+          toast.success('Товар создан');
+        } catch { toast.error('Не удалось создать товар'); }
+      }}>
+        <label className="flex-1 min-w-48">Название нового товара
+          <input className="input mt-1" value={newName} maxLength={200}
+            onChange={(event) => setNewName(event.target.value)} placeholder="Например: Беспроводные наушники" />
+        </label>
+        <button className="btn-primary self-end" disabled={createProduct.isPending || !newName.trim()}>Создать товар</button>
+      </form>
 
       {isLoading ? (
         <div className="space-y-3">
@@ -68,7 +86,7 @@ export function ProductsPage() {
         <div className="card text-center py-12">
           <Package className="h-10 w-10 mx-auto text-neutral-300 mb-3" />
           <p className="text-sm text-neutral-400">
-            Товары появятся после загрузки отзывов с указанием названия.
+            Создайте товар здесь или при загрузке отзывов.
           </p>
         </div>
       ) : (
@@ -101,6 +119,10 @@ export function ProductsPage() {
                       {product.reviewsCount} отзывов · {product.analyzedCount} проанализировано
                       {product.avgRating != null && ` · ★ ${product.avgRating.toFixed(2)}`}
                     </div>
+                    {(product.externalId || product.sourceUrl) && <div className="text-xs text-neutral-400 mt-1 break-all">
+                      {product.externalId && `Артикул: ${product.externalId}`}
+                      {product.sourceUrl && ` · ${product.sourceUrl}`}
+                    </div>}
                   </>
                 )}
               </div>

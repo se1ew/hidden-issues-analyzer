@@ -7,6 +7,8 @@ export interface Product {
   id: string;
   name: string;
   sourceUrl: string | null;
+  source?: string | null;
+  externalId?: string | null;
   reviewsCount: number;
   analyzedCount: number;
   avgRating: number | null;
@@ -125,6 +127,14 @@ export function useReviews(params: {
       const { data } = await api.get<ReviewsListResponse>('/api/reviews', { params });
       return data;
     },
+  });
+}
+
+export function useCreateProduct() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) => (await api.post<{ id: string; name: string }>('/api/products', { name })).data,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); },
   });
 }
 
