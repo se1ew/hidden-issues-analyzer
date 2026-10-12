@@ -49,6 +49,19 @@ export async function listProducts(userId: string): Promise<ProductWithStats[]> 
  */
 export const UNASSIGNED_PRODUCT_ID = '__unassigned__';
 
+export async function createProduct(name: string, userId: string) {
+  return prisma.product.create({ data: { name, userId, source: 'local' },
+    select: { id: true, name: true, source: true, externalId: true, sourceUrl: true, createdAt: true } });
+}
+
+export async function getProduct(id: string, userId: string) {
+  const product = await prisma.product.findFirst({ where: { id, userId },
+    select: { id: true, name: true, source: true, externalId: true, sourceUrl: true, createdAt: true,
+      _count: { select: { reviews: true } } } });
+  if (!product) throw new HttpError(404, 'Товар не найден');
+  return product;
+}
+
 export async function renameProduct(id: string, name: string, userId: string): Promise<ProductWithStats | null> {
   const existing = await prisma.product.findFirst({ where: { id, userId } });
   if (!existing) return null;

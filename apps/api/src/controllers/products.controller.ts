@@ -2,11 +2,19 @@ import { requestUserId } from '../middleware/auth.js';
 import type { Request, Response } from 'express';
 
 import { HttpError } from '../middleware/error.js';
-import { listProducts, renameProduct, removeProduct } from '../services/products.service.js';
+import { createProduct, getProduct, listProducts, renameProduct, removeProduct } from '../services/products.service.js';
 
 export async function list(req: Request, res: Response): Promise<void> {
   const items = await listProducts(requestUserId(req));
   res.json({ items });
+}
+
+export async function create(req: Request, res: Response): Promise<void> {
+  res.status(201).json(await createProduct(req.body.name as string, requestUserId(req)));
+}
+
+export async function getById(req: Request, res: Response): Promise<void> {
+  res.json(await getProduct(req.params.id as string, requestUserId(req)));
 }
 
 export async function rename(req: Request, res: Response): Promise<void> {
