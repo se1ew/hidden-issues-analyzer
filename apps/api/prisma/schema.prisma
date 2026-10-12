@@ -25,26 +25,29 @@ enum ReportFormat {
 }
 
 model User {
-  id           String         @id @default(cuid())
-  email        String         @unique
+  id           String   @id @default(cuid())
+  email        String   @unique
   passwordHash String
   name         String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   refreshTokens RefreshToken[]
   uploadBatches UploadBatch[]
   reports       Report[]
+  products      Product[]
+  analysisRuns  AnalysisRun[]
+  problemEvents ProblemEvent[]
 }
 
 model RefreshToken {
-  id          String   @id @default(cuid())
-  userId      String
-  tokenHash   String   @unique
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  replacedBy  String?
-  createdAt   DateTime @default(now())
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String?
+  createdAt  DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -52,35 +55,62 @@ model RefreshToken {
 }
 
 model Product {
-  id        String   @id @default(cuid())
-  name      String
-  sourceUrl String?
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  name       String
+  sourceUrl  String?
+  createdAt  DateTime @default(now())
+  // Nullable only during migration: legacy ownership must be assigned explicitly.
+  userId     String?
+  source     String   @default("legacy")
+  externalId String?
+
+  user          User?         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  uploadBatches UploadBatch[]
+  analysisRuns  AnalysisRun[]
+  problems      Problem[]
+  reports       Report[]
 
   reviews      Review[]
   hiddenIssues HiddenIssue[]
+
+  @@unique([id, userId])
+  @@unique([userId, source, externalId])
+  @@index([userId, createdAt])
 }
 
 model Review {
-  id             String     @id @default(cuid())
-  productId      String?
-  text           String     @db.Text
-  cleanedText    String?    @db.Text
-  rating         Int?
-  reviewDate     DateTime?
+  id               String    @id @default(cuid())
+  productId        String?
+  text             String    @db.Text
+  cleanedText      String?   @db.Text
+  rating           Int?
+  reviewDate       DateTime?
+  source           String    @default("legacy")
+  externalId       String?
+  authorExternalId String?
+  uploadBatchId    String?
+  importedAt       DateTime  @default(now())
+  inputVersion     Int       @default(1)
+  legacyAnalysis   Boolean   @default(false)
 
   sentiment      Sentiment?
   sentimentScore Float?
-  aspects        Json?      // [{ name, sentiment }]
-  issues         Json?      // string[]
+  aspects        Json? // [{ name, sentiment }]
+  issues         Json? // string[]
 
-  hiddenIssueId  String?
-  analyzedAt     DateTime?
-  createdAt      DateTime   @default(now())
+  hiddenIssueId String?
+  analyzedAt    DateTime?
+  createdAt     DateTime  @default(now())
 
-  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
-  hiddenIssue HiddenIssue? @relation(fields: [hiddenIssueId], references: [id], onDelete: SetNull)
+  product           Product?                 @relation(fields: [productId], references: [id], onDelete: SetNull)
+  hiddenIssue       HiddenIssue?             @relation(fields: [hiddenIssueId], references: [id], onDelete: SetNull)
+  uploadBatch       UploadBatch?             @relation(fields: [uploadBatchId], references: [id], onDelete: Restrict)
+  importOccurrences ReviewImportOccurrence[]
+  runInputs         AnalysisRunReview[]
 
+  @@unique([productId, source, externalId])
+  @@index([uploadBatchId])
+  @@index([productId, reviewDate])
   @@index([sentiment])
   @@index([productId])
   @@index([hiddenIssueId])
@@ -88,20 +118,21 @@ model Review {
 }
 
 model HiddenIssue {
-  id           String   @id @default(cuid())
-  productId    String?
-  title        String
-  description  String?  @db.Text
-  keywords     Json?
-  size         Int      @default(0)
-  severity     Float    @default(0)
-  visibility   Float    @default(0)
-  hiddenScore  Float    @default(0)
-  resolved     Boolean  @default(false)
-  resolvedAt   DateTime?
-  createdAt    DateTime @default(now())
+  id          String    @id @default(cuid())
+  productId   String?
+  title       String
+  description String?   @db.Text
+  keywords    Json?
+  size        Int       @default(0)
+  severity    Float     @default(0)
+  visibility  Float     @default(0)
+  hiddenScore Float     @default(0)
+  resolved    Boolean   @default(false)
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  legacy      Boolean   @default(true)
 
-  product Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
   reviews Review[]
 
   @@index([hiddenScore])
@@ -109,28 +140,337 @@ model HiddenIssue {
 }
 
 model UploadBatch {
-  id        String       @id @default(cuid())
-  userId    String?
-  source    UploadSource
-  filename  String?
-  count     Int          @default(0)
-  createdAt DateTime     @default(now())
+  id           String       @id @default(cuid())
+  userId       String?
+  source       UploadSource
+  filename     String?
+  count        Int          @default(0)
+  createdAt    DateTime     @default(now())
+  productId    String?
+  status       ImportStatus @default(legacy)
+  addedCount   Int          @default(0)
+  skippedCount Int          @default(0)
+  errorCount   Int          @default(0)
+  diagnostics  Json?
+  startedAt    DateTime?
+  finishedAt   DateTime?
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user        User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  product     Product?                 @relation(fields: [productId, userId], references: [id, userId], onDelete: Restrict)
+  reviews     Review[]
+  occurrences ReviewImportOccurrence[]
 
   @@index([userId])
   @@index([createdAt])
+  @@index([productId, status])
 }
 
 model Report {
-  id        String       @id @default(cuid())
-  userId    String?
-  title     String
-  format    ReportFormat
-  filePath  String
-  createdAt DateTime     @default(now())
+  id          String       @id @default(cuid())
+  userId      String?
+  title       String
+  format      ReportFormat
+  filePath    String
+  createdAt   DateTime     @default(now())
+  productId   String?
+  runId       String?
+  parameters  Json?
+  artifactKey String?
+  mimeType    String?
+  sizeBytes   BigInt?
+  sha256      String?
+  legacy      Boolean      @default(true)
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user    User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  product Product?     @relation(fields: [productId, userId], references: [id, userId], onDelete: Restrict)
+  run     AnalysisRun? @relation(fields: [runId, productId], references: [id, productId], onDelete: Restrict)
 
   @@index([userId])
+  @@index([productId, runId])
+}
+
+enum ImportStatus {
+  legacy
+  pending
+  running
+  completed
+  partial
+  failed
+  interrupted
+}
+
+enum AnalysisRunStatus {
+  queued
+  running
+  completed
+  partial
+  failed
+  cancelled
+  interrupted
+}
+
+enum AnalysisStage {
+  preparation
+  extraction
+  grouping
+  persistence
+}
+
+enum ReviewAnalysisStatus {
+  pending
+  running
+  succeeded
+  failed
+}
+
+enum ProblemStatus {
+  new
+  confirmed
+  rejected
+  resolved
+}
+
+enum AspectCategory {
+  quality
+  functionality
+  material
+  size_fit
+  appearance
+  usability
+  price
+  delivery
+  seller
+  packaging
+  other
+}
+
+enum IssueScope {
+  product
+  delivery
+  seller
+  packaging
+}
+
+// The first import remains Review.uploadBatchId; subsequent sightings are separate.
+model ReviewImportOccurrence {
+  id            String      @id @default(cuid())
+  reviewId      String
+  uploadBatchId String
+  rowNumber     Int?
+  observedAt    DateTime    @default(now())
+  review        Review      @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  uploadBatch   UploadBatch @relation(fields: [uploadBatchId], references: [id], onDelete: Restrict)
+
+  @@unique([reviewId, uploadBatchId])
+  @@index([uploadBatchId])
+}
+
+model AnalysisRun {
+  id                String                 @id @default(cuid())
+  userId            String
+  productId         String
+  previousRunId     String?
+  status            AnalysisRunStatus      @default(queued)
+  stage             AnalysisStage          @default(preparation)
+  scope             Json
+  settings          Json
+  provider          String
+  model             String
+  modelVersion      String
+  promptVersion     String
+  embeddingVersion  String
+  methodVersion     String
+  total             Int                    @default(0)
+  succeeded         Int                    @default(0)
+  failed            Int                    @default(0)
+  stateVersion      Int                    @default(0)
+  leaseToken        String?
+  leaseExpiresAt    DateTime?
+  heartbeatAt       DateTime?
+  cancelRequestedAt DateTime?
+  finishReason      String?
+  diagnostics       Json?
+  createdAt         DateTime               @default(now())
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  product           Product                @relation(fields: [productId, userId], references: [id, userId], onDelete: Restrict)
+  previousRun       AnalysisRun?           @relation("RunHistory", fields: [previousRunId, productId], references: [id, productId], onDelete: Restrict)
+  nextRuns          AnalysisRun[]          @relation("RunHistory")
+  inputs            AnalysisRunReview[]
+  events            AnalysisRunEvent[]
+  clusters          IssueClusterSnapshot[]
+  reports           Report[]
+
+  @@unique([id, productId])
+  @@index([userId, createdAt])
+  @@index([productId, status, createdAt])
+}
+
+model AnalysisRunEvent {
+  id           String             @id @default(cuid())
+  runId        String
+  fromStatus   AnalysisRunStatus?
+  toStatus     AnalysisRunStatus
+  initiator    String
+  reason       String?
+  stateVersion Int
+  createdAt    DateTime           @default(now())
+  run          AnalysisRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, stateVersion])
+}
+
+// Immutable input snapshot; reviewId may be cleared on source deletion.
+model AnalysisRunReview {
+  id               String          @id @default(cuid())
+  runId            String
+  reviewId         String?
+  sourceReviewId   String
+  inputVersion     Int
+  inputHash        String
+  text             String          @db.Text
+  rating           Int?
+  reviewDate       DateTime?
+  importedAt       DateTime
+  source           String
+  externalId       String?
+  authorExternalId String?
+  uploadBatchId    String?
+  run              AnalysisRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  review           Review?         @relation(fields: [reviewId], references: [id], onDelete: SetNull)
+  analysis         ReviewAnalysis?
+
+  @@unique([runId, sourceReviewId])
+  @@unique([runId, id])
+  @@index([reviewId])
+}
+
+model ReviewAnalysis {
+  id             String               @id @default(cuid())
+  runId          String
+  runReviewId    String               @unique
+  status         ReviewAnalysisStatus @default(pending)
+  sentiment      Sentiment?
+  sentimentScore Float?
+  attempts       Int                  @default(0)
+  durationMs     Int?
+  tokenUsage     Json?
+  errorCode      String?
+  diagnostics    Json?
+  rawResponse    String?              @db.Text
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  input          AnalysisRunReview    @relation(fields: [runId, runReviewId], references: [runId, id], onDelete: Cascade)
+  aspects        AspectMention[]
+  issues         IssueMention[]
+
+  @@unique([runId, runReviewId])
+  @@unique([runId, id])
+  @@index([runId, status])
+}
+
+model AspectMention {
+  id         String         @id @default(cuid())
+  analysisId String
+  category   AspectCategory
+  name       String
+  sentiment  Sentiment
+  analysis   ReviewAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  issues     IssueMention[]
+
+  @@unique([analysisId, id])
+}
+
+model IssueMention {
+  id           String               @id @default(cuid())
+  runId        String
+  analysisId   String
+  aspectId     String
+  scope        IssueScope
+  defect       String               @db.Text
+  quote        String               @db.Text
+  quoteStart   Int
+  quoteEnd     Int
+  consequences String?              @db.Text
+  analysis     ReviewAnalysis       @relation(fields: [runId, analysisId], references: [runId, id], onDelete: Cascade)
+  aspect       AspectMention        @relation(fields: [analysisId, aspectId], references: [analysisId, id], onDelete: Cascade)
+  clusters     IssueClusterMember[]
+
+  @@unique([runId, id])
+  @@index([analysisId])
+  @@index([aspectId])
+}
+
+model Problem {
+  id           String                 @id @default(cuid())
+  productId    String
+  title        String
+  description  String?                @db.Text
+  status       ProblemStatus          @default(new)
+  stateVersion Int                    @default(0)
+  resolvedAt   DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  product      Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
+  snapshots    IssueClusterSnapshot[]
+  events       ProblemEvent[]
+
+  @@unique([id, productId])
+  @@index([productId, status])
+}
+
+model ProblemEvent {
+  id           String         @id @default(cuid())
+  problemId    String
+  actorUserId  String?
+  fromStatus   ProblemStatus?
+  toStatus     ProblemStatus
+  reason       String?
+  initiator    String
+  stateVersion Int
+  evidence     Json?
+  createdAt    DateTime       @default(now())
+  problem      Problem        @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  actor        User?          @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([problemId, stateVersion])
+}
+
+model IssueClusterSnapshot {
+  id                   String               @id @default(cuid())
+  runId                String
+  productId            String
+  problemId            String?
+  title                String
+  defect               String               @db.Text
+  scope                IssueScope
+  category             AspectCategory
+  needsReview          Boolean              @default(false)
+  reviewCount          Int
+  positiveContextCount Int
+  analyzedCount        Int
+  severity             Float?
+  visibility           Float?
+  hiddenScore          Float?
+  metrics              Json?
+  createdAt            DateTime             @default(now())
+  run                  AnalysisRun          @relation(fields: [runId, productId], references: [id, productId], onDelete: Cascade)
+  problem              Problem?             @relation(fields: [problemId, productId], references: [id, productId], onDelete: Restrict)
+  members              IssueClusterMember[]
+
+  @@unique([runId, id])
+  @@index([problemId])
+  @@index([productId, runId])
+}
+
+model IssueClusterMember {
+  runId          String
+  clusterId      String
+  issueMentionId String
+  cluster        IssueClusterSnapshot @relation(fields: [runId, clusterId], references: [runId, id], onDelete: Cascade)
+  mention        IssueMention         @relation(fields: [runId, issueMentionId], references: [runId, id], onDelete: Cascade)
+
+  @@id([clusterId, issueMentionId])
+  @@index([issueMentionId])
 }
