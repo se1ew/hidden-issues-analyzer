@@ -37,10 +37,18 @@ export const EnvSchema = z.object({
   LLM_MAX_RETRY_DELAY_MS: z.coerce.number().int().min(1).max(30_000).default(5000),
   LLM_RESPONSE_FORMAT: z.enum(['none', 'json_object', 'json_schema']).default('json_object'),
   LLM_CLOUD_DELAY_MS: z.coerce.number().int().min(0).max(60_000).default(4000),
+  ANALYSIS_QUEUE_NAME: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/).default('analysis-runs-v1'),
+  ANALYSIS_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
+  ANALYSIS_HEARTBEAT_MS: z.coerce.number().int().min(50).max(60_000).default(1000),
+  ANALYSIS_LEASE_MS: z.coerce.number().int().min(500).max(600_000).default(30_000),
+  ANALYSIS_DISPATCH_MS: z.coerce.number().int().min(100).max(60_000).default(2000),
   EMBEDDING_MODEL: z.string().trim().min(1).default('Xenova/paraphrase-multilingual-MiniLM-L12-v2'),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
 }).superRefine((env, ctx) => {
+  if (env.ANALYSIS_LEASE_MS < env.ANALYSIS_HEARTBEAT_MS * 3) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ANALYSIS_LEASE_MS'], message: 'Lease должен быть не меньше трёх интервалов heartbeat' });
+  }
   if (env.LLM_PROVIDER === 'openrouter' && (!env.OPENROUTER_API_KEY || /^sk-or-v1-X+$/.test(env.OPENROUTER_API_KEY))) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['OPENROUTER_API_KEY'], message: 'Для OpenRouter нужен настоящий API-ключ' });
   }

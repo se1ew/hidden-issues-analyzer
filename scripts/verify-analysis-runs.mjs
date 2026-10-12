@@ -61,6 +61,82 @@ try {
     modelVersion: 'test', promptVersion: 'test', embeddingVersion: 'test', methodVersion: 'test',
   } }), error => error.code === 'P2002');
   console.log('Run snapshots: owner boundaries, atomic concurrent start, immutable input, stored configuration, pending results and database uniqueness passed.');
+  const claimed = await runs.claimAnalysisRun(created.id);
+  assert(claimed.leaseToken);
+  assert.equal(await runs.claimAnalysisRun(created.id), null);
+  const token = claimed.leaseToken;
+  assert(await runs.heartbeatAnalysisRun(created.id, token));
+  assert.equal(await runs.heartbeatAnalysisRun(created.id, 'foreign-token'), null);
+  assert.equal(await runs.beginAnalysisInput(created.id, token, snapshot[0].id), true);
+  assert.equal(await runs.beginAnalysisInput(created.id, token, snapshot[0].id), false);
+  const successful = { sentiment: 'positive', sentiment_score: 0.5,
+    aspects: [{ name: 'звук', sentiment: 'positive' }], issues: ['шумит'] };
+  assert.equal(await runs.saveAnalysisInput(created.id, token, snapshot[0].id, { result: successful, durationMs: 5 }), true);
+  assert.equal(await runs.saveAnalysisInput(created.id, token, snapshot[0].id, { result: successful, durationMs: 5 }), false);
+  assert.equal(await db.aspectMention.count({ where: { analysis: { runId: created.id } } }), 1);
+  assert.equal(await runs.beginAnalysisInput(created.id, token, snapshot[1].id), true);
+  assert.equal(await runs.saveAnalysisInput(created.id, token, snapshot[1].id, { errorCode: 'invalid_response', durationMs: 5 }), true);
+  const partial = await runs.finishAnalysisRun(created.id, token);
+  assert.equal(partial.status, 'partial'); assert.equal(partial.succeeded, 1); assert.equal(partial.failed, 1);
+  assert.equal((await runs.getAnalysisRun(created.id, 'a')).remaining, 0);
+  assert.equal(await runs.finishAnalysisRun(created.id, token), null);
+  assert.equal((await db.review.findUniqueOrThrow({ where: { id: 'review-1' } })).analyzedAt, null);
+
+  const waiting = await runs.createAnalysisRun('a', input);
+  await assert.rejects(runs.cancelAnalysisRun(waiting.id, 'b'), error => error.status === 404);
+  assert.equal((await runs.cancelAnalysisRun(waiting.id, 'a')).status, 'cancelled');
+  assert.equal(await runs.claimAnalysisRun(waiting.id), null);
+  const cancelEvents = await db.analysisRunEvent.count({ where: { runId: waiting.id } });
+  await runs.cancelAnalysisRun(waiting.id, 'a');
+  assert.equal(await db.analysisRunEvent.count({ where: { runId: waiting.id } }), cancelEvents);
+  const stopping = await runs.createAnalysisRun('a', input);
+  const stoppingClaim = await runs.claimAnalysisRun(stopping.id);
+  const stoppingInput = await db.analysisRunReview.findFirstOrThrow({ where: { runId: stopping.id } });
+  await runs.beginAnalysisInput(stopping.id, stoppingClaim.leaseToken, stoppingInput.id);
+  assert.equal((await runs.cancelAnalysisRun(stopping.id, 'a')).status, 'running');
+  assert.equal(await runs.saveAnalysisInput(stopping.id, stoppingClaim.leaseToken, stoppingInput.id, { result: successful, durationMs: 1 }), false);
+  assert.equal((await runs.finishAnalysisRun(stopping.id, stoppingClaim.leaseToken)).status, 'cancelled');
+  assert.equal(await db.reviewAnalysis.count({ where: { runId: stopping.id, status: 'succeeded' } }), 0);
+
+  const expired = await runs.createAnalysisRun('a', input);
+  const expiredClaim = await runs.claimAnalysisRun(expired.id);
+  await db.analysisRun.update({ where: { id: expired.id }, data: { leaseExpiresAt: new Date(Date.now() - 1000) } });
+  await runs.interruptExpiredRuns();
+  assert.equal((await runs.getAnalysisRun(expired.id, 'a')).status, 'interrupted');
+  assert.equal(await runs.heartbeatAnalysisRun(expired.id, expiredClaim.leaseToken), null);
+  assert.equal(await runs.finishAnalysisRun(expired.id, expiredClaim.leaseToken), null);
+  console.log('Run lifecycle: exclusive claim, heartbeat, idempotent results, exact counters, partial status, cancellation fencing and expired-lease recovery passed.');
+  for (const kind of ['failed', 'completed']) {
+    const next = await runs.createAnalysisRun('a', input);
+    const lease = await runs.claimAnalysisRun(next.id);
+    const inputs = await db.analysisRunReview.findMany({ where: { runId: next.id } });
+    for (const row of inputs) {
+      await runs.beginAnalysisInput(next.id, lease.leaseToken, row.id);
+      await runs.saveAnalysisInput(next.id, lease.leaseToken, row.id, kind === 'failed'
+        ? { errorCode: 'invalid_response', durationMs: 1 }
+        : { result: { ...successful, issues: [] }, durationMs: 1 });
+    }
+    const finished = await runs.finishAnalysisRun(next.id, lease.leaseToken);
+    assert.equal(finished.status, kind);
+    assert.equal(finished.succeeded + finished.failed, finished.total);
+  }
+  const empty = await runs.createAnalysisRun('a', input);
+  assert.equal(empty.total, 0);
+  const emptyLease = await runs.claimAnalysisRun(empty.id);
+  assert.equal((await runs.finishAnalysisRun(empty.id, emptyLease.leaseToken)).finishReason, 'empty_selection');
+  const previous = await db.review.findUniqueOrThrow({ where: { id: 'review-2' } });
+  const cancelledReanalysis = await runs.createAnalysisRun('a', { ...input, mode: 'reanalyze' });
+  const reanalysisLease = await runs.claimAnalysisRun(cancelledReanalysis.id);
+  const reanalysisInput = await db.analysisRunReview.findFirstOrThrow({ where: { runId: cancelledReanalysis.id, sourceReviewId: previous.id } });
+  await runs.beginAnalysisInput(cancelledReanalysis.id, reanalysisLease.leaseToken, reanalysisInput.id);
+  await runs.saveAnalysisInput(cancelledReanalysis.id, reanalysisLease.leaseToken, reanalysisInput.id,
+    { result: { ...successful, sentiment: 'negative', sentiment_score: -0.5 }, durationMs: 1 });
+  await runs.cancelAnalysisRun(cancelledReanalysis.id, 'a');
+  await runs.finishAnalysisRun(cancelledReanalysis.id, reanalysisLease.leaseToken);
+  const unchanged = await db.review.findUniqueOrThrow({ where: { id: previous.id } });
+  assert.equal(unchanged.sentiment, previous.sentiment);
+  assert.equal(unchanged.analyzedAt.getTime(), previous.analyzedAt.getTime());
+  console.log('Run terminal states: all failures, successful empty grouping, empty selection and preserved publication after cancellation passed.');
 } finally {
   if (db) await db.$disconnect();
   for (const container of containers.reverse()) spawnSync('docker', ['rm', '-f', container], { encoding: 'utf8' });
