@@ -1,6 +1,6 @@
 import { ownedProductScope } from './ownership.service.js';
 import { prisma } from '../lib/prisma.js';
-import { chatCompletion } from '../lib/openrouter.js';
+import { llm } from '../lib/llm.js';
 
 export async function generateProductSummary(userId: string, productId?: string): Promise<string> {
   const where = ownedProductScope(userId, productId);
@@ -40,6 +40,6 @@ ${issueLines || 'Нет данных'}
 ЗАДАЧА: Напиши 3-5 предложений — ключевые выводы, самые острые проблемы и рекомендации.
 Пиши кратко, по делу, как аналитик для менеджера продукта. Без вводных слов и воды.`;
 
-  const text = await chatCompletion({ messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 512 });
+  const text = await llm.complete({ messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 512 });
   return text.trim();
 }

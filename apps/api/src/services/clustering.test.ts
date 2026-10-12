@@ -1,13 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { prisma } from '../lib/prisma.js';
 import { embed } from '../lib/embeddings.js';
-import { chatCompletion } from '../lib/openrouter.js';
+import { llm } from '../lib/llm.js';
 import { recomputeHiddenIssues } from './clustering.service.js';
 
 vi.mock('../lib/embeddings.js', () => ({ embed: vi.fn() }));
-vi.mock('../lib/openrouter.js', async (importOriginal) => ({
-  ...await importOriginal<typeof import('../lib/openrouter.js')>(), chatCompletion: vi.fn(),
-}));
+vi.mock('../lib/llm.js', () => ({ llm: { completeJson: vi.fn() } }));
 
 describe('recomputeHiddenIssues — текущий production-пайплайн', () => {
   it('при недостатке жалоб очищает только выбранную область', async () => {
@@ -16,7 +14,7 @@ describe('recomputeHiddenIssues — текущий production-пайплайн',
     expect(await recomputeHiddenIssues('owner', 'product-a')).toEqual({ clustersCreated: 0, reviewsAssigned: 0, noisePoints: 0 });
     expect(prisma.hiddenIssue.deleteMany).toHaveBeenCalledWith({ where: { productId: 'product-a', product: { userId: 'owner' } } });
     expect(embed).not.toHaveBeenCalled();
-    expect(chatCompletion).not.toHaveBeenCalled();
+    expect(llm.completeJson).not.toHaveBeenCalled();
   });
 
   it('одинаковые жалобы разных товаров создают отдельные кластеры', async () => {
@@ -28,7 +26,7 @@ describe('recomputeHiddenIssues — текущий production-пайплайн',
     ] as never);
     vi.mocked(prisma.review.count).mockResolvedValue(10);
     vi.mocked(embed).mockResolvedValue([[1, 0], [1, 0]]);
-    vi.mocked(chatCompletion).mockResolvedValue('{"title":"Заедает крышка","description":"Описание","keywords":["крышка"]}');
+    vi.mocked(llm.completeJson).mockResolvedValue({ title: 'Заедает крышка', description: 'Описание', keywords: ['крышка'] });
     vi.mocked(prisma.hiddenIssue.create)
       .mockResolvedValueOnce({ id: 'issue-a' } as never)
       .mockResolvedValueOnce({ id: 'issue-b' } as never);
@@ -47,7 +45,7 @@ describe('recomputeHiddenIssues — текущий production-пайплайн',
     vi.mocked(prisma.hiddenIssue.findMany).mockResolvedValue([]);
     vi.mocked(prisma.review.count).mockResolvedValue(10);
     vi.mocked(embed).mockResolvedValue([[1, 0], [1, 0], [1, 0]]);
-    vi.mocked(chatCompletion).mockResolvedValue('{"title":"Крышка","description":"Описание","keywords":[]}');
+    vi.mocked(llm.completeJson).mockResolvedValue({ title: 'Крышка', description: 'Описание', keywords: [] });
     vi.mocked(prisma.hiddenIssue.create).mockResolvedValue({ id: 'issue-a' } as never);
     const result = await recomputeHiddenIssues('owner', 'a');
     expect(result.reviewsAssigned).toBe(2);

@@ -6,6 +6,8 @@ import { requireAuth } from '../middleware/auth.js';
 export const analysisRouter = Router();
 
 analysisRouter.use(requireAuth);
+analysisRouter.get('/provider', ctrl.provider);
+analysisRouter.post('/provider/check', ctrl.checkProvider);
 
 analysisRouter.post('/run', ctrl.run);
 analysisRouter.post('/:jobId/cancel', ctrl.cancel);

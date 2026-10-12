@@ -9,8 +9,20 @@ import { runPendingAnalysis } from '../services/analyzer.service.js';
 import { getOverviewStats, getSentimentTimeseries, type Bucket } from '../services/stats.service.js';
 import { generateProductSummary } from '../services/summary.service.js';
 import { getIO, setJobState, deleteJobState, ownsJob, hasActiveJob } from '../sockets/index.js';
+import { llm, publicProviderConfiguration } from '../lib/llm.js';
 
 const jobCancels = new Map<string, AbortController>();
+
+export async function provider(_req: Request, res: Response): Promise<void> {
+  res.json(publicProviderConfiguration());
+}
+
+export async function checkProvider(_req: Request, res: Response): Promise<void> {
+  const controller = new AbortController();
+  res.once('close', () => { if (!res.writableEnded) controller.abort(); });
+  await llm.check(controller.signal);
+  res.json({ ...publicProviderConfiguration(), available: true });
+}
 
 export async function run(req: Request, res: Response): Promise<void> {
   const { limit, productId } = z.object({
@@ -19,6 +31,11 @@ export async function run(req: Request, res: Response): Promise<void> {
   }).parse(req.body ?? {});
   const userId = requestUserId(req);
   if (productId) await requireOwnedProduct(userId, productId);
+  if (hasActiveJob(userId, productId)) throw new HttpError(409, 'Анализ уже выполняется');
+  const preflight = new AbortController();
+  res.once('close', () => { if (!res.writableEnded) preflight.abort(); });
+  await llm.check(preflight.signal);
+  // The availability request yields; another start may have been accepted meanwhile.
   if (hasActiveJob(userId, productId)) throw new HttpError(409, 'Анализ уже выполняется');
   const jobId = `analysis-${randomUUID()}`;
   const io = getIO();
@@ -52,7 +69,7 @@ export async function run(req: Request, res: Response): Promise<void> {
     userId,
     productId,
     limit,
-    concurrency: 1,
+    concurrency: llm.config.concurrency,
     signal: controller.signal,
     onProgress: (processed, total) => {
       setJobState(jobId, { processed, total });

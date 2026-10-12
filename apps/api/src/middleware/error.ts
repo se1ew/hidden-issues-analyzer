@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler, NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import multer from 'multer';
+import { LlmError } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
 
 export class HttpError extends Error {
@@ -18,6 +19,11 @@ export const notFound = (_req: Request, res: Response, _next: NextFunction): voi
 };
 
 export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+  if (err instanceof LlmError) {
+    res.status(err.code === 'cancelled' ? 409 : err.code === 'input_too_long' ? 422 : 503)
+      .json({ error: err.message, code: err.code });
+    return;
+  }
   if (err instanceof multer.MulterError) {
     res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({
       error: err.code === 'LIMIT_FILE_SIZE' ? 'CSV превышает 25 МиБ' : 'Некорректная загрузка файла',

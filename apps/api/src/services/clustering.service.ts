@@ -5,7 +5,8 @@ import densityClustering from 'density-clustering';
 import { prisma } from '../lib/prisma.js';
 import { embed } from '../lib/embeddings.js';
 import { logger } from '../lib/logger.js';
-import { chatCompletion, extractJson } from '../lib/openrouter.js';
+import { llm } from '../lib/llm.js';
+import { z } from 'zod';
 
 interface ClusterSummary {
   title: string;
@@ -49,16 +50,21 @@ ${samples.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 {"title":"...","description":"...","keywords":["...","...","..."]}`;
 
   try {
-    const content = await chatCompletion({
+    const parsed = await llm.completeJson({
       messages: [
         { role: 'system', content: 'Ты — аналитик отзывов. Отвечай только валидным JSON.' },
         { role: 'user', content: prompt },
       ],
       temperature: 0.2,
       max_tokens: 300,
-      response_format: { type: 'json_object' },
-    });
-    const parsed = extractJson<ClusterSummary>(content);
+      schemaName: 'cluster_summary', jsonSchema: { type: 'object', additionalProperties: false,
+        required: ['title', 'description', 'keywords'], properties: {
+          title: { type: 'string', minLength: 1, maxLength: 120 },
+          description: { type: 'string', minLength: 1, maxLength: 400 },
+          keywords: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 40 } },
+        } },
+    }, z.object({ title: z.string().trim().min(1).max(120), description: z.string().trim().min(1).max(400),
+      keywords: z.array(z.string().trim().min(1).max(40)).max(8) }).strict());
     return {
       title: String(parsed.title ?? 'Без названия').slice(0, 120),
       description: String(parsed.description ?? '').slice(0, 400),
