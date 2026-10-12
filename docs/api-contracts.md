@@ -14,7 +14,7 @@
 Несуществующий и чужой ID возвращают одинаковый `404 NOT_FOUND`, включая
 вложенные ID импортов/отзывов/запусков/снимков. Отсутствующая или истёкшая
 сессия — `401 UNAUTHENTICATED`. Cookie-запросы проверяют разрешённый Origin
-и CSRF-токен; CORS разрешает только настроенный origin.
+и обязательный CSRF-заголовок; CORS разрешает только настроенный origin.
 
 Успешный ответ: `{ "data": ... }`, кроме бинарного скачивания и `204` без тела.
 Список: `{ "data": { "items": [], "total": 0, "page": 1, "pageSize": 20 } }`.
@@ -59,7 +59,7 @@
 
 | Метод и путь | Запрос / результат |
 | --- | --- |
-| `POST /auth/register` | `{email,password,name?}` → 201, `{user,accessToken,csrfToken}` и refresh cookie |
+| `POST /auth/register` | `{email,password,name?}` → 201, `{user,accessToken}` и refresh cookie |
 | `POST /auth/login` | `{email,password}` → 200, тот же формат сессии |
 | `POST /auth/refresh` | Refresh из HttpOnly cookie, CSRF-заголовок → 200, новый access token и ротация cookie |
 | `POST /auth/logout` | Отзыв текущей сессии и очистка cookie → 204 |
@@ -67,9 +67,15 @@
 
 Access token хранится в памяти клиента. Refresh cookie: HttpOnly, SameSite=Lax,
 Secure в HTTPS-развёртывании; локальный HTTP допускается конфигурацией разработки.
-CSRF-токен передаётся в `X-CSRF-Token`, доступен клиенту через отдельную
-не-HttpOnly cookie и сверяется с сессией. При перезагрузке страницы клиент
-использует эту cookie для refresh. Первый вход/регистрация также проверяют Origin.
+Для всех четырёх POST операций сессии обязателен `X-ReviewLens-CSRF: 1`;
+Origin, когда присутствует, должен точно совпадать с WEB_ORIGIN, а
+Sec-Fetch-Site: cross-site отклоняется. Заголовок требует CORS preflight в браузере;
+сервер разрешает его только настроенному origin. Это защита через обязательный
+нестандартный заголовок и проверку origin, отдельная CSRF-cookie не используется.
+Клиенты без Origin также обязаны передавать заголовок. При перезагрузке страницы
+клиент делает refresh с credentials, используя HttpOnly cookie автоматически.
+API и frontend должны быть same-site: локально на localhost, при HTTPS —
+на одном сайте. Развёртывание на разных сайтах требует другого cookie-контракта.
 Logout идемпотентен при уже отозванной сессии; кэш frontend очищается.
 
 ## Товары, импорты и отзывы
