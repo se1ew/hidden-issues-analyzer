@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { useAnalysisRuns, useCancelAnalysis, useRetryFailedAnalysis, useProducts, type AnalysisRunItem } from '../lib/queries';
 import { connectSocket } from '../lib/socket';
 import { useAnalysisStore } from '../store/analysis.store';
 import { useProductStore } from '../store/product.store';
+import { AnalysisRunResults } from './AnalysisRunResults';
 
 const statusNames: Record<AnalysisRunItem['status'], string> = {
   queued: 'В очереди', running: 'Обрабатывается', completed: 'Завершён', partial: 'Частично',
@@ -12,6 +13,7 @@ const statusNames: Record<AnalysisRunItem['status'], string> = {
 };
 
 export function AnalysisRunHistory() {
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const productId = useProductStore((state) => state.selectedProductId);
   const history = useAnalysisRuns(productId);
   const products = useProducts();
@@ -49,6 +51,8 @@ export function AnalysisRunHistory() {
           <span className="text-sm font-medium">{run.cancelRequestedAt && active ? 'Останавливается' : statusNames[run.status]}</span>
         </div>
         <p className="text-sm">Успешно: {run.succeeded} · Ошибки: {run.failed} · Осталось: {run.remaining} · Всего: {run.total}</p>
+        <button className="btn-soft" aria-expanded={expandedRunId === run.id} onClick={() => setExpandedRunId(expandedRunId === run.id ? null : run.id)}>{expandedRunId === run.id ? 'Скрыть результаты' : 'Показать результаты'}</button>
+        {expandedRunId === run.id && <AnalysisRunResults key={run.id} runId={run.id} />}
         {run.previousRunId && <p className="text-xs text-neutral-500">Повтор ошибок запуска {run.previousRunId}</p>}
         {['cancelled', 'interrupted'].includes(run.status) && <p className="text-sm text-amber-700 dark:text-amber-300">Сохранённые результаты остаются в этом запуске и не заменяют последний опубликованный результат.</p>}
         {!active && run.failed > 0 && <button className="btn-soft" disabled={retry.isPending || history.data?.items.some((item) => item.productId === run.productId && ['queued', 'running'].includes(item.status))} onClick={async () => {

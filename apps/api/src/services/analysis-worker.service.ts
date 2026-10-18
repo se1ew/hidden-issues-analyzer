@@ -36,7 +36,8 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
   void notifyAnalysisRun(runId);
   let finishCode: string | undefined;
   try {
-    const structured = run.promptVersion === EXTRACTION_PROMPT_VERSION && run.methodVersion === EXTRACTION_METHOD_VERSION;
+    const structured = (run.promptVersion === EXTRACTION_PROMPT_VERSION && run.methodVersion === EXTRACTION_METHOD_VERSION)
+      || (run.promptVersion === 'review-evidence-v2' && run.methodVersion === 'extraction-v2');
     if (!structured && (run.promptVersion !== ANALYSIS_PROMPT_VERSION || run.methodVersion !== 'extraction-v1')) {
       throw new LlmError('invalid_response', 'Версия анализа не поддерживается этим worker');
     }

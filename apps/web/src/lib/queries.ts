@@ -1,6 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { useProductStore } from '../store/product.store';
+import type { EvidenceRange } from './evidence';
+
+export interface AnalysisInputItem {
+  id: string; sourceReviewId: string; text: string; rating: number | null;
+  analysis: { status: string; sentiment: string | null; errorCode: string | null;
+    aspects: Array<{ id: string; name: string; originalName: string | null; category: string; sentiment: string }>;
+    issues: Array<EvidenceRange & { id: string; aspectId: string; scope: string; defect: string; consequences: string | null;
+      masking: { positiveContext: boolean; reasons: string[]; highRating: boolean | null } | null }> } | null;
+}
+
+export function useAnalysisInputs(runId: string, page: number) {
+  return useQuery({ queryKey: ['analysis-inputs', runId, page],
+    queryFn: async () => (await api.get<{ items: AnalysisInputItem[]; total: number; pageSize: number; offsetUnit: string; runStatus: string }>(`/api/analysis/runs/${runId}/inputs`, {
+      params: { page, pageSize: 10 },
+    })).data,
+    refetchInterval: (query) => ['queued', 'running'].includes(query.state.data?.runStatus ?? '') ? 2000 : false,
+  });
+}
 
 export interface AnalysisRunItem {
   previousRunId?: string | null; resultsDisposition?: 'retained_unpublished' | 'run_scoped';

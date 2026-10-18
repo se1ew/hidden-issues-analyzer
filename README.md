@@ -217,3 +217,9 @@ server → client: 'analysis:error'    { jobId, message }
 
 Устойчивая очередь, история запусков, отмена и проверка worker:
 [docs/analysis-worker.md](docs/analysis-worker.md). Запуск требует выбранного товара.
+
+Структурированные жалобы, цитаты, нормализация аспектов и результаты запуска:
+[docs/extraction-evidence.md](docs/extraction-evidence.md).
+В истории запусков можно открыть исходные отзывы с выделенными цитатами.
+`npm run test:sql` проверяет миграции и триггер повторов без Docker;
+проверки очереди с PostgreSQL/Redis выполняются отдельно.

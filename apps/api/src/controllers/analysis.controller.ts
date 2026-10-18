@@ -4,8 +4,8 @@ import { requireOwnedProduct } from '../services/ownership.service.js';
 
 import { getOverviewStats, getSentimentTimeseries, type Bucket } from '../services/stats.service.js';
 import { generateProductSummary } from '../services/summary.service.js';
-import { CreateAnalysisRunSchema, ListAnalysisRunsSchema } from '../schemas/analysis-runs.schema.js';
-import { createAnalysisRun, getAnalysisRun, listAnalysisRuns, cancelAnalysisRun, retryFailedAnalysisRun } from '../services/analysis-runs.service.js';
+import { CreateAnalysisRunSchema, ListAnalysisRunsSchema, ListAnalysisInputsSchema } from '../schemas/analysis-runs.schema.js';
+import { createAnalysisRun, getAnalysisRun, listAnalysisRuns, listAnalysisInputs, cancelAnalysisRun, retryFailedAnalysisRun } from '../services/analysis-runs.service.js';
 import { enqueueAnalysisRun, notifyAnalysisRun } from '../lib/analysis-queue.js';
 import { logger } from '../lib/logger.js';
 import { llm, publicProviderConfiguration } from '../lib/llm.js';
@@ -51,6 +51,10 @@ export async function retryFailed(req: Request, res: Response): Promise<void> {
 
 export async function getRun(req: Request, res: Response): Promise<void> {
   res.json(await getAnalysisRun(req.params.runId as string, requestUserId(req)));
+}
+
+export async function listInputs(req: Request, res: Response): Promise<void> {
+  res.json(await listAnalysisInputs(req.params.runId as string, requestUserId(req), ListAnalysisInputsSchema.parse(req.query)));
 }
 
 export async function listRuns(req: Request, res: Response): Promise<void> {

@@ -371,13 +371,14 @@ model ReviewAnalysis {
 }
 
 model AspectMention {
-  id         String         @id @default(cuid())
-  analysisId String
-  category   AspectCategory
-  name       String
-  sentiment  Sentiment
-  analysis   ReviewAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
-  issues     IssueMention[]
+  id           String         @id @default(cuid())
+  analysisId   String
+  category     AspectCategory
+  name         String
+  originalName String?
+  sentiment    Sentiment
+  analysis     ReviewAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  issues       IssueMention[]
 
   @@unique([analysisId, id])
 }
@@ -393,6 +394,7 @@ model IssueMention {
   quoteStart   Int
   quoteEnd     Int
   consequences String?              @db.Text
+  masking      Json?
   analysis     ReviewAnalysis       @relation(fields: [runId, analysisId], references: [runId, id], onDelete: Cascade)
   aspect       AspectMention        @relation(fields: [analysisId, aspectId], references: [analysisId, id], onDelete: Cascade)
   clusters     IssueClusterMember[]

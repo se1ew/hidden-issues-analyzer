@@ -3,8 +3,8 @@ import { Prisma, type AnalysisRun } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { llm } from '../lib/llm.js';
 import { HttpError } from '../middleware/error.js';
-import { EXTRACTION_PROMPT, EXTRACTION_PROMPT_VERSION, EXTRACTION_METHOD_VERSION, ExtractionResultSchema, validateExtractionEvidence, type ExtractionResult } from './extraction.service.js';
-import { CreateAnalysisRunSchema, type CreateAnalysisRunInput, type ListAnalysisRunsInput } from '../schemas/analysis-runs.schema.js';
+import { EXTRACTION_PROMPT, EXTRACTION_PROMPT_VERSION, EXTRACTION_METHOD_VERSION, ExtractionResultSchema, prepareExtraction, type ExtractionResult } from './extraction.service.js';
+import { CreateAnalysisRunSchema, type CreateAnalysisRunInput, type ListAnalysisRunsInput, type ListAnalysisInputsInput } from '../schemas/analysis-runs.schema.js';
 import { env } from '../config/env.js';
 import { AnalysisResultSchema, type AnalysisResult } from './analyzer.service.js';
 
@@ -95,6 +95,23 @@ export async function getAnalysisRun(runId: string, userId: string) {
   const run = await prisma.analysisRun.findFirst({ where: { id: runId, userId, product: { userId } } });
   if (!run) throw new HttpError(404, 'Запуск не найден');
   return publicAnalysisRun(run);
+}
+
+export async function listAnalysisInputs(runId: string, userId: string, query: ListAnalysisInputsInput) {
+  const run = await getAnalysisRun(runId, userId);
+  const where: Prisma.AnalysisRunReviewWhereInput = { runId, run: { userId, product: { userId } } };
+  const [items, total] = await Promise.all([
+    prisma.analysisRunReview.findMany({ where, orderBy: { id: 'asc' },
+      skip: (query.page - 1) * query.pageSize, take: query.pageSize,
+      select: { id: true, sourceReviewId: true, text: true, rating: true,
+        analysis: { select: { status: true, sentiment: true, errorCode: true,
+          aspects: { orderBy: { id: 'asc' }, select: { id: true, name: true, originalName: true, category: true, sentiment: true } },
+          issues: { orderBy: [{ quoteStart: 'asc' }, { id: 'asc' }], select: { id: true, aspectId: true,
+            scope: true, defect: true, quote: true, quoteStart: true, quoteEnd: true, consequences: true, masking: true } } } } },
+    }),
+    prisma.analysisRunReview.count({ where }),
+  ]);
+  return { items, total, page: query.page, pageSize: query.pageSize, runStatus: run.status, offsetUnit: 'utf16', offsetEnd: 'exclusive' };
 }
 
 /** Retry immutable failed inputs, never the current (possibly edited) review. */
@@ -193,27 +210,26 @@ export async function saveAnalysisInput(runId: string, token: string, inputId: s
     if (!ownsLease(current, token) || current.cancelRequestedAt) return false;
     const analysis = await tx.reviewAnalysis.findUnique({ where: { runReviewId: inputId } });
     if (!analysis || analysis.runId !== runId || analysis.status !== 'running') return false;
-    if (result && 'complaints' in result) {
-      const input = await tx.analysisRunReview.findUniqueOrThrow({ where: { id: inputId } });
-      result.complaints = validateExtractionEvidence(input.text, result).complaints;
-    }
+    const input = result && 'complaints' in result
+      ? await tx.analysisRunReview.findUniqueOrThrow({ where: { id: inputId } }) : null;
+    const prepared = input && result && 'complaints' in result ? prepareExtraction(input.text, input.rating, result) : null;
     await tx.reviewAnalysis.update({ where: { id: analysis.id }, data: {
       status: result ? 'succeeded' : 'failed', finishedAt: new Date(), durationMs: outcome.durationMs,
       ...(result ? { sentiment: result.sentiment, sentimentScore: result.sentiment_score,
-        errorCode: null, diagnostics: { legacyIssues: 'issues' in result ? result.issues : result.complaints.map((item) => item.description), evidencePending: !('complaints' in result) } }
+        errorCode: null, diagnostics: { legacyIssues: 'issues' in result ? result.issues : prepared!.complaints.map((item) => item.description),
+          evidencePending: !prepared, ...(prepared?.metadata ?? {}) } }
         : { errorCode: 'errorCode' in outcome ? outcome.errorCode.slice(0, 100) : 'unknown' }),
     } });
     if (result) for (const [index, aspect] of result.aspects.entries()) {
       const created = await tx.aspectMention.create({ data: {
-        analysisId: analysis.id, category: 'other', name: aspect.name, sentiment: aspect.sentiment,
+        analysisId: analysis.id, ...(prepared?.aspects[index] ?? { category: 'other', name: aspect.name, sentiment: aspect.sentiment }),
       } });
-      if ('complaints' in result) {
-        const input = await tx.analysisRunReview.findUniqueOrThrow({ where: { id: inputId } });
-        for (const complaint of result.complaints.filter((item) => item.aspectIndex === index)) {
-          const quoteStart = input.text.indexOf(complaint.quote);
+      if (prepared) {
+        for (const complaint of prepared.complaints.filter((item) => item.aspectIndex === index)) {
           await tx.issueMention.create({ data: { runId, analysisId: analysis.id, aspectId: created.id,
             scope: complaint.scope, defect: complaint.description, quote: complaint.quote,
-            quoteStart, quoteEnd: quoteStart + complaint.quote.length, consequences: complaint.consequences } });
+            quoteStart: complaint.quoteStart, quoteEnd: complaint.quoteEnd, consequences: complaint.consequences,
+            masking: complaint.masking } });
         }
       }
     }

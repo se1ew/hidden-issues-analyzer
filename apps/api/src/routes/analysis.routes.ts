@@ -10,6 +10,7 @@ analysisRouter.get('/provider', ctrl.provider);
 analysisRouter.post('/provider/check', ctrl.checkProvider);
 analysisRouter.get('/runs', ctrl.listRuns);
 analysisRouter.get('/runs/:runId', ctrl.getRun);
+analysisRouter.get('/runs/:runId/inputs', ctrl.listInputs);
 analysisRouter.post('/runs', ctrl.run);
 analysisRouter.post('/runs/:runId/cancel', ctrl.cancel);
 analysisRouter.post('/runs/:runId/retry-failed', ctrl.retryFailed);

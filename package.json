@@ -23,7 +23,8 @@
     "typecheck": "npm-run-all --parallel typecheck:api typecheck:web",
     "typecheck:api": "npm run typecheck --workspace=@hia/api",
     "typecheck:web": "npm run typecheck --workspace=@hia/web",
-    "check": "npm-run-all typecheck lint test build",
+    "check": "npm-run-all typecheck lint test test:sql build",
+    "test:sql": "node scripts/verify-evidence-migration.mjs",
     "start:api": "npm run start --workspace=@hia/api",
     "start:worker": "npm run start:worker --workspace=@hia/api",
     "preview:web": "npm run preview --workspace=@hia/web",
@@ -36,6 +37,7 @@
     "db:generate": "npm run prisma:generate --workspace=@hia/api"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "npm-run-all": "^4.1.5",
     "prettier": "^3.3.3"
   },

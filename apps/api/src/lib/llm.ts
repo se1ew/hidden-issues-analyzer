@@ -3,7 +3,7 @@ import { z, type ZodType } from 'zod';
 import { env, type Env } from '../config/env.js';
 import { withLlmCapacity } from './llm-capacity.js';
 
-export type LlmErrorCode = 'cancelled' | 'timeout' | 'network' | 'http' | 'invalid_response' | 'model_unavailable' | 'input_too_long';
+export type LlmErrorCode = 'cancelled' | 'timeout' | 'network' | 'http' | 'invalid_response' | 'invalid_evidence' | 'model_unavailable' | 'input_too_long';
 export class LlmError extends Error {
   constructor(public code: LlmErrorCode, message: string, public status?: number) { super(message); }
 }
