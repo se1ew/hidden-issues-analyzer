@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IssuesPage } from './IssuesPage';
+import { MemoryRouter } from 'react-router-dom';
 import { useProductStore } from '../store/product.store';
 import type { GroupingResponse, RunGroup } from '../lib/grouping-queries';
 const mocks = vi.hoisted(() => ({ groups: vi.fn(), history: vi.fn(), edit: vi.fn(), state: vi.fn(), recompute: vi.fn(), evidence: vi.fn() }));
@@ -26,12 +27,26 @@ beforeEach(() => {
   mocks.evidence.mockReturnValue({ data: { items: [group('a').representatives[0]], total: 1, pageSize: 10, offsetUnit: 'utf16' } });
 });
 describe('run-scoped problems and owner corrections', () => {
+  it('opens the target run/publication from a review link and clears the target filter on request', async () => {
+    render(<MemoryRouter initialEntries={['/issues?productId=product&runId=run&snapshotId=a&publicationId=pub']}><IssuesPage /></MemoryRouter>);
+    await waitFor(() => expect(mocks.groups).toHaveBeenLastCalledWith('product', 'run', 'pub', 1, expect.objectContaining({ snapshotId: 'a' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Все группы этой публикации' }));
+    await waitFor(() => expect(mocks.groups.mock.lastCall?.[4].snapshotId).toBeUndefined());
+  });
+  it('switches the detail panel and requests positive evidence on the server', () => {
+    render(<MemoryRouter><IssuesPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: /Шум b.*уникальных отзывов/ }));
+    expect(screen.getByRole('region', { name: 'Детали проблемы' })).toHaveTextContent('Шум b');
+    fireEvent.click(screen.getByRole('button', { name: 'Все доказательства' }));
+    fireEvent.change(screen.getByLabelText('Контекст доказательств'), { target: { value: 'high_rating' } });
+    expect(mocks.evidence).toHaveBeenLastCalledWith('b', 1, 'high_rating');
+  });
   it('displays the versioned rule, explicit consequence category and insufficient evidence', () => {
     const response = data();
     response.items[0].metrics.signal = true;
     response.items[0].metrics.priority = { version: 'support-masking-consequence-v1', score: 200020, explanation: 'Сначала поддержка, затем положительный контекст', evidenceLabel: 'Мало подтверждений', limitation: 'Вероятность и критичность не измерены' };
     response.items[0].metrics.consequences = [{ mentionId: 'a-1', text: 'получил ожог', quote: 'нагревался, получил ожог', category: 'reported_harm' }];
-    mocks.groups.mockReturnValue({ data: response }); render(<IssuesPage />);
+    mocks.groups.mockReturnValue({ data: response }); render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><IssuesPage /></MemoryRouter>);
     expect(screen.getByText(/Мало подтверждений. Достоверность не измерена/)).toBeInTheDocument();
     expect(screen.getByText(/Автор сообщает о вреде/)).toBeInTheDocument();
     expect(screen.getByText(/Правило: support-masking-consequence-v1/)).toBeInTheDocument();
@@ -39,14 +54,14 @@ describe('run-scoped problems and owner corrections', () => {
     expect(mocks.groups).toHaveBeenLastCalledWith('product', '', '', 1, expect.objectContaining({ minSupport: 3 }));
   });
   it('displays independent denominators and missing consequences', () => {
-    render(<IssuesPage />);
-    expect(screen.getAllByText(/Распространённость: 2\/4 \(50.0%\)/)).toHaveLength(2);
-    expect(screen.getAllByText(/4–5 у 1\/1 \(100.0%\)/)).toHaveLength(2);
-    expect(screen.getAllByText(/Последствия: не определены/)).toHaveLength(2);
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><IssuesPage /></MemoryRouter>);
+    expect(screen.getAllByText(/Распространённость: 2\/4 \(50.0%\)/)).toHaveLength(1);
+    expect(screen.getAllByText(/4–5 у 1\/1 \(100.0%\)/)).toHaveLength(1);
+    expect(screen.getAllByText(/Последствия: не определены/)).toHaveLength(1);
     expect(screen.queryByText('Критично')).not.toBeInTheDocument();
   });
   it('previews a merge and commits only after confirmation', async () => {
-    render(<IssuesPage />);
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><IssuesPage /></MemoryRouter>);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Выбрать группу: Шум a' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Выбрать группу: Шум b' }));
     fireEvent.click(screen.getByRole('button', { name: 'Объединить выбранные (2)' }));
@@ -57,7 +72,7 @@ describe('run-scoped problems and owner corrections', () => {
     await waitFor(() => expect(mocks.edit).toHaveBeenLastCalledWith({ publicationId: 'pub', input: expect.objectContaining({ commit: true }) }));
   });
   it('requires an explanation for rejection and sends the card version', () => {
-    render(<IssuesPage />);
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><IssuesPage /></MemoryRouter>);
     expect(screen.getAllByRole('button', { name: 'Отклонить' })[0]).toBeDisabled();
     fireEvent.change(screen.getAllByLabelText('Комментарий к решению')[0], { target: { value: 'Не подтверждается' } });
     fireEvent.click(screen.getAllByRole('button', { name: 'Отклонить' })[0]);
@@ -65,13 +80,13 @@ describe('run-scoped problems and owner corrections', () => {
   });
   it('shows singleton signals and historical results without editable state controls', () => {
     const response = data(); response.currentPublicationId = 'newer'; response.items[0].metrics.signal = true;
-    mocks.groups.mockReturnValue({ data: response }); render(<IssuesPage />);
+    mocks.groups.mockReturnValue({ data: response }); render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><IssuesPage /></MemoryRouter>);
     expect(screen.getByText(/Неподтверждённый сигнал/)).toBeInTheDocument();
     expect(screen.getByText(/Открыта историческая публикация/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Подтвердить' })).not.toBeInTheDocument();
   });
   it('requires a product and does not render cached groups from another selection', () => {
-    useProductStore.setState({ selectedProductId: null }); render(<IssuesPage />);
+    useProductStore.setState({ selectedProductId: null }); render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><IssuesPage /></MemoryRouter>);
     expect(screen.getByText('Выберите товар для просмотра проблем.')).toBeInTheDocument();
     expect(mocks.groups).not.toHaveBeenCalled();
   });

@@ -295,6 +295,80 @@ try {
   const reconnected = await runs.createAnalysisRun('a', reanalyze);
   await waitFor(async () => (await runs.getAnalysisRun(reconnected.id, 'a')).status === 'completed', 'Redis socket disconnect/reconnect');
   console.log('Redis network disconnect/reconnect: existing worker resumed dispatch and completed a committed run.');
+
+  // Exercise published evidence and owner actions through the actual HTTP API.
+  // Fixed vectors test software behavior; no semantic/GPU quality is implied.
+  const { groupingPoint, mentionInclude } = await import('../apps/api/dist/services/clustering.service.js');
+  const { clusterMentions } = await import('../apps/api/dist/services/grouping-engine.js');
+  const { GroupingSettingsSchema } = await import('../apps/api/dist/schemas/grouping.schema.js');
+  const evidenceProduct = await db.product.create({ data: { userId: 'a', name: 'Рабочие страницы — проверка', source: 'local' } });
+  const originalRows = await Promise.all([['Крышка заедает', 5], ['Крышка заедает', null], ['Заряд не держит', 2], ['Заряд не держит', 1]].map(([text, rating], index) => db.review.create({ data: {
+    productId: evidenceProduct.id, text, rating, source: 'manual', reviewDate: index === 1 ? null : new Date('2026-10-10'),
+  } })));
+  const publishEvidence = async () => {
+    const created = await runs.createAnalysisRun('a', CreateAnalysisRunSchema.parse({ productId: evidenceProduct.id, mode: 'reanalyze' }));
+    const lease = await runs.claimAnalysisRun(created.id);
+    const rows = await db.analysisRunReview.findMany({ where: { runId: created.id } });
+    for (const row of rows) {
+      await runs.beginAnalysisInput(created.id, lease.leaseToken, row.id);
+      await runs.saveAnalysisInput(created.id, lease.leaseToken, row.id, { durationMs: 1, result: {
+        sentiment: row.rating === null ? 'positive' : 'negative', sentiment_score: row.rating === null ? 0.5 : -0.5,
+        aspects: [{ name: 'Качество', sentiment: 'negative' }],
+        complaints: [{ aspectIndex: 0, scope: 'product', description: row.text, quote: row.text, assertion: 'experienced', consequences: null }],
+      } });
+      await runs.heartbeatAnalysisRun(created.id, lease.leaseToken);
+    }
+    const mentions = await db.issueMention.findMany({ where: { runId: created.id }, include: mentionInclude });
+    const points = mentions.map(mention => groupingPoint(mention, evidenceProduct.id));
+    const settings = GroupingSettingsSchema.parse({}); const coverage = { total: rows.length, succeeded: rows.length, failed: 0 };
+    const groups = clusterMentions(points, points.map(point => point.defect.includes('Крышка') ? [1, 0] : [0, 1]), coverage, settings);
+    await runs.finishAnalysisRun(created.id, lease.leaseToken, undefined, { runId: created.id, settings, coverage, groups, embeddingVersion: lease.embeddingVersion });
+    return created.id;
+  };
+  // Keep the real worker from claiming runs constructed by this manual fixture.
+  const workerExited = once(worker, 'exit'); worker.kill('SIGKILL'); await workerExited; worker = undefined;
+  const evidenceRun = await publishEvidence();
+  let scope = { productId: evidenceProduct.id, runId: evidenceRun };
+  let listing = await http('issues/groupings', scope); assert.equal(listing.status, 200); assert.equal(listing.body.total, 2);
+  const lid = listing.body.items.find(item => item.defect.includes('Крышка'));
+  const battery = listing.body.items.find(item => item.defect.includes('Заряд'));
+  const mutation = (method, path, body, owner = 'a') => request(app)[method](`/api/${path}`).auth(signAccessToken({ sub: owner, email: `${owner}@run.test` }), { type: 'bearer' }).send(body);
+  const evidence = await http(`issues/snapshots/${lid.id}/evidence`, { context: 'high_rating', pageSize: 1 }); assert.equal(evidence.body.total, 1);
+  assert.equal((await http(`issues/snapshots/${lid.id}/evidence`, { context: 'positive_sentiment' })).body.total, 1);
+  assert.equal((await http(`issues/snapshots/${lid.id}/evidence`, { context: 'positive_context' })).body.total, 2);
+  assert.equal((await http(`issues/snapshots/${lid.id}/evidence`, {}, 'b')).status, 404);
+  assert.equal((await mutation('patch', `issues/problems/${lid.problem.id}/state`, { status: 'confirmed', expectedVersion: 0 })).status, 200);
+  assert.equal((await mutation('patch', `issues/problems/${lid.problem.id}/state`, { status: 'resolved', expectedVersion: 1 })).status, 200);
+  assert.equal((await mutation('patch', `issues/problems/${battery.problem.id}/state`, { status: 'rejected', expectedVersion: 0, reason: 'Проверка сохранения решения' })).status, 200);
+  assert.equal((await mutation('patch', `issues/problems/${lid.problem.id}/state`, { status: 'confirmed', expectedVersion: 0 })).status, 409);
+  await db.review.create({ data: { productId: evidenceProduct.id, source: 'manual', text: 'Крышка заедает', rating: 5 } });
+  const repeatedRun = await publishEvidence(); scope = { productId: evidenceProduct.id, runId: repeatedRun };
+  listing = await http('issues/groupings', scope); const repeatedLid = listing.body.items.find(item => item.problem?.id === lid.problem.id);
+  assert(repeatedLid.metrics.recurrence); assert.equal(repeatedLid.problem.status, 'new');
+  assert.equal(listing.body.items.find(item => item.problem?.id === battery.problem.id).problem.status, 'rejected');
+  let currentPublication = listing.body.publication.id; const originalPublication = currentPublication;
+  const edit = async (sourceId, change, commit) => mutation('post', `issues/groupings/${sourceId}/edit`, { expectedPublicationId: currentPublication, change, commit, reason: 'Проверка рабочих страниц' });
+  const mergedChange = { kind: 'merge', snapshotIds: listing.body.items.map(item => item.id) };
+  const preview = await edit(currentPublication, mergedChange, false); assert.equal(preview.status, 200); assert.equal(preview.body.committed, false);
+  const merged = await edit(currentPublication, mergedChange, true); assert.equal(merged.status, 200); currentPublication = merged.body.publicationId;
+  const mergedListing = (await http('issues/groupings', scope)).body; assert.equal(mergedListing.total, 1);
+  const members = mergedListing.items[0].mentionIds;
+  const split = await edit(currentPublication, { kind: 'split', snapshotId: mergedListing.items[0].id, parts: [members.slice(0, 2), members.slice(2)] }, true);
+  assert.equal(split.status, 200); currentPublication = split.body.publicationId;
+  const restored = await edit(originalPublication, { kind: 'restore' }, true); assert.equal(restored.status, 200); currentPublication = restored.body.publicationId;
+  assert.equal((await http('issues/groupings', { ...scope, publicationId: originalPublication })).body.total, 2);
+  const finalGroups = (await http('issues/groupings', scope)).body; assert.equal(finalGroups.total, 2);
+  assert.equal(finalGroups.items.find(item => item.problem?.id === battery.problem.id).problem.status, 'rejected');
+  const reviewed = (await http('reviews', scope)).body;
+  assert.equal(reviewed.total, 5); assert(reviewed.items.every(item => item.evidence.every(issue => issue.groupLinks[0].publicationId === currentPublication)));
+  const numbers = (await http('analysis/stats', scope)).body;
+  assert.equal(numbers.loadedTotal, 5); assert.equal(numbers.scopeTotal, 5); assert.equal(numbers.succeededCount, 5); assert.equal(numbers.failedCount, 0);
+  assert.equal(numbers.problemCount, 2); assert.equal(numbers.hiddenProblemCount, 1);
+  await db.review.create({ data: { productId: evidenceProduct.id, text: 'Импорт после публикации', source: 'manual' } });
+  const afterImport = (await http('analysis/stats', { productId: evidenceProduct.id })).body;
+  assert.equal(afterImport.scope.runId, repeatedRun); assert.equal(afterImport.loadedTotal, 6); assert.equal(afterImport.scopeTotal, 5);
+  assert.equal(originalRows.length, 4);
+  console.log('Published working pages: exact evidence filters, group links, persisted states/recurrence, merge/split/restore, historical publication and separate loaded/run/success counts passed.');
 } finally {
   if (worker && worker.exitCode === null) { const exited = once(worker, 'exit'); worker.kill('SIGKILL'); await exited; }
   if (queueModule) await queueModule.closeAnalysisQueue();

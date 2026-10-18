@@ -2,7 +2,7 @@ import { Package } from 'lucide-react';
 import { useProducts } from '../lib/queries';
 import { useProductStore } from '../store/product.store';
 
-export function ProductSelector({ compact = false }: { compact?: boolean }) {
+export function ProductSelector({ compact = false, onSelectionChange }: { compact?: boolean; onSelectionChange?: () => void }) {
   const { data, isLoading } = useProducts();
   const { selectedProductId, setSelectedProductId, selectedRunId, setDataScope } = useProductStore();
 
@@ -25,7 +25,7 @@ export function ProductSelector({ compact = false }: { compact?: boolean }) {
       <select
         id={compact ? 'scope-product' : 'page-product'}
         value={selectedProductId ?? ''}
-        onChange={(e) => setSelectedProductId(e.target.value || null)}
+        onChange={(e) => { onSelectionChange?.(); setSelectedProductId(e.target.value || null); }}
         disabled={isLoading || items.length === 0}
         className="input flex-1 min-w-0 max-w-full"
       >

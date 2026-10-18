@@ -2,7 +2,6 @@ import type { Request, Response } from 'express';
 import { requestUserId } from '../middleware/auth.js';
 import { requireOwnedProduct } from '../services/ownership.service.js';
 
-import { getOverviewStats, getSentimentTimeseries, type Bucket } from '../services/stats.service.js';
 import { generateProductSummary } from '../services/summary.service.js';
 import { CreateAnalysisRunSchema, ListAnalysisRunsSchema, ListAnalysisInputsSchema } from '../schemas/analysis-runs.schema.js';
 import { createAnalysisRun, getAnalysisRun, listAnalysisRuns, listAnalysisInputs, cancelAnalysisRun, retryFailedAnalysisRun } from '../services/analysis-runs.service.js';
@@ -12,6 +11,7 @@ import { llm, publicProviderConfiguration } from '../lib/llm.js';
 import { z } from 'zod';
 import { DataScopeSchema, scopeShape, validPeriod, entityId } from '../schemas/data-scope.schema.js';
 import { readRunData, runTimeseries } from '../services/run-data.service.js';
+import { scopedOverview, resolveRunScope } from '../services/stats.service.js';
 
 export async function provider(_req: Request, res: Response): Promise<void> {
   res.json(publicProviderConfiguration());
@@ -66,22 +66,17 @@ export async function listRuns(req: Request, res: Response): Promise<void> {
 
 export async function stats(req: Request, res: Response): Promise<void> {
   const query = DataScopeSchema.parse(req.query);
-  if (query.runId) {
-    const scoped = await readRunData(requestUserId(req), query);
-    res.json({ ...scoped.overview, scope: scoped.scope }); return;
-  }
-  const data = await getOverviewStats(requestUserId(req), query.productId, query);
-  res.json(data);
+  res.json(await scopedOverview(requestUserId(req), query));
 }
 
 export async function timeseries(req: Request, res: Response): Promise<void> {
   const query = z.object({ ...scopeShape, bucket: z.enum(['day', 'week', 'month']).default('day'),
     days: z.coerce.number().int().min(1).max(365).default(30) }).strict().refine(validPeriod, 'Некорректная область данных').parse(req.query);
-  if (query.runId) {
-    res.json(runTimeseries(await readRunData(requestUserId(req), query), query.bucket, query.days)); return;
+  const scope = await resolveRunScope(requestUserId(req), query);
+  if (scope.runId) {
+    res.json(runTimeseries(await readRunData(requestUserId(req), scope), query.bucket, query.days)); return;
   }
-  const data = await getSentimentTimeseries(requestUserId(req), query.bucket as Bucket, query.days, query.productId, query);
-  res.json(data);
+  res.json({ buckets: [], unknownDateCount: null, scope, hasRun: false });
 }
 
 export async function aspects(req: Request, res: Response): Promise<void> {

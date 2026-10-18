@@ -7,10 +7,16 @@ export async function readRunData(userId: string, query: DataScope) {
   const run = await prisma.analysisRun.findFirst({ where: { id: query.runId, productId: query.productId, userId, product: { userId } } });
   if (!run || !query.runId || !query.productId) throw new HttpError(404, 'Запуск выбранного товара не найден');
   assertRunPeriod(run.scope, query);
-  const inputs = await prisma.analysisRunReview.findMany({ where: { runId: run.id }, orderBy: { id: 'asc' },
-    include: { analysis: { include: { aspects: true, issues: true } } } });
   const publication = await prisma.groupingPublication.findFirst({ where: { runId: run.id, sealedAt: { not: null } },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true, _count: { select: { snapshots: true } } } });
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true, _count: { select: { snapshots: true } },
+      snapshots: { select: { scope: true, metrics: true, problem: { select: { status: true } } } } } });
+  const inputs = await prisma.analysisRunReview.findMany({ where: { runId: run.id }, orderBy: { id: 'asc' },
+    include: { analysis: { include: { aspects: true, issues: { include: { clusters: {
+      where: { cluster: { publicationId: publication?.id ?? '' } },
+      select: { cluster: { select: { id: true, title: true, publicationId: true, runId: true, productId: true } } },
+    } } } } } } });
+  const ownerScope = { productId: run.productId, product: { userId } };
+  const [loadedTotal, unprocessedCount] = await Promise.all([prisma.review.count({ where: ownerScope }), prisma.review.count({ where: { ...ownerScope, analyzedAt: null } })]);
   const successful = inputs.filter(item => item.analysis?.status === 'succeeded');
   const sentiment = { positive: 0, negative: 0, neutral: 0 };
   const aspects = new Map<string, { category: string; name: string; positive: number; negative: number; neutral: number }>();
@@ -28,10 +34,20 @@ export async function readRunData(userId: string, query: DataScope) {
   }
   const ratings = inputs.flatMap(item => item.rating === null ? [] : [item.rating]);
   const sentimentTotal = Object.values(sentiment).reduce((a, b) => a + b, 0);
+  const failedCount = inputs.filter(item => item.analysis?.status === 'failed').length;
+  const remainingCount = inputs.length - successful.length - failedCount;
+  const groups = publication?.snapshots ?? [];
+  const metrics = (item: typeof groups[number]) => (item.metrics ?? {}) as { signal?: boolean; hidden?: boolean };
+  const problems = groups.filter(item => item.scope === 'product' && metrics(item).signal === false);
   return { run, inputs, publication,
     scope: { productId: run.productId, runId: run.id, period: (run.scope as { period?: unknown }).period ?? null },
-    overview: { total: inputs.length, analyzed: successful.length, pending: inputs.length - successful.length,
-      failed: inputs.filter(item => item.analysis?.status === 'failed').length,
+    overview: { total: inputs.length, analyzed: successful.length, pending: remainingCount,
+      loadedTotal, scopeTotal: inputs.length, succeededCount: successful.length, failedCount, remainingCount, unprocessedCount,
+      coverageRatio: inputs.length ? successful.length / inputs.length : null, hasRun: true, runStatus: run.status,
+      problemCount: publication ? problems.length : null, hiddenProblemCount: publication ? problems.filter(item => metrics(item).hidden).length : null,
+      newProblemCount: publication ? problems.filter(item => item.problem?.status === 'new').length : null,
+      signalCount: publication ? groups.filter(item => metrics(item).signal).length : null,
+      failed: failedCount,
       avgRating: ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null,
       sentiment, negativePct: sentimentTotal ? 100 * sentiment.negative / sentimentTotal : 0,
       issuesCount: publication?._count.snapshots ?? 0, publicationId: publication?.id ?? null },

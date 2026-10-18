@@ -74,3 +74,15 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Use available content width, including browser zoom and the sidebar. */
+.problem-layout { container-type: inline-size; min-width: 0; }
+.problem-workspace { display: grid; gap: 1rem; align-items: start; }
+.problem-list.is-focused, .problem-detail { display: none; }
+.problem-detail.is-focused { display: block; }
+.problem-detail { overflow-wrap: anywhere; }
+@container (min-width: 56rem) {
+  .problem-workspace { grid-template-columns: minmax(16rem, 0.8fr) minmax(0, 1.5fr); }
+  .problem-list.is-focused, .problem-detail { display: block; }
+  .problem-back { display: none; }
+}

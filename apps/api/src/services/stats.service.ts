@@ -1,6 +1,9 @@
 import { prisma } from '../lib/prisma.js';
 import { ownedProductScope } from './ownership.service.js';
 import type { DataScope } from '../schemas/data-scope.schema.js';
+// Current UI contracts read immutable runs; legacy functions below remain for
+// the report migration in phase 15.
+export { scopedOverview, resolveRunScope } from './scoped-stats.service.js';
 
 export async function getOverviewStats(userId: string, productId?: string, scope: DataScope = {}) {
   const where = { ...ownedProductScope(userId, productId), ...(scope.from ? { reviewDate: { gte: new Date(scope.from), lt: new Date(scope.to!) } } : {}) };

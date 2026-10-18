@@ -15,6 +15,7 @@ export function AnalysisRunResults({ runId }: { runId: string }) {
     {!items.length && <p>В запуске нет отзывов.</p>}
     {items.map((input) => <article key={input.id} className="border-t border-neutral-200 dark:border-neutral-700 pt-3 space-y-2 text-sm">
       <p>Оценка: {input.rating ?? 'не указана'} · {statuses[input.analysis?.status ?? 'pending']}</p>
+      <p className="text-xs text-neutral-500">Источник: {input.source ?? 'не указан'} · Дата отзыва: {input.reviewDate ? new Date(input.reviewDate).toLocaleString('ru-RU') : 'не указана'}</p>
       <p className="whitespace-pre-wrap break-words">{evidenceSegments(input.text, input.analysis?.issues ?? [], offsetUnit).map((segment, index) => segment.highlighted
         ? <mark key={index} className="bg-amber-200 text-neutral-900">{segment.text}</mark> : <span key={index}>{segment.text}</span>)}</p>
       {input.analysis?.errorCode === 'invalid_evidence' && <p role="alert" className="text-amber-700 dark:text-amber-300">Модель вернула неподтверждённую цитату или последствия. Результат не принят; отзыв можно обработать повторно.</p>}

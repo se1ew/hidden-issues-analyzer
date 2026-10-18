@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import toast from 'react-hot-toast';
 import { Loader2, Upload } from 'lucide-react';
@@ -13,8 +13,8 @@ const fields: Array<{ key: CsvField; label: string }> = [
 const errorMessage = (error: unknown) => (error as { response?: { data?: { error?: string } } })
   .response?.data?.error ?? 'Не удалось обработать CSV';
 
-export function CsvImportWizard({ productId, productName, onImported }: {
-  productId?: string; productName?: string; onImported: (result: CsvImportResult) => void;
+export function CsvImportWizard({ productId, productName, onImported, onBusyChange }: {
+  productId?: string; productName?: string; onImported: (result: CsvImportResult) => void; onBusyChange?: (busy: boolean) => void;
 }) {
   const inspect = usePreviewCsv();
   const upload = useUploadCsv();
@@ -25,10 +25,13 @@ export function CsvImportWizard({ productId, productName, onImported }: {
   const [verified, setVerified] = useState(false);
   const [result, setResult] = useState<CsvImportResult | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null); const [error, setError] = useState('');
   const busy = inspect.isPending || upload.isPending;
+  useEffect(() => { onBusyChange?.(busy); return () => onBusyChange?.(false); }, [busy, onBusyChange]);
 
   const checkFile = async (selected: File, options: { delimiter?: string; mapping?: CsvMapping } = {}) => {
     setVerified(false);
+    setError('');
     try {
       const data = await inspect.mutateAsync({ file: selected, ...options });
       setPreview(data);
@@ -36,7 +39,7 @@ export function CsvImportWizard({ productId, productName, onImported }: {
       setDelimiter(data.delimiter);
       setVerified(true);
     } catch (error) {
-      toast.error(errorMessage(error));
+      setError(errorMessage(error)); toast.error(errorMessage(error));
     }
   };
 
@@ -53,14 +56,15 @@ export function CsvImportWizard({ productId, productName, onImported }: {
 
   const importFile = async () => {
     if (!file || !preview || !verified) return;
+    setProgress(0); setError('');
     try {
-      const imported = await upload.mutateAsync({ file, productId, productName, delimiter, mapping });
+      const imported = await upload.mutateAsync({ file, productId, productName, delimiter, mapping, onProgress: setProgress });
       setResult(imported);
       setVerified(false);
       if (imported.errorCount) toast(`Добавлено ${imported.count}; ошибки в ${imported.errorCount} записях`, { icon: '⚠️' });
       else toast.success(`Добавлено ${imported.count}, дубли: ${imported.skippedCount}`);
       onImported(imported);
-    } catch (error) { toast.error(errorMessage(error)); }
+    } catch (error) { setError(errorMessage(error)); toast.error(errorMessage(error)); }
   };
 
   const downloadErrors = async () => {
@@ -77,6 +81,8 @@ export function CsvImportWizard({ productId, productName, onImported }: {
   };
 
   return <div className="space-y-4">
+    {error && <p className="card text-sm" role="alert">{error} Проверьте настройки и повторите действие.</p>}
+    {upload.isPending && <div className="card text-sm" role="status"><p>{progress === 100 ? 'Файл передан. Сервер проверяет и сохраняет строки…' : `Передача файла: ${progress ?? 0}%`}</p><progress aria-label="Передано CSV" className="w-full" max={100} value={progress ?? 0} /></div>}
     <div {...getRootProps()} className={`card cursor-pointer border-2 border-dashed text-center py-8 ${isDragActive ? 'border-primary-500' : ''}`}>
       <input {...getInputProps()} />
       {busy ? <Loader2 className="h-8 w-8 mx-auto animate-spin" /> : <Upload className="h-8 w-8 mx-auto text-primary-600" />}

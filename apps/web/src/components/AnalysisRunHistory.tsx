@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAnalysisRuns, useCancelAnalysis, useRetryFailedAnalysis, useProducts, type AnalysisRunItem } from '../lib/queries';
 import { useProductStore } from '../store/product.store';
 import { AnalysisRunResults } from './AnalysisRunResults';
+import { stageNames, runErrorHint } from '../lib/run-labels';
 
 const statusNames: Record<AnalysisRunItem['status'], string> = {
   queued: 'В очереди', running: 'Обрабатывается', completed: 'Завершён', partial: 'Частично',
@@ -11,8 +12,12 @@ const statusNames: Record<AnalysisRunItem['status'], string> = {
 
 export function AnalysisRunHistory() {
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [page, setPage] = useState(1); const [now, setNow] = useState(Date.now());
   const productId = useProductStore((state) => state.selectedProductId);
-  const history = useAnalysisRuns(productId);
+  const history = useAnalysisRuns(productId, page);
+  useEffect(() => { setPage(1); setExpandedRunId(null); }, [productId]);
+  const active = history.data?.items.some(run => ['queued', 'running'].includes(run.status));
+  useEffect(() => { if (!active) return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [active]);
   const products = useProducts();
   const cancel = useCancelAnalysis();
   const retry = useRetryFailedAnalysis();
@@ -25,6 +30,8 @@ export function AnalysisRunHistory() {
     <div className="space-y-3">{history.data?.items.map((run) => {
       const active = ['queued', 'running'].includes(run.status);
       const name = products.data?.items.find((product) => product.id === run.productId)?.name ?? 'Товар';
+      const elapsed = run.startedAt ? Math.max(0, Math.floor(((run.finishedAt ? Date.parse(run.finishedAt) : now) - Date.parse(run.startedAt)) / 1000)) : null;
+      const hint = runErrorHint(run.finishReason);
       return <div key={run.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 p-3 space-y-2">
         <div className="flex flex-wrap justify-between gap-2">
           <div><p className="font-semibold text-sm">{name}</p>
@@ -33,6 +40,13 @@ export function AnalysisRunHistory() {
           <span className="text-sm font-medium">{run.cancelRequestedAt && active ? 'Останавливается' : statusNames[run.status]}</span>
         </div>
         <p className="text-sm">Успешно: {run.succeeded} · Ошибки: {run.failed} · Осталось: {run.remaining} · Всего: {run.total}</p>
+        <p className="text-sm">Этап: {stageNames[run.stage] ?? run.stage} · Длительность: {elapsed === null ? 'ещё не начат' : `${Math.floor(elapsed / 60)} мин ${elapsed % 60} с`}</p>
+        <progress aria-label="Обработано отзывов" className="w-full h-2" value={run.processed} max={Math.max(1, run.total)} />
+        {hint && <p className="text-sm">{hint}</p>}
+        <details className="text-xs space-y-2"><summary>Модель, версии и ограничения</summary><p>{run.provider === 'local' ? 'Локальный провайдер' : 'OpenRouter'} · {run.model} · Версия модели: {run.modelVersion === 'unverified' ? 'не проверена' : run.modelVersion ?? 'не указана'}</p>
+          <p>Промпт: {run.promptVersion ?? 'не указан'} · Метод: {run.methodVersion ?? 'не указан'} · Эмбеддинги: {run.embeddingVersion ?? 'не указаны'}</p>
+          {(run.limitations ?? ['Качество модели и вероятность ошибок не измерены.']).map(text => <p key={text}>{text}</p>)}
+        </details>
         <button className="btn-soft" aria-expanded={expandedRunId === run.id} onClick={() => setExpandedRunId(expandedRunId === run.id ? null : run.id)}>{expandedRunId === run.id ? 'Скрыть результаты' : 'Показать результаты'}</button>
         {expandedRunId === run.id && <AnalysisRunResults key={run.id} runId={run.id} />}
         {run.previousRunId && <p className="text-xs text-neutral-500">Повтор ошибок запуска {run.previousRunId}</p>}
@@ -48,5 +62,6 @@ export function AnalysisRunHistory() {
         }}>Остановить</button>}
       </div>;
     })}</div>
+    {!!history.data && history.data.total > 20 && <div className="flex gap-3 items-center"><button className="btn-outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Раньше</button><span>{page} / {Math.ceil(history.data.total / 20)}</span><button className="btn-outline" disabled={page * 20 >= history.data.total} onClick={() => setPage(page + 1)}>Далее</button></div>}
   </div>;
 }

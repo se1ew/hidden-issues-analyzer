@@ -45,7 +45,7 @@ export function App() {
         <Route path="/issues" element={<IssuesPage />} />
         <Route path="/reviews" element={<ReviewsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/parsing" element={<Navigate to="/upload" replace />} />
+        <Route path="/parsing" element={<Navigate to="/upload?source=parsing" replace />} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
       </Route>

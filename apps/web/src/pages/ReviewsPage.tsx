@@ -17,6 +17,8 @@ import { AnalysisRunHistory } from '../components/AnalysisRunHistory';
 import { useProductStore } from '../store/product.store';
 import { useAnalysisStore } from '../store/analysis.store';
 import { Modal } from '../components/Modal';
+import { ReviewDetails, sourceNames } from '../components/ReviewDetails';
+import { analysisStatusNames } from '../lib/run-labels';
 import { ErrorState } from '../components/QueryState';
 
 const SENTIMENT_LABEL: Record<string, { label: string; cls: string }> = {
@@ -51,6 +53,7 @@ export function ReviewsPage() {
 
   const [selected, setSelected] = useState<ReviewListItem | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [analysisMode, setAnalysisMode] = useState<'new_only' | 'reanalyze'>('new_only');
 
   const { selectedProductId, selectedRunId } = useProductStore();
   const { jobId, progress, lastError, clearError } = useAnalysisStore();
@@ -72,7 +75,7 @@ export function ReviewsPage() {
 
   const handleRunAnalysis = async () => {
     try {
-      const res = await runAnalysis.mutateAsync(200);
+      const res = await runAnalysis.mutateAsync({ limit: 200, mode: analysisMode });
 
       toast(`Анализ запущен (job ${res.jobId.slice(-8)})`);
     } catch (err: unknown) {
@@ -144,10 +147,11 @@ export function ReviewsPage() {
         <div>
           <h1>Отзывы</h1>
           <p className="text-sm text-neutral-400 mt-1">
-            Все загруженные отзывы с результатами анализа
+            Исходные отзывы, происхождение и доказательства выбранного запуска
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
+          <label className="text-sm">Режим анализа<select className="input mt-1" value={analysisMode} disabled={!!progress} onChange={event => setAnalysisMode(event.target.value as 'new_only' | 'reanalyze')}><option value="new_only">Только новые отзывы</option><option value="reanalyze">Повторно всю выбранную область</option></select></label>
           <div className="flex gap-2">
             <button
               onClick={handleExportCsv}
@@ -392,7 +396,7 @@ export function ReviewsPage() {
                     className="border-b border-neutral-50 hover:bg-primary-50 dark:hover:bg-neutral-800 cursor-pointer transition group"
                     onClick={() => setSelected(r)}
                   >
-                    <td className="py-3 pr-3 max-w-md truncate"><button className="text-left max-w-full truncate" onClick={() => setSelected(r)} aria-label={`Открыть отзыв: ${r.text.slice(0, 80)}`}>{r.text}</button></td>
+                    <td className="py-3 pr-3 max-w-md"><button className="text-left max-w-full truncate" onClick={() => setSelected(r)} aria-label={`Открыть отзыв: ${r.text.slice(0, 80)}`}>{r.text}</button><p className="text-xs text-neutral-500 mt-1">{sourceNames[r.source ?? ''] ?? r.source ?? 'Источник не указан'} · {r.analysisStatus ? analysisStatusNames[r.analysisStatus] : 'Результат зависит от выбранного запуска'}</p></td>
                     <td className="py-3 pr-3">
                       {r.product ? (
                         <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-primary-100 text-primary-800 dark:bg-primary-900 dark:text-primary-100 max-w-[14rem] truncate">
@@ -409,7 +413,7 @@ export function ReviewsPage() {
                     </td>
                     <td className="py-3 pr-3">{r.issues?.length ?? '—'}</td>
                     <td className="py-3 pr-3 text-xs text-neutral-400">
-                      {new Date(r.createdAt).toLocaleDateString('ru-RU')}
+                      {r.reviewDate ? new Date(r.reviewDate).toLocaleDateString('ru-RU') : 'Не указана'}
                     </td>
                     <td className="py-3 pl-1">
                       <button
@@ -462,77 +466,5 @@ export function ReviewsPage() {
 }
 
 function ReviewModal({ review, onClose }: { review: ReviewListItem; onClose: () => void }) {
-  return (
-    <Modal title="Детали отзыва" onClose={onClose}>
-        <div className="space-y-4 text-sm">
-          <div>
-            <div className="text-xs text-neutral-400 mb-1">Текст</div>
-            <p className="text-neutral-700 whitespace-pre-wrap">{review.text}</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Detail label="Рейтинг" value={review.rating?.toString() ?? '—'} />
-            <Detail
-              label="Тональность"
-              value={
-                review.sentiment
-                  ? `${review.sentiment} (${review.sentimentScore?.toFixed(2) ?? '—'})`
-                  : '—'
-              }
-            />
-            <Detail label="Дата" value={new Date(review.createdAt).toLocaleString('ru-RU')} />
-            <Detail
-              label="Проанализирован"
-              value={
-                review.analyzedAt
-                  ? new Date(review.analyzedAt).toLocaleString('ru-RU')
-                  : 'нет'
-              }
-            />
-          </div>
-
-          {review.aspects && review.aspects.length > 0 && (
-            <div>
-              <div className="text-xs text-neutral-400 mb-1">Аспекты</div>
-              <div className="flex flex-wrap gap-2">
-                {review.aspects.map((a, i) => (
-                  <span
-                    key={i}
-                    className={
-                      a.sentiment === 'positive'
-                        ? 'badge-positive'
-                        : a.sentiment === 'negative'
-                          ? 'badge-negative'
-                          : 'badge-neutral'
-                    }
-                  >
-                    {a.name}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {review.issues && review.issues.length > 0 && (
-            <div>
-              <div className="text-xs text-neutral-400 mb-1">Выявленные проблемы</div>
-              <ul className="list-disc list-inside text-neutral-700 space-y-1">
-                {review.issues.map((iss, i) => (
-                  <li key={i}>{iss}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-    </Modal>
-  );
-}
-
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-xs text-neutral-400">{label}</div>
-      <div className="text-neutral-700">{value}</div>
-    </div>
-  );
+  return <Modal title="Детали отзыва" onClose={onClose}><ReviewDetails review={review} /></Modal>;
 }

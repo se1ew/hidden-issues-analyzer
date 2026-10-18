@@ -7,6 +7,14 @@ vi.mock('../lib/prisma.js', () => ({ prisma: { product: { findFirst: mocks.produ
   problem: { findMany: mocks.problems }, issueMention: { findMany: mocks.mentions, count: mocks.count } } }));
 beforeEach(() => { vi.clearAllMocks(); mocks.product.mockResolvedValue(null); mocks.snapshot.mockResolvedValue(null); });
 describe('grouping evidence read boundaries', () => {
+  it('applies the positive-context union to both the full count and paginated evidence', async () => {
+    mocks.snapshot.mockResolvedValue({ id: 's', runId: 'r' }); mocks.mentions.mockResolvedValue([]); mocks.count.mockResolvedValue(17);
+    const data = await groupEvidence('owner', 's', 2, 10, 'positive_context');
+    expect(data).toMatchObject({ total: 17, page: 2, context: 'positive_context' });
+    const where = { clusters: { some: { clusterId: 's' } }, runId: 'r', analysis: { OR: [{ input: { rating: { gte: 4 } } }, { sentiment: 'positive' }] } };
+    expect(mocks.count).toHaveBeenCalledWith({ where });
+    expect(mocks.mentions).toHaveBeenCalledWith(expect.objectContaining({ where, skip: 10, take: 10 }));
+  });
   it('filters before taking pages and counts the complete matching selection', async () => {
     mocks.product.mockResolvedValue({ id: 'p', publishedGroupingId: 'pub' });
     mocks.publication.mockResolvedValue({ id: 'pub', runId: 'r', run: { scope: {} } });

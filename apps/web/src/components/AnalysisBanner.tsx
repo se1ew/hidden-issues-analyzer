@@ -14,7 +14,7 @@ export function AnalysisBanner() {
   const runAnalysis = useRunAnalysis();
 
   const s = stats.data;
-  const unanalyzed = s ? s.total - s.analyzed : 0;
+  const unanalyzed = s ? s.unprocessedCount : 0;
   const isAnalyzing = progress !== null;
 
   useEffect(() => {

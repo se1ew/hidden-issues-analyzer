@@ -8,6 +8,7 @@ import { useAnalysisStore } from '../store/analysis.store';
 
 export interface AnalysisInputItem {
   id: string; sourceReviewId: string; text: string; rating: number | null;
+  reviewDate?: string | null; importedAt?: string; source?: string;
   analysis: { status: string; sentiment: string | null; errorCode: string | null;
     aspects: Array<{ id: string; name: string; originalName: string | null; category: string; sentiment: string }>;
     issues: Array<EvidenceRange & { id: string; aspectId: string; scope: string; defect: string; consequences: string | null;
@@ -31,13 +32,15 @@ export interface AnalysisRunItem {
   stage: string; total: number; succeeded: number; failed: number; processed: number; remaining: number;
   stateVersion: number; createdAt: string; startedAt: string | null; finishedAt: string | null;
   cancelRequestedAt: string | null; finishReason: string | null; provider: string; model: string;
+  modelVersion?: string; promptVersion?: string; methodVersion?: string; embeddingVersion?: string;
+  limitations?: string[]; configuration?: { contextTokens?: number; concurrency?: number; timeoutMs?: number };
 }
 
-export function useAnalysisRuns(productId?: string | null) {
+export function useAnalysisRuns(productId?: string | null, page = 1) {
   return useQuery({
-    queryKey: ['analysis-runs', useOwnerId(), productId ?? null],
+    queryKey: ['analysis-runs', useOwnerId(), productId ?? null, page],
     queryFn: async () => (await api.get<{ items: AnalysisRunItem[]; total: number }>('/api/analysis/runs', {
-      params: { ...(productId ? { productId } : {}), pageSize: 20 },
+      params: { ...(productId ? { productId } : {}), page, pageSize: 20 },
     })).data,
     refetchInterval: (query) => query.state.data?.items.some((run) => ['queued', 'running'].includes(run.status)) ? 1000 : 5000,
   });
@@ -89,6 +92,10 @@ export function useProducts() {
 // ===== Types =====
 
 export interface OverviewStats {
+  hasRun: boolean; loadedTotal: number; scopeTotal: number | null; succeededCount: number; failedCount: number; remainingCount: number | null;
+  coverageRatio: number | null; unprocessedCount: number; runStatus: string | null; publicationId: string | null;
+  problemCount: number | null; hiddenProblemCount: number | null; newProblemCount: number | null; signalCount: number | null;
+  scope: { productId: string | null; runId: string | null; period: { from: string; to: string } | null };
   total: number;
   analyzed: number;
   pending: number;
@@ -138,7 +145,11 @@ export interface ReviewListItem {
   createdAt: string;
   productId: string | null;
   product: { id: string; name: string } | null;
+  reviewDate?: string | null; importedAt?: string; source?: string; externalId?: string | null;
+  analysisStatus?: string; errorCode?: string | null; evidence?: ReviewEvidence[];
 }
+export interface ReviewEvidence extends EvidenceRange { id: string; defect: string; consequences: string | null;
+  groupLinks?: Array<{ id: string; title: string; productId: string; runId: string; publicationId: string | null }> }
 
 export interface ReviewsListResponse {
   items: ReviewListItem[];
@@ -234,8 +245,8 @@ export function useCreateProduct() {
 export function useUploadCsv() {
   const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
-    mutationFn: async ({ file, productName, productId, delimiter, mapping }: {
-      file: File; productName?: string; productId?: string; delimiter?: string; mapping?: CsvMapping;
+    mutationFn: async ({ file, productName, productId, delimiter, mapping, onProgress }: {
+      file: File; productName?: string; productId?: string; delimiter?: string; mapping?: CsvMapping; onProgress?: (percent: number) => void;
     }) => {
       const formData = new FormData();
       formData.append('file', file);
@@ -246,11 +257,11 @@ export function useUploadCsv() {
       const { data } = await api.post<CsvImportResult>(
         '/api/reviews/upload/csv',
         formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } },
+        { onUploadProgress: progress => { if (progress.total) onProgress?.(Math.round(100 * progress.loaded / progress.total)); } },
       );
       return data;
     },
-    onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['reviews', 'stats', 'timeseries', 'products', 'profile'], false); },
+    onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['reviews', 'timeseries', 'products', 'profile'], false); void invalidateProductData(qc, ownerId, data.productId, ['stats']); },
   });
 }
 
@@ -261,7 +272,7 @@ export function useCreateManualReview() {
       const { data } = await api.post<{ id: string; productId: string }>('/api/reviews/upload/text', input);
       return data;
     },
-    onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['reviews', 'stats', 'timeseries', 'products', 'profile'], false); },
+    onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['reviews', 'timeseries', 'products', 'profile'], false); void invalidateProductData(qc, ownerId, data.productId, ['stats']); },
   });
 }
 
@@ -302,7 +313,7 @@ export function useTimeseries(
   return useQuery({
     queryKey: ['timeseries', useOwnerId(), scope, params],
     queryFn: async () => {
-      const { data } = await api.get<{ buckets: TimeseriesBucket[] }>('/api/analysis/timeseries', {
+      const { data } = await api.get<{ buckets: TimeseriesBucket[]; unknownDateCount?: number | null }>('/api/analysis/timeseries', {
         params: {
           ...scope,
           bucket: params.bucket,
@@ -326,10 +337,11 @@ export function useAspects(productId: string | null) {
 export function useRunAnalysis() {
   const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
-    mutationFn: async (limit?: number) => {
+    mutationFn: async (options?: number | { limit?: number; mode: 'new_only' | 'reanalyze' }) => {
+      const { limit, mode } = typeof options === 'number' ? { limit: options, mode: undefined } : options ?? {};
       const { selectedProductId: productId, from, to } = useProductStore.getState();
       if (!productId) throw new Error('Выберите товар перед запуском анализа');
-      return (await api.post<AnalysisRunItem & { jobId: string }>('/api/analysis/runs', { limit, productId,
+      return (await api.post<AnalysisRunItem & { jobId: string }>('/api/analysis/runs', { limit, productId, ...(mode ? { mode } : {}),
         ...(from && to ? { period: { from, to } } : {}) })).data;
     },
     onSuccess: data => { selectStartedRun(data); void invalidateProductData(qc, ownerId, data.productId, ['analysis-runs']); },
@@ -417,7 +429,7 @@ export function useStartParsing() {
       );
       return data;
     },
-    onSuccess: data => { if (data.internalProductId) void invalidateProductData(qc, ownerId, data.internalProductId, ['reviews', 'stats', 'timeseries', 'products', 'profile'], false); void qc.invalidateQueries({ queryKey: ['parsing', 'history', ownerId] }); },
+    onSuccess: data => { if (data.internalProductId) { void invalidateProductData(qc, ownerId, data.internalProductId, ['reviews', 'timeseries', 'products', 'profile'], false); void invalidateProductData(qc, ownerId, data.internalProductId, ['stats']); } void qc.invalidateQueries({ queryKey: ['parsing', 'history', ownerId] }); },
   });
 }
 
@@ -463,14 +475,14 @@ export function useDeleteReview() {
   return useMutation({ mutationFn: async (id: string) => {
     const productId = useProductStore.getState().selectedProductId;
     await api.delete(`/api/reviews/${id}`); return productId;
-  }, onSuccess: productId => { void invalidateProductData(qc, ownerId, productId, ['reviews', 'stats', 'timeseries', 'products'], false); } });
+  }, onSuccess: productId => { void invalidateProductData(qc, ownerId, productId, ['reviews', 'timeseries', 'products'], false); void invalidateProductData(qc, ownerId, productId, ['stats']); } });
 }
 export function useDeleteReviewsBulk() {
   const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({ mutationFn: async (productId?: string | null) => {
     const data = (await api.delete<{ deleted: number }>('/api/reviews', { params: productId ? { productId } : {} })).data;
     return { ...data, productId };
-  }, onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['reviews', 'stats', 'timeseries', 'products'], false); } });
+  }, onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['reviews', 'timeseries', 'products'], false); void invalidateProductData(qc, ownerId, data.productId, ['stats']); } });
 }
 
 // ===== Issue detail (with reviews) =====

@@ -3,7 +3,7 @@ import { useAnalysisRun, useAnalysisRuns, useProducts, useRunAnalysis } from '..
 import { useProductStore } from '../store/product.store';
 import { ProductSelector } from './ProductSelector';
 import { ErrorState } from './QueryState';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { apiErrorMessage } from '../lib/api';
 import toast from 'react-hot-toast';
 
@@ -13,9 +13,12 @@ export function DataScopePanel() {
   const { selectedProductId, selectedRunId, from, to, setDataScope } = useProductStore();
   const products = useProducts(); const runs = useAnalysisRuns(selectedProductId);
   const detail = useAnalysisRun(selectedRunId); const launch = useRunAnalysis(); const navigate = useNavigate();
+  const location = useLocation();
+  const clearProblemLink = () => { if (location.pathname === '/issues' && location.search) navigate('/issues', { replace: true }); };
   const [periodError, setPeriodError] = useState('');
   const [draftFrom, setDraftFrom] = useState(''), [draftTo, setDraftTo] = useState('');
   const run = detail.data;
+  const displayFrom = run?.scope?.period?.from ?? from, displayTo = run?.scope?.period?.to ?? to;
   const product = products.data?.items.find(item => item.id === selectedProductId);
   const apply = () => {
     const a = Date.parse(draftFrom), b = Date.parse(draftTo);
@@ -25,8 +28,9 @@ export function DataScopePanel() {
     setPeriodError(''); setDataScope({ from: draftFrom ? new Date(a).toISOString() : null, to: draftTo ? new Date(b).toISOString() : null });
   };
   return <section aria-label="Область данных" className="scope-panel mb-6">
-    <div className="flex flex-wrap items-end gap-4"><div className="flex-1 min-w-full sm:min-w-0"><ProductSelector compact /></div>
+    <div className="flex flex-wrap items-end gap-4"><div className="flex-1 min-w-full sm:min-w-0"><ProductSelector compact onSelectionChange={clearProblemLink} /></div>
       <label className="text-sm flex-1 min-w-full sm:min-w-0">Запуск анализа<select className="input mt-1" disabled={!selectedProductId || runs.isLoading} value={selectedRunId ?? ''} onChange={event => {
+        clearProblemLink();
         const selected = runs.data?.items.find(item => item.id === event.target.value);
         setDataScope({ runId: event.target.value || null, from: selected?.scope?.period?.from ?? null, to: selected?.scope?.period?.to ?? null });
       }}><option value="">Все загруженные отзывы / текущие группы</option>
@@ -37,7 +41,7 @@ export function DataScopePanel() {
     {runs.isError && <ErrorState error={runs.error} retry={runs.refetch} />}
     {detail.isError && selectedRunId && <ErrorState error={detail.error} retry={detail.refetch} />}
     <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm" aria-live="polite"><span className="break-words min-w-0">Товар: <strong>{product?.name ?? 'Все товары'}</strong></span>
-      <span>Период отзывов: {from && to ? `${dateText(from)} — ${dateText(to)} (конец не включён)` : 'Вся доступная история'}</span>
+      <span>Период отзывов: {displayFrom && displayTo ? `${dateText(displayFrom)} — ${dateText(displayTo)} (конец не включён)` : 'Без ограничения по дате'}</span>
       {selectedRunId && !run && !detail.isError && <span role="status">Загрузка области запуска…</span>}
       {run && <><span>{runStatusNames[run.status]} · Покрытие: {run.succeeded}/{run.total} · Ошибки: {run.failed} · Осталось: {run.remaining}</span><span>Время анализа: {dateText(run.finishedAt ?? run.startedAt)}</span></>}
       {!selectedRunId && <span>Покрытие запуска: выберите запуск для точных показателей</span>}

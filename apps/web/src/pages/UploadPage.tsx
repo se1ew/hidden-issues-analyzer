@@ -2,7 +2,7 @@ import { CheckCircle, Clock, Globe, Loader2, FileText, Type } from 'lucide-react
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useCreateManualReview, useParsingHistory, useProducts, useRunAnalysis, useStartParsing } from '../lib/queries';
 import { useProductStore } from '../store/product.store';
 import { CsvImportWizard } from '../components/CsvImportWizard';
@@ -12,7 +12,9 @@ import { ErrorState } from '../components/QueryState';
 type Tab = 'csv' | 'manual' | 'parsing';
 
 export function UploadPage() {
-  const [tab, setTab] = useState<Tab>('csv');
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState<Tab>(params.get('source') === 'parsing' ? 'parsing' : params.get('source') === 'manual' ? 'manual' : 'csv');
+  const [csvBusy, setCsvBusy] = useState(false);
   const [text, setText] = useState('');
   const [rating, setRating] = useState<number | ''>('');
   const [productName, setProductName] = useState('');
@@ -27,6 +29,7 @@ export function UploadPage() {
   const startParsing = useStartParsing();
   const parsingHistory = useParsingHistory();
   const products = useProducts();
+  const busy = csvBusy || createManual.isPending || startParsing.isPending;
   const [uploadedCount, setUploadedCount] = useState<number | null>(null);
   const [parseUrl, setParseUrl] = useState('');
   const [parseResult, setParseResult] = useState<{ source: string; reviewsAdded: number } | null>(null);
@@ -43,6 +46,7 @@ export function UploadPage() {
       setProductChoice(result.productId);
       setText('');
       setRating('');
+      setUploadedCount(1);
       toast.success('Отзыв добавлен');
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } };
@@ -51,14 +55,12 @@ export function UploadPage() {
   };
 
   const handleAnalyzeNow = async () => {
-    setUploadedCount(null);
     try {
       await runAnalysis.mutateAsync(undefined);
-      toast.success('Анализ запущен');
+      setUploadedCount(null); toast.success('Анализ запущен'); navigate('/reviews');
     } catch {
       toast.error('Не удалось запустить анализ');
     }
-    navigate('/reviews');
   };
 
   const handleAnalyzeLater = () => {
@@ -75,8 +77,8 @@ export function UploadPage() {
         <div className="card space-y-3">
           <p>Добавлено отзывов: {uploadedCount}. Можно запустить анализ выбранного товара.</p>
           <div className="flex flex-wrap gap-2">
-            <button className="btn-primary" disabled={runAnalysis.isPending} onClick={handleAnalyzeNow}>Запустить анализ</button>
-            <button className="btn-secondary" onClick={handleAnalyzeLater}>Перейти к отзывам</button>
+            <button className="btn-primary" disabled={runAnalysis.isPending || busy} onClick={handleAnalyzeNow}>Запустить анализ</button>
+            <button className="btn-secondary" disabled={busy} onClick={handleAnalyzeLater}>Перейти к отзывам</button>
           </div>
         </div>
       )}
@@ -89,13 +91,13 @@ export function UploadPage() {
 
       {tab !== 'parsing' && <div className="card bg-primary-100 border-primary-300">
         <label htmlFor="import-product" className="block text-sm font-medium text-neutral-700 mb-1">Товар *</label>
-        <select id="import-product" className="input" value={productChoice} onChange={(event) => setProductChoice(event.target.value)}>
+        <select id="import-product" className="input" disabled={busy} value={productChoice} onChange={(event) => { setProductChoice(event.target.value); setUploadedCount(null); }}>
           <option value="">Выберите товар</option><option value="__new__">Создать новый товар</option>
           {(products.data?.items ?? []).filter((product) => product.id !== '__unassigned__').map((product) =>
             <option key={product.id} value={product.id}>{product.name}{product.sourceUrl ? ' · ' + product.sourceUrl : ''}</option>)}
         </select>
         {productChoice === '__new__' && <label className="block text-sm mt-3">Название нового товара
-          <input type="text" value={productName} onChange={(event) => setProductName(event.target.value)}
+          <input type="text" disabled={busy} value={productName} onChange={(event) => setProductName(event.target.value)}
             placeholder="Например: Кроссовки Nike Pegasus 40" className="input" maxLength={200} />
         </label>}
         <p className="text-xs text-neutral-500 mt-1.5">Отзывы добавляются в выбранный товар. Новый товар создаётся при успешном импорте.</p>
@@ -109,6 +111,7 @@ export function UploadPage() {
         ].map(({ key, label, icon: Icon }) => (
           <button
             key={key}
+            disabled={busy}
             aria-pressed={tab === key}
             onClick={() => setTab(key)}
             className={clsx(
@@ -124,7 +127,7 @@ export function UploadPage() {
         ))}
       </div>
 
-      {tab === 'csv' && <CsvImportWizard productId={productId} productName={newProductName} onImported={(result) => {
+      {tab === 'csv' && <CsvImportWizard onBusyChange={setCsvBusy} productId={productId} productName={newProductName} onImported={(result) => {
         useProductStore.getState().setSelectedProductId(result.productId);
         setProductChoice(result.productId);
         if (result.count > 0) setUploadedCount(result.count);
@@ -150,8 +153,9 @@ export function UploadPage() {
                   try {
                     const result = await startParsing.mutateAsync(parseUrl.trim());
                     setParseResult(result);
+                    if (result.internalProductId) { useProductStore.getState().setSelectedProductId(result.internalProductId); setProductChoice(result.internalProductId); setUploadedCount(result.reviewsAdded); }
                     if (result.reviewsAdded > 0) toast.success(`Загружено ${result.reviewsAdded} отзывов`);
-                    else toast('Отзывы не найдены', { icon: 'ℹ️' });
+                    else toast('Источник не вернул отзывы. Попробуйте загрузку CSV.', { icon: 'ℹ️' });
                   } catch (err: unknown) {
                     const e = err as { response?: { data?: { error?: string } } };
                     toast.error(e.response?.data?.error ?? 'Ошибка парсинга');
@@ -164,7 +168,7 @@ export function UploadPage() {
                 Начать парсинг
               </button>
             </div>
-            <p className="text-xs text-neutral-400 mt-2">Поддерживается: Wildberries (wildberries.ru)</p>
+            <p className="text-xs text-neutral-400 mt-2">Wildberries может быть недоступен или вернуть неполные данные. Если загрузка не удалась, выберите CSV; остальные источники продолжают работать.</p>
             {parseResult && (
               <div className="mt-4 flex items-start gap-3 rounded-lg bg-primary-50 border border-primary-200 p-3">
                 <CheckCircle className="h-5 w-5 text-primary-700 shrink-0 mt-0.5" />
@@ -217,6 +221,7 @@ export function UploadPage() {
       {tab === 'manual' && (
         <div className="card space-y-4">
           <textarea aria-label="Текст отзыва"
+            disabled={createManual.isPending}
             maxLength={10_000}
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -229,6 +234,7 @@ export function UploadPage() {
                 Рейтинг (опц.)
               </label>
               <select
+                disabled={createManual.isPending}
                 aria-label="Оценка отзыва" value={rating}
                 onChange={(e) => setRating(e.target.value === '' ? '' : Number(e.target.value))}
                 className="input w-32"

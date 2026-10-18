@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import type { GroupingQuerySchema } from '../schemas/grouping.schema.js';
 
 type Candidate = { id: string; category: string; reviewCount: number; positiveContextCount: number;
+  scope?: string;
   metrics: Prisma.JsonValue | null; problem: { status: string } | null };
 export function filterAndSortGroups<T extends Candidate>(items: T[], query: z.infer<typeof GroupingQuerySchema>): T[] {
   const metric = (item: T) => (item.metrics ?? {}) as Prisma.JsonObject;
@@ -13,6 +14,9 @@ export function filterAndSortGroups<T extends Candidate>(items: T[], query: z.in
     return typeof saved?.score === 'number' ? saved.score : -1;
   };
   const filtered = items.filter(item => (!query.category || item.category === query.category)
+    && (!query.snapshotId || item.id === query.snapshotId)
+    && (!query.issueScope || item.scope === query.issueScope)
+    && (query.hiddenOnly === undefined || metric(item).hidden === query.hiddenOnly)
     && (!query.status || (query.status === 'signal' ? metric(item).signal === true : item.problem?.status === query.status))
     && (query.minSupport === undefined || item.reviewCount >= query.minSupport)
     && (query.minMasking === undefined || masking(item) >= query.minMasking)

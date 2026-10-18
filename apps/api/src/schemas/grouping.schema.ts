@@ -14,7 +14,9 @@ const id = z.string().min(1).max(80);
 const ids = z.array(id).min(1).max(2000).refine(values => new Set(values).size === values.length, 'ID не должны повторяться');
 export const GroupingQuerySchema = z.object({
   ...scopeShape,
-  productId: id, runId: id.optional(), publicationId: id.optional(),
+  productId: id, runId: id.optional(), publicationId: id.optional(), snapshotId: id.optional(),
+  issueScope: z.enum(['product', 'delivery', 'seller', 'packaging']).optional(),
+  hiddenOnly: z.enum(['true', 'false']).transform(value => value === 'true').optional(),
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   category: z.nativeEnum(AspectCategory).optional(),

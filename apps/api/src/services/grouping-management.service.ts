@@ -17,13 +17,15 @@ function publicMention(mention: StoredMention) {
 export async function listRunGroups(userId: string, query: z.infer<typeof GroupingQuerySchema>) {
   const product = await prisma.product.findFirst({ where: { id: query.productId, userId }, select: { id: true, publishedGroupingId: true } });
   if (!product) throw new HttpError(404, 'Товар не найден');
-  if (query.runId && !await prisma.analysisRun.findFirst({ where: { id: query.runId, productId: product.id, userId } })) throw new HttpError(404, 'Запуск не найден');
+  const selectedRun = query.runId ? await prisma.analysisRun.findFirst({ where: { id: query.runId, productId: product.id, userId } }) : null;
+  if (query.runId && !selectedRun) throw new HttpError(404, 'Запуск не найден');
   const publication = await prisma.groupingPublication.findFirst({ where: { productId: product.id, sealedAt: { not: null },
     ...(query.publicationId ? { id: query.publicationId } : query.runId ? { runId: query.runId } : { id: product.publishedGroupingId ?? '' }) },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], include: { run: { select: { id: true, total: true, succeeded: true, failed: true, scope: true, status: true, embeddingVersion: true } } } });
   if (!publication) {
     if (query.publicationId) throw new HttpError(404, 'Публикация не найдена');
-    return { items: [], total: 0, page: query.page, pageSize: query.pageSize, publication: null, currentPublicationId: product.publishedGroupingId };
+    return { items: [], total: 0, page: query.page, pageSize: query.pageSize, publication: null, currentPublicationId: product.publishedGroupingId,
+      unpublishedRun: selectedRun ? { id: selectedRun.id, status: selectedRun.status, succeeded: selectedRun.succeeded } : null };
   }
   if (query.runId && publication.runId !== query.runId) throw new HttpError(404, 'Публикация выбранного запуска не найдена');
   assertRunPeriod(publication.run.scope, query);
@@ -60,16 +62,19 @@ export async function listGroupingHistory(userId: string, productId: string) {
     select: { id: true, runId: true, sourceId: true, action: true, createdAt: true, actorUserId: true, _count: { select: { snapshots: true } } } });
 }
 
-export async function groupEvidence(userId: string, snapshotId: string, page: number, pageSize: number) {
+export async function groupEvidence(userId: string, snapshotId: string, page: number, pageSize: number, context: 'all' | 'high_rating' | 'positive_sentiment' | 'positive_context' = 'all') {
   const snapshot = await prisma.issueClusterSnapshot.findFirst({ where: { id: snapshotId,
     publication: { sealedAt: { not: null } }, run: { userId, product: { userId } } } });
   if (!snapshot) throw new HttpError(404, 'Группа не найдена');
-  const where = { clusters: { some: { clusterId: snapshot.id } }, runId: snapshot.runId };
+  const positiveRating = { input: { rating: { gte: 4 } } };
+  const positiveSentiment = { sentiment: 'positive' as const };
+  const where: Prisma.IssueMentionWhereInput = { clusters: { some: { clusterId: snapshot.id } }, runId: snapshot.runId,
+    ...(context === 'all' ? {} : { analysis: context === 'high_rating' ? positiveRating : context === 'positive_sentiment' ? positiveSentiment : { OR: [positiveRating, positiveSentiment] } }) };
   const [items, total] = await Promise.all([
     prisma.issueMention.findMany({ where, orderBy: [{ quoteStart: 'asc' }, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize, include: mentionInclude }),
     prisma.issueMention.count({ where }),
   ]);
-  return { items: items.map(publicMention), total, page, pageSize, offsetUnit: 'utf16', offsetEnd: 'exclusive' };
+  return { items: items.map(publicMention), total, page, pageSize, context, offsetUnit: 'utf16', offsetEnd: 'exclusive' };
 }
 
 const allowedTransitions: Record<string, string[]> = { new: ['confirmed', 'rejected', 'resolved'], confirmed: ['resolved'], rejected: ['new'], resolved: ['confirmed'] };
