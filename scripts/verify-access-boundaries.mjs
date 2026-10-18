@@ -36,7 +36,7 @@ try {
       res.end(JSON.stringify({ data: [{ id: fixtureAvailable ? 'fixture-model' : 'missing-model' }] }));
     } else {
       res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
-        sentiment: 'positive', sentiment_score: 0.5, aspects: [], issues: [],
+        sentiment: 'positive', sentiment_score: 0.5, aspects: [], complaints: [],
       }) } }] }));
     }
   });

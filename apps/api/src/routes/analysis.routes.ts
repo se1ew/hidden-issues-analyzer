@@ -12,6 +12,7 @@ analysisRouter.get('/runs', ctrl.listRuns);
 analysisRouter.get('/runs/:runId', ctrl.getRun);
 analysisRouter.post('/runs', ctrl.run);
 analysisRouter.post('/runs/:runId/cancel', ctrl.cancel);
+analysisRouter.post('/runs/:runId/retry-failed', ctrl.retryFailed);
 
 analysisRouter.post('/run', ctrl.run);
 analysisRouter.post('/:jobId/cancel', ctrl.cancel);

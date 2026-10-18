@@ -12,13 +12,13 @@ import { interruptExpiredRuns } from './services/analysis-runs.service.js';
 async function bootstrap(): Promise<void> {
   const app = createApp();
   const httpServer = createServer(app);
-  initSocketIO(httpServer);
-  let dispatching = false;
+  const sockets = initSocketIO(httpServer);
+  let dispatching: Promise<void> | undefined;
   const dispatcher = setInterval(() => {
-    if (dispatching) return; dispatching = true;
-    void interruptExpiredRuns().then(() => dispatchQueuedAnalysisRuns())
+    if (dispatching) return;
+    dispatching = interruptExpiredRuns().then(() => dispatchQueuedAnalysisRuns())
       .catch(() => logger.warn('Run dispatcher unavailable; PostgreSQL state is retained'))
-      .finally(() => { dispatching = false; });
+      .finally(() => { dispatching = undefined; });
   }, env.ANALYSIS_DISPATCH_MS);
   dispatcher.unref();
 
@@ -28,10 +28,16 @@ async function bootstrap(): Promise<void> {
     logger.info(`   NODE_ENV: ${env.NODE_ENV}`);
   });
 
+  let closing = false;
   const shutdown = async (signal: string): Promise<void> => {
+    if (closing) return; closing = true;
     logger.info(`Received ${signal}, shutting down...`);
-    httpServer.close();
     clearInterval(dispatcher);
+    sockets.disconnectSockets(true);
+    const deadline = setTimeout(() => httpServer.closeAllConnections(), 5000);
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    clearTimeout(deadline);
+    await dispatching;
     await closeRunNotifications();
     await closeAnalysisQueue();
     await disconnectPrisma();

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { llm, waitForLlm, LlmError } from '../lib/llm.js';
+import { EXTRACTION_PROMPT, EXTRACTION_JSON_SCHEMA, ExtractionResultSchema, validateExtractionEvidence, type ExtractionResult } from './extraction.service.js';
 
 export const AnalysisResultSchema = z.object({
   sentiment: z.enum(['positive', 'negative', 'neutral']),
@@ -45,11 +46,12 @@ function buildUserPrompt(reviewText: string): string {
 /**
  * Анализирует один отзыв через LLM.
  */
-export async function analyzeReviewText(text: string, signal?: AbortSignal): Promise<AnalysisResult> {
-  return llm.completeJson({
-    messages: [{ role: 'system', content: ANALYSIS_PROMPT }, { role: 'user', content: buildUserPrompt(text) }],
-    temperature: 0.1, max_tokens: 600, jsonSchema: ANALYSIS_JSON_SCHEMA, schemaName: 'review_analysis',
-  }, AnalysisResultSchema, signal);
+export async function analyzeReviewText(text: string, signal?: AbortSignal): Promise<ExtractionResult> {
+  const result = await llm.completeJson({
+    messages: [{ role: 'system', content: EXTRACTION_PROMPT }, { role: 'user', content: buildUserPrompt(text) }],
+    temperature: 0.1, jsonSchema: EXTRACTION_JSON_SCHEMA, schemaName: 'review_analysis',
+  }, ExtractionResultSchema, signal);
+  return validateExtractionEvidence(text, result);
 }
 
 export interface RunOptions {
@@ -102,7 +104,7 @@ export async function runPendingAnalysis(opts: RunOptions): Promise<{
             sentiment: result.sentiment,
             sentimentScore: result.sentiment_score,
             aspects: result.aspects,
-            issues: result.issues,
+            issues: result.complaints.map((complaint) => complaint.description),
             analyzedAt: new Date(),
             legacyAnalysis: true,
           },

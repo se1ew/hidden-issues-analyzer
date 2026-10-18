@@ -3,7 +3,7 @@ import { Prisma, type AnalysisRun } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { llm } from '../lib/llm.js';
 import { HttpError } from '../middleware/error.js';
-import { ANALYSIS_PROMPT, ANALYSIS_PROMPT_VERSION } from './analyzer.service.js';
+import { EXTRACTION_PROMPT, EXTRACTION_PROMPT_VERSION, EXTRACTION_METHOD_VERSION, ExtractionResultSchema, validateExtractionEvidence, type ExtractionResult } from './extraction.service.js';
 import { CreateAnalysisRunSchema, type CreateAnalysisRunInput, type ListAnalysisRunsInput } from '../schemas/analysis-runs.schema.js';
 import { env } from '../config/env.js';
 import { AnalysisResultSchema, type AnalysisResult } from './analyzer.service.js';
@@ -12,7 +12,9 @@ export const ACTIVE_RUN_STATUSES = ['queued', 'running'] as const;
 
 export function publicAnalysisRun(run: AnalysisRun) {
   const settings = run.settings as Prisma.JsonObject;
-  return { id: run.id, runId: run.id, productId: run.productId, status: run.status, stage: run.stage,
+  return { id: run.id, runId: run.id, productId: run.productId, previousRunId: run.previousRunId,
+    resultsDisposition: ['cancelled', 'interrupted'].includes(run.status) ? 'retained_unpublished' : 'run_scoped',
+    status: run.status, stage: run.stage,
     scope: run.scope, provider: run.provider, model: run.model, modelVersion: run.modelVersion,
     promptVersion: run.promptVersion, total: run.total, succeeded: run.succeeded, failed: run.failed,
     processed: run.succeeded + run.failed, remaining: run.total - run.succeeded - run.failed,
@@ -59,9 +61,9 @@ export async function createAnalysisRun(userId: string, request: CreateAnalysisR
       });
       const created = await tx.analysisRun.create({ data: {
         userId, productId: input.productId, scope: input as Prisma.InputJsonObject,
-        settings: { ...configuration, prompt: ANALYSIS_PROMPT },
+        settings: { ...configuration, prompt: EXTRACTION_PROMPT },
         provider: configuration.provider, model: configuration.model, modelVersion: 'unverified',
-        promptVersion: ANALYSIS_PROMPT_VERSION, embeddingVersion: 'not-applied', methodVersion: 'extraction-v1',
+        promptVersion: EXTRACTION_PROMPT_VERSION, embeddingVersion: 'not-applied', methodVersion: EXTRACTION_METHOD_VERSION,
         total: reviews.length,
         events: { create: { toStatus: 'queued', initiator: 'owner', stateVersion: 0 } },
       } });
@@ -93,6 +95,35 @@ export async function getAnalysisRun(runId: string, userId: string) {
   const run = await prisma.analysisRun.findFirst({ where: { id: runId, userId, product: { userId } } });
   if (!run) throw new HttpError(404, 'Запуск не найден');
   return publicAnalysisRun(run);
+}
+
+/** Retry immutable failed inputs, never the current (possibly edited) review. */
+export async function retryFailedAnalysisRun(runId: string, userId: string) {
+  return prisma.$transaction(async (tx) => {
+    const source = await tx.analysisRun.findFirst({ where: { id: runId, userId, product: { userId } } });
+    if (!source) throw new HttpError(404, 'Запуск не найден');
+    await tx.$queryRaw`SELECT id FROM "Product" WHERE id = ${source.productId} AND "userId" = ${userId} FOR UPDATE`;
+    if (ACTIVE_RUN_STATUSES.includes(source.status as 'queued' | 'running')) throw new HttpError(409, 'Дождитесь завершения запуска');
+    if (await tx.analysisRun.findFirst({ where: { productId: source.productId, status: { in: [...ACTIVE_RUN_STATUSES] } } })) {
+      throw new HttpError(409, 'Для товара уже есть активный запуск');
+    }
+    const inputs = await tx.analysisRunReview.findMany({ where: { runId, analysis: { status: 'failed' } }, orderBy: { id: 'asc' } });
+    if (!inputs.length) throw new HttpError(409, 'В запуске нет ошибочных отзывов');
+    const created = await tx.analysisRun.create({ data: {
+      userId, productId: source.productId, previousRunId: source.id, total: inputs.length,
+      scope: { ...(source.scope as Prisma.InputJsonObject), retry: { kind: 'failed_only', sourceRunId: source.id } },
+      settings: source.settings as Prisma.InputJsonObject,
+      provider: source.provider, model: source.model, modelVersion: source.modelVersion,
+      promptVersion: source.promptVersion, embeddingVersion: source.embeddingVersion, methodVersion: source.methodVersion,
+      events: { create: { toStatus: 'queued', initiator: 'owner', reason: 'retry_failed', stateVersion: 0 } },
+    } });
+    for (const input of inputs) {
+      const { id: _id, runId: _runId, ...snapshot } = input;
+      await tx.analysisRunReview.create({ data: { ...snapshot, runId: created.id,
+        analysis: { create: { status: 'pending' } } } });
+    }
+    return publicAnalysisRun(created);
+  }, { timeout: 30_000 });
 }
 
 export async function listAnalysisRuns(userId: string, query: ListAnalysisRunsInput) {
@@ -153,23 +184,39 @@ export async function beginAnalysisInput(runId: string, token: string, inputId: 
   });
 }
 
-export type InputOutcome = { result: AnalysisResult; durationMs: number } | { errorCode: string; durationMs: number };
+export type InputOutcome = { result: AnalysisResult | ExtractionResult; durationMs: number } | { errorCode: string; durationMs: number };
 export async function saveAnalysisInput(runId: string, token: string, inputId: string, outcome: InputOutcome) {
-  const result = 'result' in outcome ? AnalysisResultSchema.parse(outcome.result) : undefined;
+  const result = 'result' in outcome ? ('complaints' in outcome.result
+    ? ExtractionResultSchema.parse(outcome.result) : AnalysisResultSchema.parse(outcome.result)) : undefined;
   return prisma.$transaction(async (tx) => {
     const current = await lockRun(tx, runId);
     if (!ownsLease(current, token) || current.cancelRequestedAt) return false;
     const analysis = await tx.reviewAnalysis.findUnique({ where: { runReviewId: inputId } });
     if (!analysis || analysis.runId !== runId || analysis.status !== 'running') return false;
+    if (result && 'complaints' in result) {
+      const input = await tx.analysisRunReview.findUniqueOrThrow({ where: { id: inputId } });
+      result.complaints = validateExtractionEvidence(input.text, result).complaints;
+    }
     await tx.reviewAnalysis.update({ where: { id: analysis.id }, data: {
       status: result ? 'succeeded' : 'failed', finishedAt: new Date(), durationMs: outcome.durationMs,
       ...(result ? { sentiment: result.sentiment, sentimentScore: result.sentiment_score,
-        errorCode: null, diagnostics: { legacyIssues: result.issues, evidencePending: true } }
+        errorCode: null, diagnostics: { legacyIssues: 'issues' in result ? result.issues : result.complaints.map((item) => item.description), evidencePending: !('complaints' in result) } }
         : { errorCode: 'errorCode' in outcome ? outcome.errorCode.slice(0, 100) : 'unknown' }),
     } });
-    if (result?.aspects.length) await tx.aspectMention.createMany({ data: result.aspects.map((aspect) => ({
-      analysisId: analysis.id, category: 'other', name: aspect.name, sentiment: aspect.sentiment,
-    })) });
+    if (result) for (const [index, aspect] of result.aspects.entries()) {
+      const created = await tx.aspectMention.create({ data: {
+        analysisId: analysis.id, category: 'other', name: aspect.name, sentiment: aspect.sentiment,
+      } });
+      if ('complaints' in result) {
+        const input = await tx.analysisRunReview.findUniqueOrThrow({ where: { id: inputId } });
+        for (const complaint of result.complaints.filter((item) => item.aspectIndex === index)) {
+          const quoteStart = input.text.indexOf(complaint.quote);
+          await tx.issueMention.create({ data: { runId, analysisId: analysis.id, aspectId: created.id,
+            scope: complaint.scope, defect: complaint.description, quote: complaint.quote,
+            quoteStart, quoteEnd: quoteStart + complaint.quote.length, consequences: complaint.consequences } });
+        }
+      }
+    }
     // Linearize the result and counter update under the same fenced row lock.
     const counted = await tx.analysisRun.updateMany({ where: { id: runId, status: 'running', leaseToken: token,
       leaseExpiresAt: { gt: new Date() }, cancelRequestedAt: null }, data: {

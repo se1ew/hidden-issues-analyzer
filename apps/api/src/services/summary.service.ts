@@ -2,7 +2,7 @@ import { ownedProductScope } from './ownership.service.js';
 import { prisma } from '../lib/prisma.js';
 import { llm } from '../lib/llm.js';
 
-export async function generateProductSummary(userId: string, productId?: string): Promise<string> {
+export async function generateProductSummary(userId: string, productId?: string, signal?: AbortSignal): Promise<string> {
   const where = ownedProductScope(userId, productId);
 
   const [issues, reviewCount, stats] = await Promise.all([
@@ -40,6 +40,6 @@ ${issueLines || 'Нет данных'}
 ЗАДАЧА: Напиши 3-5 предложений — ключевые выводы, самые острые проблемы и рекомендации.
 Пиши кратко, по делу, как аналитик для менеджера продукта. Без вводных слов и воды.`;
 
-  const text = await llm.complete({ messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 512 });
+  const text = await llm.complete({ messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 512 }, signal);
   return text.trim();
 }

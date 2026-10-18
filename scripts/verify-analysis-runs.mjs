@@ -43,7 +43,7 @@ try {
     inferenceCalls++;
     const complete = () => { if (!res.destroyed) res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: {
       content: JSON.stringify({ sentiment: fixtureMode === 'invalid' ? 'invalid' : 'positive', sentiment_score: 0.5,
-        aspects: [{ name: 'качество', sentiment: 'positive' }], issues: [] }),
+        aspects: [{ name: 'качество', sentiment: 'positive' }], complaints: [] }),
     } }] })); };
     if (fixtureMode === 'hold') pendingModelReplies.push(complete); else complete();
   });
@@ -110,6 +110,21 @@ try {
   assert.equal(await runs.finishAnalysisRun(created.id, token), null);
   assert.equal((await db.review.findUniqueOrThrow({ where: { id: 'review-1' } })).analyzedAt, null);
 
+  await assert.rejects(runs.retryFailedAnalysisRun(created.id, 'b'), error => error.status === 404);
+  await db.review.update({ where: { id: 'review-2' }, data: { text: 'Редакция после ошибки', inputVersion: 2 } });
+  const retries = await Promise.allSettled([runs.retryFailedAnalysisRun(created.id, 'a'), runs.retryFailedAnalysisRun(created.id, 'a')]);
+  assert.equal(retries.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(retries.find(result => result.status === 'rejected').reason.status, 409);
+  const retry = retries.find(result => result.status === 'fulfilled').value;
+  assert.equal(retry.previousRunId, created.id);
+  assert.equal(retry.total, 1);
+  const retryInput = await db.analysisRunReview.findFirstOrThrow({ where: { runId: retry.id } });
+  assert.equal(retryInput.inputHash, snapshot[1].inputHash);
+  assert.equal(retryInput.text, snapshot[1].text);
+  assert.equal(await db.reviewAnalysis.count({ where: { runId: created.id, status: 'failed' } }), 1);
+  await runs.cancelAnalysisRun(retry.id, 'a');
+  console.log('Failed-only retry: owner isolation, immutable failed input, parent link and concurrent retry exclusion passed.');
+
   const waiting = await runs.createAnalysisRun('a', input);
   await assert.rejects(runs.cancelAnalysisRun(waiting.id, 'b'), error => error.status === 404);
   assert.equal((await runs.cancelAnalysisRun(waiting.id, 'a')).status, 'cancelled');
@@ -162,6 +177,8 @@ try {
   await runs.cancelAnalysisRun(cancelledReanalysis.id, 'a');
   await runs.finishAnalysisRun(cancelledReanalysis.id, reanalysisLease.leaseToken);
   const unchanged = await db.review.findUniqueOrThrow({ where: { id: previous.id } });
+  assert.equal((await runs.getAnalysisRun(cancelledReanalysis.id, 'a')).resultsDisposition, 'retained_unpublished');
+  assert.equal(await db.reviewAnalysis.count({ where: { runId: cancelledReanalysis.id, status: 'succeeded' } }), 1);
   assert.equal(unchanged.sentiment, previous.sentiment);
   assert.equal(unchanged.analyzedAt.getTime(), previous.analyzedAt.getTime());
   console.log('Run terminal states: all failures, successful empty grouping, empty selection and preserved publication after cancellation passed.');
@@ -222,6 +239,32 @@ try {
   await waitFor(async () => (await runs.getAnalysisRun(afterRestart.id, 'a')).status === 'completed', 'worker restart');
   assert.equal((await runs.getAnalysisRun(crashing.id, 'a')).status, 'interrupted');
   console.log('BullMQ worker: committed-row recovery, separate process, immutable configuration, duplicate delivery, model failure, active cancellation and worker crash/restart passed.');
+
+  // Losing queued jobs and concurrency keys must not strand committed rows.
+  const exitedForLoss = once(worker, 'exit'); worker.kill('SIGKILL'); await exitedForLoss; worker = undefined;
+  const lostQueueRun = await runs.createAnalysisRun('a', reanalyze);
+  await queueModule.enqueueAnalysisRun(lostQueueRun.id);
+  const queueClient = await queueModule.getAnalysisQueue().client;
+  await queueClient.flushdb(); // This script owns its disposable Redis container.
+  startWorker();
+  await waitFor(async () => (await runs.getAnalysisRun(lostQueueRun.id, 'a')).status === 'completed', 'Redis data loss reconciliation');
+  assert.equal(await queueModule.getAnalysisQueue().getGlobalConcurrency(), 1);
+
+  // A held worker inference and an API completion share the same permit.
+  fixtureMode = 'hold';
+  const capacityRun = await runs.createAnalysisRun('a', reanalyze);
+  await waitFor(() => pendingModelReplies.length > 0, 'held worker capacity');
+  const { llm } = await import('../apps/api/dist/lib/llm.js');
+  const summaryAbort = new AbortController();
+  const callsBeforeSummary = inferenceCalls;
+  const apiCompletion = llm.complete({ messages: [{ role: 'user', content: 'Capacity fixture' }] }, summaryAbort.signal).catch(error => error);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.equal(inferenceCalls, callsBeforeSummary, 'API must wait for worker capacity');
+  summaryAbort.abort(); await apiCompletion;
+  await runs.cancelAnalysisRun(capacityRun.id, 'a');
+  await waitFor(async () => (await runs.getAnalysisRun(capacityRun.id, 'a')).status === 'cancelled', 'capacity cancellation');
+  for (const complete of pendingModelReplies.splice(0)) complete();
+  console.log('Redis loss reconciliation and shared API/worker model capacity passed.');
 } finally {
   if (worker && worker.exitCode === null) { const exited = once(worker, 'exit'); worker.kill('SIGKILL'); await exited; }
   if (queueModule) await queueModule.closeAnalysisQueue();

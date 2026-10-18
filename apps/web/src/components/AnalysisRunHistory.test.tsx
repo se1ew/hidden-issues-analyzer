@@ -5,11 +5,12 @@ import { AnalysisRunHistory } from './AnalysisRunHistory';
 import { useAnalysisStore } from '../store/analysis.store';
 import type { AnalysisRunItem } from '../lib/queries';
 
-const mocks = vi.hoisted(() => ({ history: vi.fn(), cancel: vi.fn(), on: vi.fn(), off: vi.fn() }));
+const mocks = vi.hoisted(() => ({ history: vi.fn(), cancel: vi.fn(), retry: vi.fn(), on: vi.fn(), off: vi.fn() }));
 vi.mock('../lib/queries', () => ({
   useAnalysisRuns: mocks.history,
   useProducts: () => ({ data: { items: [{ id: 'product', name: 'Aurora' }] } }),
   useCancelAnalysis: () => ({ mutateAsync: mocks.cancel, isPending: false }),
+  useRetryFailedAnalysis: () => ({ mutateAsync: mocks.retry, isPending: false }),
 }));
 vi.mock('../lib/socket', () => ({ connectSocket: () => ({ on: mocks.on, off: mocks.off }) }));
 const run = (changes: Partial<AnalysisRunItem> = {}): AnalysisRunItem => ({
@@ -26,6 +27,17 @@ beforeEach(() => {
   mocks.cancel.mockResolvedValue({});
 });
 describe('persisted run history', () => {
+  it('retries only failures from the selected terminal run', () => {
+    mocks.history.mockReturnValue({ data: { items: [run({ status: 'partial' })] } });
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить ошибки (1)' }));
+    expect(mocks.retry).toHaveBeenCalledWith('run');
+  });
+  it('explains the publication boundary for saved cancelled results', () => {
+    mocks.history.mockReturnValue({ data: { items: [run({ status: 'cancelled' })] } });
+    show();
+    expect(screen.getByText(/не заменяют последний опубликованный результат/)).toBeInTheDocument();
+  });
   it('restores the active run and separates successes, errors and remaining inputs', () => {
     show();
     expect(screen.getByText('Успешно: 2 · Ошибки: 1 · Осталось: 2 · Всего: 5')).toBeInTheDocument();

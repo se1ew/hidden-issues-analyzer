@@ -3,6 +3,7 @@ import { api } from './api';
 import { useProductStore } from '../store/product.store';
 
 export interface AnalysisRunItem {
+  previousRunId?: string | null; resultsDisposition?: 'retained_unpublished' | 'run_scoped';
   id: string; runId: string; productId: string;
   status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'interrupted';
   stage: string; total: number; succeeded: number; failed: number; processed: number; remaining: number;
@@ -17,6 +18,14 @@ export function useAnalysisRuns(productId?: string | null) {
       params: { ...(productId ? { productId } : {}), pageSize: 20 },
     })).data,
     refetchInterval: (query) => query.state.data?.items.some((run) => ['queued', 'running'].includes(run.status)) ? 1000 : 5000,
+  });
+}
+
+export function useRetryFailedAnalysis() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (runId: string) => (await api.post<AnalysisRunItem>(`/api/analysis/runs/${runId}/retry-failed`)).data,
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['analysis-runs'] }); },
   });
 }
 

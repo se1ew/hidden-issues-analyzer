@@ -8,7 +8,7 @@ vi.mock('../lib/llm.js', async (original) => ({
   llm: { config: { provider: 'local', concurrency: 1, cloudDelayMs: 4000 }, completeJson: vi.fn() },
   waitForLlm: vi.fn(),
 }));
-const result = { sentiment: 'positive' as const, sentiment_score: 0.5, aspects: [], issues: [] };
+const result = { sentiment: 'positive' as const, sentiment_score: 0.5, aspects: [], complaints: [] };
 beforeEach(() => {
   vi.mocked(llm.completeJson).mockResolvedValue(result);
   vi.mocked(prisma.review.updateMany).mockResolvedValue({ count: 1 });

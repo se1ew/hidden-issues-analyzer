@@ -17,13 +17,14 @@ async function start() {
       stalledInterval: Math.max(1000, env.ANALYSIS_HEARTBEAT_MS * 3), maxStalledCount: 1 });
   worker.on('error', () => logger.error('Analysis worker connection unavailable'));
   worker.on('failed', (job) => logger.warn({ runId: job?.data.runId }, 'Worker delivery failed'));
-  let dispatching = false;
-  const recover = async () => {
-    if (dispatching) return;
-    dispatching = true;
-    try { await interruptExpiredRuns(); await dispatchQueuedAnalysisRuns(); }
-    catch { logger.warn('Run dispatch unavailable; queued state remains in PostgreSQL'); }
-    finally { dispatching = false; }
+  let recovery: Promise<void> | undefined;
+  const recover = () => {
+    if (recovery) return recovery;
+    recovery = (async () => {
+      try { await interruptExpiredRuns(); await dispatchQueuedAnalysisRuns(); }
+      catch { logger.warn('Run dispatch unavailable; queued state remains in PostgreSQL'); }
+    })().finally(() => { recovery = undefined; });
+    return recovery;
   };
   await recover();
   const timer = setInterval(() => void recover(), env.ANALYSIS_DISPATCH_MS);
@@ -33,7 +34,7 @@ async function start() {
   const stop = async () => {
     if (closing) return; closing = true;
     clearInterval(timer); stopping.abort();
-    await worker.close(); await closeAnalysisQueue(); await disconnectPrisma();
+    await worker.close(); await recovery; await closeAnalysisQueue(); await disconnectPrisma();
   };
   process.on('SIGINT', () => void stop());
   process.on('SIGTERM', () => void stop());

@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { z, type ZodType } from 'zod';
 import { env, type Env } from '../config/env.js';
+import { withLlmCapacity } from './llm-capacity.js';
 
 export type LlmErrorCode = 'cancelled' | 'timeout' | 'network' | 'http' | 'invalid_response' | 'model_unavailable' | 'input_too_long';
 export class LlmError extends Error {
@@ -74,7 +75,7 @@ const completionEnvelope = z.object({
   choices: z.array(z.object({ message: z.object({ content: z.string().min(1) }), finish_reason: z.string().optional() })).min(1),
 });
 
-export function createProvider(input: ProviderConfig): LlmProvider {
+export function createProvider(input: ProviderConfig, sharedCapacity = false): LlmProvider {
   const config = Object.freeze({ ...input });
   const gate = new Gate(config.concurrency);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -135,7 +136,7 @@ export function createProvider(input: ProviderConfig): LlmProvider {
     try {
       for (let attempt = 0; ; attempt++) {
         cancelled(signal);
-        try { return await operation(signal); }
+        try { return await (sharedCapacity ? withLlmCapacity(operation, signal) : operation(signal)); }
         catch (error) {
           if (!(error instanceof LlmError)) throw error;
           const retryable = ['network', 'timeout', 'invalid_response'].includes(error.code)
@@ -194,7 +195,7 @@ export function createProvider(input: ProviderConfig): LlmProvider {
   };
 }
 
-export const llm = createProvider(providerConfig(env));
+export const llm = createProvider(providerConfig(env), true);
 export function publicProviderConfiguration() {
   const { provider, model, contextTokens, concurrency, responseFormat } = llm.config;
   return { provider, model, contextTokens, concurrency, responseFormat };

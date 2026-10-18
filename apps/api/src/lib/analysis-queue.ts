@@ -45,9 +45,16 @@ export async function enqueueAnalysisRun(runId: string) {
 }
 
 export async function dispatchQueuedAnalysisRuns() {
-  const waiting = await prisma.analysisRun.findMany({ where: { status: 'queued', cancelRequestedAt: null },
-    orderBy: { createdAt: 'asc' }, take: 100, select: { id: true } });
-  for (const run of waiting) await enqueueAnalysisRun(run.id);
+  // Reapply after Redis data loss, including while the same worker stays alive.
+  await getAnalysisQueue().setGlobalConcurrency(Math.min(env.ANALYSIS_WORKER_CONCURRENCY, env.LLM_CONCURRENCY));
+  let cursor: string | undefined;
+  while (true) {
+    const waiting = await prisma.analysisRun.findMany({ where: { status: 'queued', cancelRequestedAt: null },
+      orderBy: { id: 'asc' }, take: 100, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}), select: { id: true } });
+    for (const run of waiting) await enqueueAnalysisRun(run.id);
+    if (waiting.length < 100) break;
+    cursor = waiting.at(-1)!.id;
+  }
 }
 
 export async function notifyAnalysisRun(runId: string) {

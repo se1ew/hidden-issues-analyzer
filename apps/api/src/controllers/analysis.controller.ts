@@ -5,7 +5,7 @@ import { requireOwnedProduct } from '../services/ownership.service.js';
 import { getOverviewStats, getSentimentTimeseries, type Bucket } from '../services/stats.service.js';
 import { generateProductSummary } from '../services/summary.service.js';
 import { CreateAnalysisRunSchema, ListAnalysisRunsSchema } from '../schemas/analysis-runs.schema.js';
-import { createAnalysisRun, getAnalysisRun, listAnalysisRuns, cancelAnalysisRun } from '../services/analysis-runs.service.js';
+import { createAnalysisRun, getAnalysisRun, listAnalysisRuns, cancelAnalysisRun, retryFailedAnalysisRun } from '../services/analysis-runs.service.js';
 import { enqueueAnalysisRun, notifyAnalysisRun } from '../lib/analysis-queue.js';
 import { logger } from '../lib/logger.js';
 import { llm, publicProviderConfiguration } from '../lib/llm.js';
@@ -42,6 +42,13 @@ export async function cancel(req: Request, res: Response): Promise<void> {
   res.json({ ...state, ok: true, cancelled: !!state.cancelRequestedAt });
 }
 
+export async function retryFailed(req: Request, res: Response): Promise<void> {
+  const created = await retryFailedAnalysisRun(req.params.runId as string, requestUserId(req));
+  let dispatchPending = false;
+  try { await enqueueAnalysisRun(created.id); } catch { dispatchPending = true; }
+  res.status(202).json({ ...created, jobId: created.id, dispatchPending });
+}
+
 export async function getRun(req: Request, res: Response): Promise<void> {
   res.json(await getAnalysisRun(req.params.runId as string, requestUserId(req)));
 }
@@ -66,6 +73,8 @@ export async function timeseries(req: Request, res: Response): Promise<void> {
 
 export async function summary(req: Request, res: Response): Promise<void> {
   const productId = (req.query.productId as string) || undefined;
-  const text = await generateProductSummary(requestUserId(req), productId);
+  const controller = new AbortController();
+  res.once('close', () => { if (!res.writableEnded) controller.abort(); });
+  const text = await generateProductSummary(requestUserId(req), productId, controller.signal);
   res.json({ summary: text });
 }

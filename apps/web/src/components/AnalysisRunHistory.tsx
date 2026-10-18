@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { useAnalysisRuns, useCancelAnalysis, useProducts, type AnalysisRunItem } from '../lib/queries';
+import { useAnalysisRuns, useCancelAnalysis, useRetryFailedAnalysis, useProducts, type AnalysisRunItem } from '../lib/queries';
 import { connectSocket } from '../lib/socket';
 import { useAnalysisStore } from '../store/analysis.store';
 import { useProductStore } from '../store/product.store';
@@ -16,6 +16,7 @@ export function AnalysisRunHistory() {
   const history = useAnalysisRuns(productId);
   const products = useProducts();
   const cancel = useCancelAnalysis();
+  const retry = useRetryFailedAnalysis();
   const syncRun = useAnalysisStore((state) => state.syncRun);
   const qc = useQueryClient();
   useEffect(() => {
@@ -48,6 +49,12 @@ export function AnalysisRunHistory() {
           <span className="text-sm font-medium">{run.cancelRequestedAt && active ? 'Останавливается' : statusNames[run.status]}</span>
         </div>
         <p className="text-sm">Успешно: {run.succeeded} · Ошибки: {run.failed} · Осталось: {run.remaining} · Всего: {run.total}</p>
+        {run.previousRunId && <p className="text-xs text-neutral-500">Повтор ошибок запуска {run.previousRunId}</p>}
+        {['cancelled', 'interrupted'].includes(run.status) && <p className="text-sm text-amber-700 dark:text-amber-300">Сохранённые результаты остаются в этом запуске и не заменяют последний опубликованный результат.</p>}
+        {!active && run.failed > 0 && <button className="btn-soft" disabled={retry.isPending || history.data?.items.some((item) => item.productId === run.productId && ['queued', 'running'].includes(item.status))} onClick={async () => {
+          try { await retry.mutateAsync(run.id); }
+          catch { toast.error('Не удалось повторить ошибки. Проверьте наличие активного запуска.'); }
+        }}>Повторить ошибки ({run.failed})</button>}
         {run.finishReason === 'grouping_pending' && <p className="text-sm text-amber-700 dark:text-amber-300">Извлечение сохранено. Группы проблем для этого запуска пока недоступны.</p>}
         {active && <button className="btn-soft" disabled={cancel.isPending || !!run.cancelRequestedAt} onClick={async () => {
           try { await cancel.mutateAsync(run.id); }

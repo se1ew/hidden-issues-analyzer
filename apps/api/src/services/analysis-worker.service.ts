@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
-import { createProvider, LlmError, waitForLlm } from '../lib/llm.js';
+import { createProvider, LlmError, waitForLlm, type CompletionRequest } from '../lib/llm.js';
 import { notifyAnalysisRun } from '../lib/analysis-queue.js';
 import { AnalysisResultSchema, ANALYSIS_JSON_SCHEMA, ANALYSIS_PROMPT_VERSION } from './analyzer.service.js';
+import { ExtractionResultSchema, EXTRACTION_JSON_SCHEMA, EXTRACTION_PROMPT_VERSION, EXTRACTION_METHOD_VERSION, validateExtractionEvidence } from './extraction.service.js';
 import { beginAnalysisInput, claimAnalysisRun, finishAnalysisRun, heartbeatAnalysisRun, saveAnalysisInput } from './analysis-runs.service.js';
 
 const RunConfigurationSchema = z.object({
@@ -35,13 +36,14 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
   void notifyAnalysisRun(runId);
   let finishCode: string | undefined;
   try {
-    if (run.promptVersion !== ANALYSIS_PROMPT_VERSION || run.methodVersion !== 'extraction-v1') {
+    const structured = run.promptVersion === EXTRACTION_PROMPT_VERSION && run.methodVersion === EXTRACTION_METHOD_VERSION;
+    if (!structured && (run.promptVersion !== ANALYSIS_PROMPT_VERSION || run.methodVersion !== 'extraction-v1')) {
       throw new LlmError('invalid_response', 'Версия анализа не поддерживается этим worker');
     }
     const configuration = RunConfigurationSchema.parse(run.settings);
     const provider = createProvider({ ...configuration,
       apiKey: configuration.provider === 'openrouter' ? env.OPENROUTER_API_KEY : undefined,
-    });
+    }, true);
     const inputs = await prisma.analysisRunReview.findMany({ where: { runId }, orderBy: { id: 'asc' },
       include: { analysis: { select: { status: true } } } });
     for (const input of inputs) {
@@ -49,11 +51,14 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
       if (!await beginAnalysisInput(runId, token, input.id)) continue;
       const start = performance.now();
       try {
-        const result = await provider.completeJson({
+        const request: CompletionRequest = {
           messages: [{ role: 'system', content: configuration.prompt },
             { role: 'user', content: `Проанализируй следующий отзыв и верни JSON:\n\n"""\n${input.text}\n"""` }],
-          temperature: 0.1, max_tokens: 600, jsonSchema: ANALYSIS_JSON_SCHEMA, schemaName: 'review_analysis',
-        }, AnalysisResultSchema, signal);
+          temperature: 0.1, max_tokens: configuration.maxOutputTokens, jsonSchema: structured ? EXTRACTION_JSON_SCHEMA : ANALYSIS_JSON_SCHEMA, schemaName: 'review_analysis',
+        };
+        const result = structured
+          ? validateExtractionEvidence(input.text, await provider.completeJson(request, ExtractionResultSchema, signal))
+          : await provider.completeJson(request, AnalysisResultSchema, signal);
         if (signal.aborted) break;
         if (!await saveAnalysisInput(runId, token, input.id,
           { result, durationMs: Math.round(performance.now() - start) })) break;
