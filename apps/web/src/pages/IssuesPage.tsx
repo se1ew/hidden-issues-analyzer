@@ -5,10 +5,12 @@ import { useProductStore } from '../store/product.store';
 import { useAnalysisRuns } from '../lib/queries';
 import { evidenceSegments } from '../lib/evidence';
 import { useGroupings, useGroupingHistory, useGroupEvidence, useEditGrouping, useSetProblemState, useRecomputeGrouping,
-  type RunGroup, type GroupingChange, type EditGroupingInput, type GroupingPreview, type ProblemStatus } from '../lib/grouping-queries';
+  type RunGroup, type GroupingChange, type EditGroupingInput, type GroupingPreview, type ProblemStatus, type GroupFilters } from '../lib/grouping-queries';
 
 const stateNames: Record<ProblemStatus, string> = { new: 'На проверке', confirmed: 'Подтверждена', rejected: 'Отклонена', resolved: 'Решена' };
 const scopeNames: Record<string, string> = { product: 'Товар', delivery: 'Доставка', seller: 'Продавец', packaging: 'Упаковка' };
+const categoryNames: Record<string, string> = { quality: 'Качество', functionality: 'Работоспособность', material: 'Материал', size_fit: 'Размер', appearance: 'Внешний вид', usability: 'Удобство', price: 'Цена', delivery: 'Доставка', seller: 'Продавец', packaging: 'Упаковка', other: 'Другое' };
+const consequenceNames: Record<string, string> = { reported_harm: 'Автор сообщает о вреде', loss_of_use: 'Описана потеря возможности использования', reported: 'Описаны последствия', undetermined: 'Не определены' };
 const percent = (value: number | null) => value === null ? 'не определена' : `${(value * 100).toFixed(1)}%`;
 const errorText = (error: unknown) => (error as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Не удалось сохранить действие. Обновите данные и повторите.';
 
@@ -20,10 +22,13 @@ export function IssuesPage() {
 }
 
 function ProductGroups({ productId }: { productId: string }) {
-  const [runId, setRunId] = useState(''); const [publicationId, setPublicationId] = useState(''); const [page, setPage] = useState(1);
+  const { selectedRunId, setDataScope } = useProductStore();
+  const runId = selectedRunId ?? ''; const setRunId = (value: string) => setDataScope({ runId: value || null, from: null, to: null });
+  const [publicationId, setPublicationId] = useState(''); const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState<GroupFilters>({ sort: 'priority', direction: 'desc' });
   const [chosen, setChosen] = useState<string[]>([]); const [reason, setReason] = useState('Исправление группировки');
   const [preview, setPreview] = useState<{ input: EditGroupingInput; sourceId: string; data: GroupingPreview } | null>(null);
-  const groups = useGroupings(productId, runId, publicationId, page);
+  const groups = useGroupings(productId, runId, publicationId, page, filters);
   const history = useGroupingHistory(productId); const runs = useAnalysisRuns(productId);
   const edit = useEditGrouping(); const recompute = useRecomputeGrouping();
   const data = groups.data; const publication = data?.publication;
@@ -53,6 +58,14 @@ function ProductGroups({ productId }: { productId: string }) {
           catch (error) { toast.error(errorText(error)); }
         }}>Пересчитать группировку</button>
       </div>
+      <div className="flex flex-wrap gap-3">
+        <label className="text-sm">Аспект<select className="input mt-1" value={filters.category ?? ''} onChange={event => { setFilters({ ...filters, category: event.target.value || undefined }); clearSelection(); }}><option value="">Все аспекты</option>{Object.entries(categoryNames).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+        <label className="text-sm">Состояние<select className="input mt-1" value={filters.status ?? ''} onChange={event => { setFilters({ ...filters, status: event.target.value || undefined }); clearSelection(); }}><option value="">Все состояния</option>{Object.entries(stateNames).map(([key, label]) => <option key={key} value={key}>{label}</option>)}<option value="signal">Мало подтверждений</option></select></label>
+        <label className="text-sm">Минимум отзывов<input className="input mt-1 w-32" type="number" min={1} max={2000} value={filters.minSupport ?? ''} onChange={event => { setFilters({ ...filters, minSupport: event.target.value ? Number(event.target.value) : undefined }); clearSelection(); }} /></label>
+        <label className="text-sm">Положительный контекст<select className="input mt-1" value={filters.minMasking ?? ''} onChange={event => { setFilters({ ...filters, minMasking: event.target.value ? Number(event.target.value) : undefined }); clearSelection(); }}><option value="">Любая доля</option><option value="0.5">От 50%</option><option value="1">100%</option></select></label>
+        <label className="text-sm">Сортировка<select className="input mt-1" value={filters.sort} onChange={event => { setFilters({ ...filters, sort: event.target.value as GroupFilters['sort'] }); clearSelection(); }}><option value="priority">Алгоритмический приоритет</option><option value="support">Поддержка</option><option value="masking">Положительный контекст</option><option value="aspect">Аспект</option><option value="state">Состояние</option></select></label>
+        <label className="text-sm">Порядок<select className="input mt-1" value={filters.direction} onChange={event => { setFilters({ ...filters, direction: event.target.value as 'asc' | 'desc' }); clearSelection(); }}><option value="desc">По убыванию</option><option value="asc">По возрастанию</option></select></label>
+      </div>
       {publication && <p className="text-sm">Результат от {new Date(publication.createdAt).toLocaleString('ru-RU')}. Обработано {publication.run.succeeded} из {publication.run.total}; ошибок: {publication.run.failed}.</p>}
       {publication && !editable && <p className="text-sm text-amber-700 dark:text-amber-300">Открыта историческая публикация. Решения по карточкам показываются в их текущем состоянии.</p>}
       {publication && !editable && currentRun === publication.runId && <button className="btn-soft" disabled={edit.isPending} onClick={() => void showPreview({ kind: 'restore' })}>Восстановить эту группировку</button>}
@@ -60,7 +73,7 @@ function ProductGroups({ productId }: { productId: string }) {
     {groups.isPending && <p role="status">Загрузка групп…</p>}
     {groups.isError && <div className="card" role="alert">Не удалось загрузить группы. <button className="btn-soft" onClick={() => void groups.refetch()}>Повторить</button></div>}
     {!groups.isPending && !groups.isError && !publication && <div className="card">У выбранной области пока нет успешно опубликованной группировки. Запустите анализ выбранного товара в разделе «Отзывы».</div>}
-    {publication && data?.total === 0 && <div className="card">В обработанной области жалобы с проверяемыми цитатами не найдены.</div>}
+    {publication && data?.total === 0 && <div className="card">По выбранным фильтрам жалобы с проверяемыми цитатами не найдены.</div>}
     {editable && !!data?.items.length && <div className="card flex flex-wrap gap-3 items-end">
       <label className="text-sm flex-1">Причина правки<input className="input mt-1" value={reason} maxLength={500} onChange={event => { setReason(event.target.value); setPreview(null); }} /></label>
       <button className="btn-soft" disabled={chosen.length < 2 || edit.isPending || !reason.trim()} onClick={() => void showPreview({ kind: 'merge', snapshotIds: chosen })}>Объединить выбранные ({chosen.length})</button>
@@ -93,11 +106,14 @@ function GroupCard({ group, editable, chosen, onChoose, onChange, busy }: { grou
       {group.problem && <span className="ml-auto text-sm font-medium">{stateNames[group.problem.status]}</span>}
     </div>
     {m.recurrence && <p className="text-sm text-amber-700 dark:text-amber-300">Получено новое подтверждение после решения проблемы.</p>}
+    {m.signal && <p className="text-sm">Мало подтверждений. Достоверность не измерена.</p>}
+    {m.priority ? <details className="text-sm"><summary>Алгоритмический приоритет · {m.priority.evidenceLabel}</summary><p>{m.priority.explanation}</p><p>{m.priority.limitation}</p><p className="text-xs">Правило: {m.priority.version}</p></details> : <p className="text-sm">Приоритет для этой публикации не рассчитан. Пересчитайте группировку для нового правила.</p>}
     <div className="grid sm:grid-cols-3 gap-3 text-sm">
       <p>Поддержка: <strong>{m.support}</strong> уникальных отзывов<br />В положительном контексте: {m.positiveContextCount}/{m.support}<br />Упоминаний: {m.mentionCount}</p>
       <p>Распространённость: {m.support}/{m.coverage.succeeded} ({percent(m.prevalence)})<br />Покрытие: {m.coverage.succeeded}/{m.coverage.total}; ошибок: {m.coverage.failed}</p>
       <p>Среди известных оценок: 4–5 у {m.highRatingCount}/{m.knownRatingCount} ({percent(m.highRatingShare)})<br />Положительная тональность: {m.positiveSentimentCount}/{m.sentimentDenominator} ({percent(m.positiveSentimentShare)})</p>
     </div>
+    {!!m.consequences?.length && <div className="text-sm space-y-2">{m.consequences.map(item => <p key={item.mentionId}>{consequenceNames[item.category] ?? consequenceNames.undetermined}: «{item.text}»<br />Цитата: «{item.quote}»</p>)}</div>}
     {group.representatives.map(item => <blockquote key={item.id} className="border-l-2 border-primary-400 pl-3 text-sm whitespace-pre-wrap break-words">«{item.quote}»<p className="text-xs text-neutral-500">Оценка: {item.rating ?? 'не указана'} · Последствия: {item.consequences ?? 'не определены'}</p></blockquote>)}
     {!!group.candidateProblems.length && editable && <label className="text-sm block">Неоднозначное совпадение — выберите карточку после проверки<select className="input mt-1" defaultValue="" disabled={busy} onChange={event => { if (event.target.value) void onChange({ kind: 'link', snapshotId: group.id, problemId: event.target.value }); }}>
       <option value="">Выберите карточку</option>{group.candidateProblems.map(problem => <option key={problem.id} value={problem.id}>{problem.title} · {stateNames[problem.status]}</option>)}</select></label>}

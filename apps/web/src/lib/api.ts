@@ -1,6 +1,12 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore, type Session } from '../store/auth.store';
 
+export interface ApiError { code: string; message: string; error: string; details?: unknown }
+export function apiErrorMessage(error: unknown, fallback = 'Не удалось выполнить запрос') {
+  const data = (error as { response?: { data?: Partial<ApiError> } })?.response?.data;
+  return data?.message ?? data?.error ?? (error instanceof Error ? error.message : fallback);
+}
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 export const api = axios.create({

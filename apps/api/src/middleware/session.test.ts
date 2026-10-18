@@ -95,7 +95,7 @@ describe('cookie session HTTP contract', () => {
         break;
       }
       expect(result.status).toBe(401);
-      expect(result.body).toEqual({ error: 'Неверный email или пароль' });
+      expect(result.body).toEqual({ code: 'unauthorized', message: 'Неверный email или пароль', error: 'Неверный email или пароль' });
     }
     expect(limited).toBe(true);
   });

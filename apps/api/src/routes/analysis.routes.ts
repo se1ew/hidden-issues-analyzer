@@ -18,5 +18,6 @@ analysisRouter.post('/runs/:runId/retry-failed', ctrl.retryFailed);
 analysisRouter.post('/run', ctrl.run);
 analysisRouter.post('/:jobId/cancel', ctrl.cancel);
 analysisRouter.get('/stats', ctrl.stats);
+analysisRouter.get('/aspects', ctrl.aspects);
 analysisRouter.get('/timeseries', ctrl.timeseries);
 analysisRouter.get('/summary', ctrl.summary);

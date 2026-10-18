@@ -1,11 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { groupEvidence, listRunGroups } from './grouping-management.service.js';
 import { GroupingQuerySchema } from '../schemas/grouping.schema.js';
-const mocks = vi.hoisted(() => ({ product: vi.fn(), run: vi.fn(), publication: vi.fn(), snapshot: vi.fn(), mentions: vi.fn(), count: vi.fn() }));
+const mocks = vi.hoisted(() => ({ product: vi.fn(), run: vi.fn(), publication: vi.fn(), snapshot: vi.fn(), mentions: vi.fn(), count: vi.fn(), snapshots: vi.fn(), problems: vi.fn() }));
 vi.mock('../lib/prisma.js', () => ({ prisma: { product: { findFirst: mocks.product }, analysisRun: { findFirst: mocks.run },
-  groupingPublication: { findFirst: mocks.publication }, issueClusterSnapshot: { findFirst: mocks.snapshot }, issueMention: { findMany: mocks.mentions, count: mocks.count } } }));
+  groupingPublication: { findFirst: mocks.publication }, issueClusterSnapshot: { findFirst: mocks.snapshot, findMany: mocks.snapshots },
+  problem: { findMany: mocks.problems }, issueMention: { findMany: mocks.mentions, count: mocks.count } } }));
 beforeEach(() => { vi.clearAllMocks(); mocks.product.mockResolvedValue(null); mocks.snapshot.mockResolvedValue(null); });
 describe('grouping evidence read boundaries', () => {
+  it('filters before taking pages and counts the complete matching selection', async () => {
+    mocks.product.mockResolvedValue({ id: 'p', publishedGroupingId: 'pub' });
+    mocks.publication.mockResolvedValue({ id: 'pub', runId: 'r', run: { scope: {} } });
+    mocks.snapshots.mockResolvedValue(Array.from({ length: 25 }, (_, i) => ({ id: `s${String(i).padStart(2, '0')}`, category: 'quality', reviewCount: i + 1,
+      positiveContextCount: 0, metrics: { priority: { score: (i + 1) * 100000 } }, members: [], problem: { status: 'new' } })));
+    mocks.mentions.mockResolvedValue([]); mocks.problems.mockResolvedValue([]);
+    const result = await listRunGroups('owner', GroupingQuerySchema.parse({ productId: 'p', minSupport: 5, page: 2, pageSize: 10 }));
+    expect(result.total).toBe(21); expect(result.items).toHaveLength(10); expect(result.items[0].reviewCount).toBe(15);
+  });
   it('rejects a foreign product before loading a publication or members', async () => {
     await expect(listRunGroups('owner', GroupingQuerySchema.parse({ productId: 'foreign' }))).rejects.toMatchObject({ status: 404 });
     expect(mocks.product).toHaveBeenCalledWith({ where: { id: 'foreign', userId: 'owner' }, select: { id: true, publishedGroupingId: true } });

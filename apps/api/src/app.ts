@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 
 import { env } from './config/env.js';
-import { errorHandler, notFound } from './middleware/error.js';
+import { errorHandler, errorBody, notFound } from './middleware/error.js';
 import { apiRouter } from './routes/index.js';
 
 export function createApp(): Express {
@@ -44,6 +44,7 @@ export function createApp(): Express {
     max: env.RATE_LIMIT_MAX,
     standardHeaders: true,
     legacyHeaders: false,
+    message: errorBody('rate_limited', 'Слишком много запросов. Повторите позже.'),
   });
   app.use('/api', limiter);
 

@@ -3,6 +3,7 @@ import densityClustering from 'density-clustering';
 import type { AspectCategory, IssueScope, Sentiment } from '@prisma/client';
 import { GroupingSettingsSchema, type GroupingSettings } from '../schemas/grouping.schema.js';
 import { canonicalText } from './aspects.js';
+import { consequenceCategory, priorityIndicator } from './problem-priority.js';
 
 export interface GroupingPoint {
   id: string; reviewId: string; productId: string; runId: string; inputHash: string;
@@ -33,6 +34,9 @@ export function groupMetrics(points: GroupingPoint[], coverage: Coverage, minRev
   const highRatingCount = reviews.filter(point => point.rating !== null && point.rating >= 4).length;
   const positiveSentimentCount = reviews.filter(point => point.sentiment === 'positive').length;
   const positiveContextCount = reviews.filter(point => (point.rating !== null && point.rating >= 4) || point.sentiment === 'positive').length;
+  const consequences = points.filter(point => !!point.consequences && point.quote.includes(point.consequences))
+    .map(point => ({ mentionId: point.id, quote: point.quote, text: point.consequences!, category: consequenceCategory(point.consequences, point.quote) }));
+  const consequenceRank = Math.max(0, ...consequences.map(item => item.category === 'reported_harm' ? 3 : item.category === 'loss_of_use' ? 2 : 1));
   return { version: 'independent-indicators-v1', support, mentionCount: points.length,
     prevalence: coverage.succeeded ? support / coverage.succeeded : null,
     coverage: { ...coverage, remaining: coverage.total - coverage.succeeded - coverage.failed,
@@ -42,7 +46,7 @@ export function groupMetrics(points: GroupingPoint[], coverage: Coverage, minRev
     positiveSentimentShare: support ? positiveSentimentCount / support : null,
     positiveContextCount, signal: support < minReviews,
     hidden: points[0]?.scope === 'product' && positiveContextCount >= minReviews,
-    consequences: points.filter(point => point.consequences !== null).map(point => ({ mentionId: point.id, quote: point.quote, text: point.consequences })),
+    consequences, priority: priorityIndicator(support, positiveContextCount, consequenceRank, support < minReviews),
   };
 }
 export type GroupMetrics = ReturnType<typeof groupMetrics>;
@@ -104,7 +108,7 @@ export function clusterMentions(points: GroupingPoint[], rawVectors: number[][],
     }
     for (const index of indices) if (!assigned.has(index)) groups.push(describeGroup([points[index]], coverage, settings, byId));
   }
-  return groups.sort((a, b) => b.metrics.support - a.metrics.support || a.points[0].id.localeCompare(b.points[0].id));
+  return groups.sort((a, b) => b.metrics.priority.score - a.metrics.priority.score || a.points[0].id.localeCompare(b.points[0].id));
 }
 
 export interface PriorGroup { id: string; problemId: string | null; scope: IssueScope; category: AspectCategory; defects: string[] }

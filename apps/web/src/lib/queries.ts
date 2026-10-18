@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { useProductStore } from '../store/product.store';
 import type { EvidenceRange } from './evidence';
+import { useDataScope, useOwnerId } from './data-scope';
 
 export interface AnalysisInputItem {
   id: string; sourceReviewId: string; text: string; rating: number | null;
@@ -12,7 +13,7 @@ export interface AnalysisInputItem {
 }
 
 export function useAnalysisInputs(runId: string, page: number) {
-  return useQuery({ queryKey: ['analysis-inputs', runId, page],
+  return useQuery({ queryKey: ['analysis-inputs', useOwnerId(), runId, page],
     queryFn: async () => (await api.get<{ items: AnalysisInputItem[]; total: number; pageSize: number; offsetUnit: string; runStatus: string }>(`/api/analysis/runs/${runId}/inputs`, {
       params: { page, pageSize: 10 },
     })).data,
@@ -31,7 +32,7 @@ export interface AnalysisRunItem {
 
 export function useAnalysisRuns(productId?: string | null) {
   return useQuery({
-    queryKey: ['analysis-runs', productId ?? null],
+    queryKey: ['analysis-runs', useOwnerId(), productId ?? null],
     queryFn: async () => (await api.get<{ items: AnalysisRunItem[]; total: number }>('/api/analysis/runs', {
       params: { ...(productId ? { productId } : {}), pageSize: 20 },
     })).data,
@@ -63,7 +64,7 @@ export interface Product {
 
 export function useProducts() {
   return useQuery({
-    queryKey: ['products'],
+    queryKey: ['products', useOwnerId()],
     queryFn: async () => {
       const { data } = await api.get<{ items: Product[] }>('/api/products');
       return data;
@@ -165,11 +166,13 @@ export function useReviews(params: {
   hasIssues?: boolean;
   search?: string;
   productId?: string | null;
+  runId?: string; from?: string; to?: string;
 }) {
+  const scope = useDataScope(params.productId);
   return useQuery({
-    queryKey: ['reviews', params],
+    queryKey: ['reviews', useOwnerId(), scope, params],
     queryFn: async () => {
-      const { data } = await api.get<ReviewsListResponse>('/api/reviews', { params });
+      const { data } = await api.get<ReviewsListResponse>('/api/reviews', { params: { ...scope, ...params } });
       return data;
     },
   });
@@ -263,7 +266,7 @@ export interface LlmConfiguration {
 }
 export function useLlmConfiguration() {
   return useQuery({
-    queryKey: ['llm-configuration'],
+    queryKey: ['llm-configuration', useOwnerId()],
     queryFn: async () => (await api.get<LlmConfiguration>('/api/analysis/provider')).data,
   });
 }
@@ -274,11 +277,12 @@ export function useCheckLlm() {
 }
 
 export function useStats(productId?: string | null) {
+  const scope = useDataScope(productId);
   return useQuery({
-    queryKey: ['stats', productId ?? null],
+    queryKey: ['stats', useOwnerId(), scope],
     queryFn: async () => {
       const { data } = await api.get<OverviewStats>('/api/analysis/stats', {
-        params: productId ? { productId } : {},
+        params: scope,
       });
       return data;
     },
@@ -286,21 +290,31 @@ export function useStats(productId?: string | null) {
 }
 
 export function useTimeseries(
-  params: { bucket?: 'day' | 'week' | 'month'; days?: number; productId?: string | null } = {},
+  params: { bucket?: 'day' | 'week' | 'month'; days?: number; productId?: string | null; runId?: string; from?: string; to?: string } = {},
 ) {
+  const scope = useDataScope(params.productId);
   return useQuery({
-    queryKey: ['timeseries', params],
+    queryKey: ['timeseries', useOwnerId(), scope, params],
     queryFn: async () => {
       const { data } = await api.get<{ buckets: TimeseriesBucket[] }>('/api/analysis/timeseries', {
         params: {
+          ...scope,
           bucket: params.bucket,
           days: params.days,
           ...(params.productId ? { productId: params.productId } : {}),
+          ...(params.runId ? { runId: params.runId } : {}),
+          ...(params.from ? { from: params.from, to: params.to } : {}),
         },
       });
       return data;
     },
   });
+}
+
+export function useAspects(productId: string | null) {
+  const scope = useDataScope(productId);
+  return useQuery({ queryKey: ['aspects', useOwnerId(), scope], enabled: !!scope.productId && !!scope.runId,
+    queryFn: async () => (await api.get<{ items: Array<{ category: string; name: string; positive: number; negative: number; neutral: number }> }>('/api/analysis/aspects', { params: scope })).data });
 }
 
 export function useRunAnalysis() {
@@ -338,7 +352,7 @@ export interface HiddenIssuesResponse {
 
 export function useHiddenIssues(productId?: string | null, page = 1, pageSize = 20) {
   return useQuery({
-    queryKey: ['issues', productId ?? null, page, pageSize],
+    queryKey: ['issues', useOwnerId(), productId ?? null, page, pageSize],
     queryFn: async () => {
       const { data } = await api.get<HiddenIssuesResponse>('/api/issues', {
         params: { ...(productId ? { productId } : {}), page, pageSize },
@@ -351,18 +365,16 @@ export function useHiddenIssues(productId?: string | null, page = 1, pageSize = 
 export function useRecomputeIssues() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (productId?: string | null) => {
-      const { data } = await api.post<{
-        clustersCreated: number;
-        reviewsAssigned: number;
-        noisePoints: number;
-      }>('/api/issues/recompute', productId ? { productId } : {});
+    mutationFn: async (runId: string) => {
+      const { data } = await api.post<{ id: string; runId: string }>('/api/issues/recompute', { runId });
       return data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['issues'] });
       qc.invalidateQueries({ queryKey: ['stats'] });
       qc.invalidateQueries({ queryKey: ['reviews'] });
+      qc.invalidateQueries({ queryKey: ['groupings'] });
+      qc.invalidateQueries({ queryKey: ['grouping-history'] });
     },
   });
 }
@@ -371,7 +383,7 @@ export function useRecomputeIssues() {
 
 export function useReports() {
   return useQuery({
-    queryKey: ['reports'],
+    queryKey: ['reports', useOwnerId()],
     queryFn: async () => {
       const { data } = await api.get<{ items: ReportItem[] }>('/api/reports');
       return data;
@@ -418,7 +430,7 @@ export function useStartParsing() {
 
 export function useProfileStats() {
   return useQuery({
-    queryKey: ['profile', 'stats'],
+    queryKey: ['profile', useOwnerId(), 'stats'],
     queryFn: async () => {
       const { data } = await api.get<{ uploads: number; reports: number }>('/api/profile/stats');
       return data;
@@ -502,7 +514,7 @@ export function useDeleteReviewsBulk() {
 
 export function useIssueDetail(id: string | null) {
   return useQuery({
-    queryKey: ['issues', 'detail', id],
+    queryKey: ['issues', useOwnerId(), 'detail', id],
     queryFn: async () => {
       const { data } = await api.get<IssueWithReviews>(`/api/issues/${id}`);
       return data;
@@ -552,7 +564,7 @@ export function useAiSummary(productId?: string | null) {
 
 export function useParsingHistory() {
   return useQuery({
-    queryKey: ['parsing', 'history'],
+    queryKey: ['parsing', 'history', useOwnerId()],
     queryFn: async () => {
       const { data } = await api.get<{ items: ParsingHistoryItem[] }>('/api/parsing/history');
       return data;

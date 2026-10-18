@@ -5,12 +5,13 @@ import { validate } from '../middleware/validate.js';
 import { LoginSchema, RegisterSchema } from '../schemas/auth.schema.js';
 import rateLimit from 'express-rate-limit';
 import { requireSessionOrigin } from '../middleware/session.js';
+import { errorBody } from '../middleware/error.js';
 
 export const authRouter = Router();
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false,
-  message: { error: 'Слишком много попыток входа. Повторите позже.' },
+  message: errorBody('rate_limited', 'Слишком много попыток входа. Повторите позже.'),
 });
 authRouter.post('/register', requireSessionOrigin, loginLimiter, validate(RegisterSchema), ctrl.register);
 authRouter.post('/login', requireSessionOrigin, loginLimiter, validate(LoginSchema), ctrl.login);

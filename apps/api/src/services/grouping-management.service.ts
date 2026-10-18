@@ -5,6 +5,8 @@ import { HttpError } from '../middleware/error.js';
 import { EditGroupingSchema, ProblemStateSchema, GroupingSettingsSchema, type GroupingQuerySchema } from '../schemas/grouping.schema.js';
 import { groupingPoint, mentionInclude, publishGrouping, type StoredMention, type GroupingPlan } from './clustering.service.js';
 import { describeGroup, type PreparedGroup } from './grouping-engine.js';
+import { filterAndSortGroups } from './grouping-filters.js';
+import { assertRunPeriod } from './data-scope.js';
 
 const metricsObject = (value: Prisma.JsonValue | null) => (value ?? {}) as Prisma.JsonObject;
 function publicMention(mention: StoredMention) {
@@ -24,13 +26,15 @@ export async function listRunGroups(userId: string, query: z.infer<typeof Groupi
     return { items: [], total: 0, page: query.page, pageSize: query.pageSize, publication: null, currentPublicationId: product.publishedGroupingId };
   }
   if (query.runId && publication.runId !== query.runId) throw new HttpError(404, 'Публикация выбранного запуска не найдена');
+  assertRunPeriod(publication.run.scope, query);
   const where = { publicationId: publication.id };
-  const [snapshots, total] = await Promise.all([
-    prisma.issueClusterSnapshot.findMany({ where, orderBy: [{ reviewCount: 'desc' }, { id: 'asc' }],
-      skip: (query.page - 1) * query.pageSize, take: query.pageSize,
-      include: { members: { select: { issueMentionId: true } }, problem: { include: { events: { orderBy: { stateVersion: 'desc' }, take: 5 } } } } }),
-    prisma.issueClusterSnapshot.count({ where }),
-  ]);
+  // A publication is bounded by maxMentions <= 2000. Sort JSON metrics on the
+  // server across the full publication before taking a page; no client filtering.
+  const all = await prisma.issueClusterSnapshot.findMany({ where, orderBy: { id: 'asc' },
+    include: { members: { select: { issueMentionId: true } }, problem: { include: { events: { orderBy: { stateVersion: 'desc' }, take: 5 } } } } });
+  const filtered = filterAndSortGroups(all, query);
+  const total = filtered.length;
+  const snapshots = filtered.slice((query.page - 1) * query.pageSize, query.page * query.pageSize);
   const representativeIds = snapshots.flatMap(snapshot => {
     const ids = metricsObject(snapshot.metrics).representativeIds;
     return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && snapshot.members.some(member => member.issueMentionId === id)).slice(0, 8) : [];

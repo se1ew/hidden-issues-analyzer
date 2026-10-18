@@ -9,6 +9,9 @@ import { createAnalysisRun, getAnalysisRun, listAnalysisRuns, listAnalysisInputs
 import { enqueueAnalysisRun, notifyAnalysisRun } from '../lib/analysis-queue.js';
 import { logger } from '../lib/logger.js';
 import { llm, publicProviderConfiguration } from '../lib/llm.js';
+import { z } from 'zod';
+import { DataScopeSchema, scopeShape, validPeriod, entityId } from '../schemas/data-scope.schema.js';
+import { readRunData, runTimeseries } from '../services/run-data.service.js';
 
 export async function provider(_req: Request, res: Response): Promise<void> {
   res.json(publicProviderConfiguration());
@@ -36,25 +39,25 @@ export async function run(req: Request, res: Response): Promise<void> {
 }
 
 export async function cancel(req: Request, res: Response): Promise<void> {
-  const runId = (req.params.runId ?? req.params.jobId) as string;
+  const runId = entityId.parse(req.params.runId ?? req.params.jobId);
   const state = await cancelAnalysisRun(runId, requestUserId(req));
   void notifyAnalysisRun(runId);
   res.json({ ...state, ok: true, cancelled: !!state.cancelRequestedAt });
 }
 
 export async function retryFailed(req: Request, res: Response): Promise<void> {
-  const created = await retryFailedAnalysisRun(req.params.runId as string, requestUserId(req));
+  const created = await retryFailedAnalysisRun(entityId.parse(req.params.runId), requestUserId(req));
   let dispatchPending = false;
   try { await enqueueAnalysisRun(created.id); } catch { dispatchPending = true; }
   res.status(202).json({ ...created, jobId: created.id, dispatchPending });
 }
 
 export async function getRun(req: Request, res: Response): Promise<void> {
-  res.json(await getAnalysisRun(req.params.runId as string, requestUserId(req)));
+  res.json(await getAnalysisRun(entityId.parse(req.params.runId), requestUserId(req)));
 }
 
 export async function listInputs(req: Request, res: Response): Promise<void> {
-  res.json(await listAnalysisInputs(req.params.runId as string, requestUserId(req), ListAnalysisInputsSchema.parse(req.query)));
+  res.json(await listAnalysisInputs(entityId.parse(req.params.runId), requestUserId(req), ListAnalysisInputsSchema.parse(req.query)));
 }
 
 export async function listRuns(req: Request, res: Response): Promise<void> {
@@ -62,17 +65,29 @@ export async function listRuns(req: Request, res: Response): Promise<void> {
 }
 
 export async function stats(req: Request, res: Response): Promise<void> {
-  const productId = (req.query.productId as string) || undefined;
-  const data = await getOverviewStats(requestUserId(req), productId);
+  const query = DataScopeSchema.parse(req.query);
+  if (query.runId) {
+    const scoped = await readRunData(requestUserId(req), query);
+    res.json({ ...scoped.overview, scope: scoped.scope }); return;
+  }
+  const data = await getOverviewStats(requestUserId(req), query.productId, query);
   res.json(data);
 }
 
 export async function timeseries(req: Request, res: Response): Promise<void> {
-  const bucket = ((req.query.bucket as string) || 'day') as Bucket;
-  const days = Math.max(1, Math.min(365, Number(req.query.days) || 30));
-  const productId = (req.query.productId as string) || undefined;
-  const data = await getSentimentTimeseries(requestUserId(req), bucket, days, productId);
+  const query = z.object({ ...scopeShape, bucket: z.enum(['day', 'week', 'month']).default('day'),
+    days: z.coerce.number().int().min(1).max(365).default(30) }).strict().refine(validPeriod, 'Некорректная область данных').parse(req.query);
+  if (query.runId) {
+    res.json(runTimeseries(await readRunData(requestUserId(req), query), query.bucket, query.days)); return;
+  }
+  const data = await getSentimentTimeseries(requestUserId(req), query.bucket as Bucket, query.days, query.productId, query);
   res.json(data);
+}
+
+export async function aspects(req: Request, res: Response): Promise<void> {
+  const query = DataScopeSchema.parse(req.query);
+  const data = await readRunData(requestUserId(req), { ...query, runId: entityId.parse(query.runId), productId: entityId.parse(query.productId) });
+  res.json({ items: data.aspects, scope: data.scope });
 }
 
 export async function summary(req: Request, res: Response): Promise<void> {

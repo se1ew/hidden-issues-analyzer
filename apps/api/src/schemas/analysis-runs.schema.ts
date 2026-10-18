@@ -20,13 +20,13 @@ export type CreateAnalysisRunInput = z.infer<typeof CreateAnalysisRunSchema>;
 export const ListAnalysisRunsSchema = z.object({
   productId: z.string().min(1).max(60).optional(),
   status: z.enum(['queued', 'running', 'completed', 'partial', 'failed', 'cancelled', 'interrupted']).optional(),
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 }).strict();
 export type ListAnalysisRunsInput = z.infer<typeof ListAnalysisRunsSchema>;
 
 export const ListAnalysisInputsSchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(10),
 }).strict();
 export type ListAnalysisInputsInput = z.infer<typeof ListAnalysisInputsSchema>;

@@ -1,8 +1,9 @@
 import { prisma } from '../lib/prisma.js';
 import { ownedProductScope } from './ownership.service.js';
+import type { DataScope } from '../schemas/data-scope.schema.js';
 
-export async function getOverviewStats(userId: string, productId?: string) {
-  const where = ownedProductScope(userId, productId);
+export async function getOverviewStats(userId: string, productId?: string, scope: DataScope = {}) {
+  const where = { ...ownedProductScope(userId, productId), ...(scope.from ? { reviewDate: { gte: new Date(scope.from), lt: new Date(scope.to!) } } : {}) };
   const [total, analyzed, avgRating, sentimentCounts, issuesCount] = await Promise.all([
     prisma.review.count({ where }),
     prisma.review.count({ where: { ...where, analyzedAt: { not: null } } }),
@@ -13,7 +14,9 @@ export async function getOverviewStats(userId: string, productId?: string) {
       where: { ...where, sentiment: { not: null } },
     }),
     prisma.hiddenIssue.count({
-      where,
+      where: { ...ownedProductScope(userId, productId), ...(scope.from ? {
+        reviews: { some: { reviewDate: { gte: new Date(scope.from), lt: new Date(scope.to!) } } },
+      } : {}) },
     }),
   ]);
 
@@ -43,9 +46,10 @@ export async function getSentimentTimeseries(
   bucket: Bucket = 'day',
   days = 30,
   productId?: string,
+  scope: DataScope = {},
 ) {
   const trunc = bucket === 'month' ? 'month' : bucket === 'week' ? 'week' : 'day';
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const since = scope.from ? new Date(scope.from) : new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   // Owner and optional product are bound SQL parameters, never interpolated values.
   if (!userId) throw new Error('User is required');
@@ -57,6 +61,8 @@ export async function getSentimentTimeseries(
     productClause += ' AND "productId" = $4';
     params.push(productId);
   }
+  if (scope.to) { params.push(new Date(scope.to)); productClause += ` AND "reviewDate" < $${params.length}`; }
+  if (scope.from) productClause += ' AND "reviewDate" IS NOT NULL';
 
   const [rows, ratingRows] = await Promise.all([
     prisma.$queryRawUnsafe<

@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import { scopeShape, validPeriod } from './data-scope.schema.js';
 
 export const ListReviewsQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
+  ...scopeShape,
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
   sentiment: z.enum(['positive', 'negative', 'neutral']).optional(),
   rating: z.coerce.number().int().min(1).max(5).optional(),
@@ -11,7 +13,7 @@ export const ListReviewsQuerySchema = z.object({
     .optional(),
   search: z.string().trim().min(1).max(200).optional(),
   productId: z.string().min(1).max(60).optional(),
-});
+}).strict().refine(validPeriod, 'Укажите товар для запуска и обе границы периода (from < to)');
 export type ListReviewsQuery = z.infer<typeof ListReviewsQuerySchema>;
 
 export const CreateManualReviewSchema = z.object({

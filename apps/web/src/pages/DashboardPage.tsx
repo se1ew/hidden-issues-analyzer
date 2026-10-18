@@ -12,26 +12,21 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth.store';
-import { useStats, useReviews, useHiddenIssues, useRunAnalysis } from '../lib/queries';
+import { useStats, useReviews, useRunAnalysis } from '../lib/queries';
+import { useGroupings } from '../lib/grouping-queries';
 import { useProductStore } from '../store/product.store';
 import { ProductSelector } from '../components/ProductSelector';
 import { AiSummaryButton } from '../components/AiSummaryModal';
 import toast from 'react-hot-toast';
 
-function getSeverity(score: number) {
-  if (score >= 0.7) return { label: 'Критично', bg: 'bg-red-100', text: 'text-red-700', dot: 'bg-red-500' };
-  if (score >= 0.4) return { label: 'Важно', bg: 'bg-amber-100', text: 'text-amber-700', dot: 'bg-amber-500' };
-  return { label: 'Низкий', bg: 'bg-green-100', text: 'text-green-700', dot: 'bg-green-500' };
-}
-
 export function DashboardPage() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
-  const { selectedProductId } = useProductStore();
+  const { selectedProductId, selectedRunId } = useProductStore();
 
   const stats = useStats(selectedProductId);
   const recentReviews = useReviews({ page: 1, pageSize: 5, productId: selectedProductId });
-  const issues = useHiddenIssues(selectedProductId, 1, 5);
+  const issues = useGroupings(selectedProductId, selectedRunId ?? '', '', 1);
   const runAnalysis = useRunAnalysis();
 
   const s = stats.data;
@@ -176,7 +171,6 @@ export function DashboardPage() {
           ) : (
             <ul className="space-y-2">
               {issues.data.items.slice(0, 5).map((issue) => {
-                const sev = getSeverity(issue.hiddenScore);
                 return (
                   <li
                     key={issue.id}
@@ -184,16 +178,16 @@ export function DashboardPage() {
                     onClick={() => navigate('/issues')}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className={`h-2 w-2 rounded-full shrink-0 ${sev.dot}`} />
+                      <div className="h-2 w-2 rounded-full shrink-0 bg-primary-500" />
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300 truncate">
                           {issue.title}
                         </p>
-                        <p className="text-xs text-neutral-400">{issue.size} отзывов</p>
+                        <p className="text-xs text-neutral-400">{issue.metrics.support} уникальных отзывов</p>
                       </div>
                     </div>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${sev.bg} ${sev.text}`}>
-                      {sev.label}
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 bg-primary-100 text-primary-700">
+                      {issue.metrics.signal ? 'Мало подтверждений' : 'На проверку'}
                     </span>
                   </li>
                 );

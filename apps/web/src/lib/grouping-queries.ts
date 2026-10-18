@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { EvidenceRange } from './evidence';
+import { useDataScope, useOwnerId } from './data-scope';
 
 export interface GroupMetrics {
   support: number; mentionCount: number; prevalence: number | null; signal: boolean; hidden: boolean;
@@ -9,6 +10,8 @@ export interface GroupMetrics {
   positiveContextCount: number;
   coverage: { total: number; succeeded: number; failed: number; remaining: number; ratio: number | null };
   recurrence?: boolean;
+  consequences?: Array<{ mentionId: string; text: string; quote: string; category: string }>;
+  priority?: { version: string; score: number; explanation: string; evidenceLabel: string; limitation: string };
 }
 export interface GroupEvidence extends EvidenceRange { id: string; defect: string; text: string;
   rating: number | null; sentiment: string; reviewId: string; consequences: string | null }
@@ -24,17 +27,21 @@ export type GroupingChange = { kind: 'merge'; snapshotIds: string[] } | { kind: 
 export interface EditGroupingInput { expectedPublicationId: string; reason: string; change: GroupingChange; commit: boolean }
 export interface GroupingPreview { preview: Array<{ title: string; metrics: GroupMetrics; mentionIds: string[]; problemId: string | null }>; committed: boolean; publicationId: string }
 
-export function useGroupings(productId: string | null, runId: string, publicationId: string, page: number) {
-  return useQuery({ queryKey: ['groupings', productId, runId, publicationId, page], enabled: !!productId,
+export interface GroupFilters { category?: string; status?: string; minSupport?: number; minMasking?: number; minPriority?: number;
+  sort?: 'priority' | 'support' | 'masking' | 'aspect' | 'state'; direction?: 'asc' | 'desc' }
+export function useGroupings(productId: string | null, runId: string, publicationId: string, page: number, filters: GroupFilters = {}) {
+  const scope = useDataScope(productId);
+  return useQuery({ queryKey: ['groupings', useOwnerId(), productId, runId, publicationId, page, scope, filters], enabled: !!productId,
     queryFn: async () => (await api.get<GroupingResponse>('/api/issues/groupings', { params: { productId, page, pageSize: 20,
+      ...scope, ...filters,
       ...(runId ? { runId } : {}), ...(publicationId ? { publicationId } : {}) } })).data });
 }
 export function useGroupingHistory(productId: string | null) {
-  return useQuery({ queryKey: ['grouping-history', productId], enabled: !!productId,
+  return useQuery({ queryKey: ['grouping-history', useOwnerId(), productId], enabled: !!productId,
     queryFn: async () => (await api.get<{ items: Array<{ id: string; runId: string; sourceId: string | null; action: { kind: string; reason?: string }; createdAt: string }> }>('/api/issues/groupings/history', { params: { productId } })).data });
 }
 export function useGroupEvidence(snapshotId: string, page: number) {
-  return useQuery({ queryKey: ['group-evidence', snapshotId, page],
+  return useQuery({ queryKey: ['group-evidence', useOwnerId(), snapshotId, page],
     queryFn: async () => (await api.get<{ items: GroupEvidence[]; total: number; pageSize: number; offsetUnit: string }>(`/api/issues/snapshots/${snapshotId}/evidence`, { params: { page, pageSize: 10 } })).data });
 }
 export function useEditGrouping() {

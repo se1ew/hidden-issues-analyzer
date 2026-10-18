@@ -20,12 +20,24 @@ const group = (id: string): RunGroup => ({ id, title: `Шум ${id}`, defect: '�
 const data = (): GroupingResponse => ({ items: [group('a'), group('b')], total: 2, pageSize: 20, currentPublicationId: 'pub',
   publication: { id: 'pub', runId: 'run', createdAt: '2026-10-18T10:00:00Z', sourceId: null, run: { total: 5, succeeded: 4, failed: 1, status: 'partial' } } });
 beforeEach(() => {
-  vi.clearAllMocks(); useProductStore.setState({ selectedProductId: 'product' });
+  vi.clearAllMocks(); useProductStore.getState().setSelectedProductId('product');
   mocks.groups.mockReturnValue({ data: data() }); mocks.history.mockReturnValue({ data: { items: [] } });
   mocks.edit.mockResolvedValue({ committed: false, publicationId: 'pub', preview: [{ title: 'Объединённая группа', metrics: { support: 4 } }] });
   mocks.evidence.mockReturnValue({ data: { items: [group('a').representatives[0]], total: 1, pageSize: 10, offsetUnit: 'utf16' } });
 });
 describe('run-scoped problems and owner corrections', () => {
+  it('displays the versioned rule, explicit consequence category and insufficient evidence', () => {
+    const response = data();
+    response.items[0].metrics.signal = true;
+    response.items[0].metrics.priority = { version: 'support-masking-consequence-v1', score: 200020, explanation: 'Сначала поддержка, затем положительный контекст', evidenceLabel: 'Мало подтверждений', limitation: 'Вероятность и критичность не измерены' };
+    response.items[0].metrics.consequences = [{ mentionId: 'a-1', text: 'получил ожог', quote: 'нагревался, получил ожог', category: 'reported_harm' }];
+    mocks.groups.mockReturnValue({ data: response }); render(<IssuesPage />);
+    expect(screen.getByText(/Мало подтверждений. Достоверность не измерена/)).toBeInTheDocument();
+    expect(screen.getByText(/Автор сообщает о вреде/)).toBeInTheDocument();
+    expect(screen.getByText(/Правило: support-masking-consequence-v1/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Минимум отзывов'), { target: { value: '3' } });
+    expect(mocks.groups).toHaveBeenLastCalledWith('product', '', '', 1, expect.objectContaining({ minSupport: 3 }));
+  });
   it('displays independent denominators and missing consequences', () => {
     render(<IssuesPage />);
     expect(screen.getAllByText(/Распространённость: 2\/4 \(50.0%\)/)).toHaveLength(2);

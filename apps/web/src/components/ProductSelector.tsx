@@ -4,7 +4,7 @@ import { useProductStore } from '../store/product.store';
 
 export function ProductSelector({ compact = false }: { compact?: boolean }) {
   const { data, isLoading } = useProducts();
-  const { selectedProductId, setSelectedProductId } = useProductStore();
+  const { selectedProductId, setSelectedProductId, selectedRunId, setDataScope } = useProductStore();
 
   const items = data?.items ?? [];
   const totalReviews = items.reduce((s, p) => s + p.reviewsCount, 0);
@@ -41,6 +41,9 @@ export function ProductSelector({ compact = false }: { compact?: boolean }) {
           {selected.avgRating != null && ` · ★ ${selected.avgRating.toFixed(2)}`}
         </span>
       )}
+      {selectedRunId && !compact && <span className="text-xs text-neutral-600 dark:text-neutral-300">
+        Выбран запуск: {selectedRunId} · <button className="underline" onClick={() => setDataScope({ runId: null, from: null, to: null })}>Сбросить область запуска</button>
+      </span>}
     </div>
   );
 }

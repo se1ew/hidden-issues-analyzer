@@ -8,6 +8,7 @@ import type { CreateManualReviewInput, ListReviewsQuery } from '../schemas/revie
 import { UNASSIGNED_PRODUCT_ID } from './products.service.js';
 import { inspectReviewsCsv, type CsvOptions } from './csv.service.js';
 import { ImportProductSchema } from '../schemas/products.schema.js';
+import { readRunData } from './run-data.service.js';
 
 export interface ParsedCsvRow {
   text: string;
@@ -54,7 +55,24 @@ export async function createManualReview(input: CreateManualReviewInput, userId:
 }
 
 export async function listReviews(query: ListReviewsQuery, userId: string) {
+  if (query.runId) {
+    const data = await readRunData(userId, query);
+    const selected = data.inputs.filter(item => (!query.sentiment || item.analysis?.sentiment === query.sentiment)
+      && (query.rating === undefined || item.rating === query.rating)
+      && (query.hasIssues === undefined || !!item.analysis?.issues.length === query.hasIssues)
+      && (!query.search || item.text.toLocaleLowerCase().includes(query.search.toLocaleLowerCase())));
+    return { items: selected.slice((query.page - 1) * query.pageSize, query.page * query.pageSize).map(item => ({
+      id: item.sourceReviewId, inputId: item.id, text: item.text, rating: item.rating,
+      reviewDate: item.reviewDate, source: item.source, externalId: item.externalId,
+      sentiment: item.analysis?.sentiment ?? null, sentimentScore: item.analysis?.sentimentScore ?? null,
+      aspects: item.analysis?.aspects ?? [], issues: item.analysis?.issues.map(issue => issue.defect) ?? [],
+      evidence: item.analysis?.issues ?? [], analysisStatus: item.analysis?.status ?? 'pending',
+      hiddenIssueId: null, analyzedAt: item.analysis?.finishedAt ?? null, createdAt: item.importedAt,
+      productId: data.run.productId, product: null,
+    })), total: selected.length, page: query.page, pageSize: query.pageSize, scope: data.scope, offsetUnit: 'utf16' };
+  }
   const where: Prisma.ReviewWhereInput = ownedProductScope(userId, query.productId);
+  if (query.from) where.reviewDate = { gte: new Date(query.from), lt: new Date(query.to!) };
   if (query.sentiment) where.sentiment = query.sentiment;
   if (query.rating) where.rating = query.rating;
   if (query.hasIssues !== undefined) {
@@ -70,7 +88,7 @@ export async function listReviews(query: ListReviewsQuery, userId: string) {
   const [items, total] = await Promise.all([
     prisma.review.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
       select: {

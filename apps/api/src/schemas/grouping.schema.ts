@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { AspectCategory } from '@prisma/client';
+import { scopeShape, validPeriod } from './data-scope.schema.js';
 
 export const GroupingSettingsSchema = z.object({
   version: z.literal('dbscan-complete-link-v1').default('dbscan-complete-link-v1'),
@@ -11,10 +13,18 @@ export type GroupingSettings = z.infer<typeof GroupingSettingsSchema>;
 const id = z.string().min(1).max(80);
 const ids = z.array(id).min(1).max(2000).refine(values => new Set(values).size === values.length, 'ID не должны повторяться');
 export const GroupingQuerySchema = z.object({
+  ...scopeShape,
   productId: id, runId: id.optional(), publicationId: id.optional(),
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-}).strict();
+  category: z.nativeEnum(AspectCategory).optional(),
+  status: z.enum(['new', 'confirmed', 'rejected', 'resolved', 'signal']).optional(),
+  minSupport: z.coerce.number().int().min(1).max(2000).optional(),
+  minMasking: z.coerce.number().min(0).max(1).optional(),
+  minPriority: z.coerce.number().int().min(0).max(200_020_003).optional(),
+  sort: z.enum(['priority', 'support', 'masking', 'aspect', 'state']).default('priority'),
+  direction: z.enum(['asc', 'desc']).default('desc'),
+}).strict().refine(validPeriod, 'Укажите обе границы периода (from < to)');
 export const EditGroupingSchema = z.object({
   expectedPublicationId: id,
   commit: z.boolean().default(false),
