@@ -37,7 +37,7 @@ describe('worker shutdown and durable result boundary', () => {
     await processAnalysisRun('run', shutdown.signal);
     expect(mocks.save).toHaveBeenCalledTimes(1);
     expect(mocks.begin).toHaveBeenCalledTimes(2);
-    expect(mocks.finish).toHaveBeenCalledWith('run', 'lease', 'worker_shutdown');
+    expect(mocks.finish).toHaveBeenCalledWith('run', 'lease', 'worker_shutdown', undefined);
   });
   it('rejects a late successful response after shutdown', async () => {
     const shutdown = new AbortController();
@@ -45,7 +45,7 @@ describe('worker shutdown and durable result boundary', () => {
     await processAnalysisRun('run', shutdown.signal);
     expect(mocks.save).not.toHaveBeenCalled();
     expect(mocks.begin).toHaveBeenCalledTimes(1);
-    expect(mocks.finish).toHaveBeenCalledWith('run', 'lease', 'worker_shutdown');
+    expect(mocks.finish).toHaveBeenCalledWith('run', 'lease', 'worker_shutdown', undefined);
   });
   it('does not execute duplicate deliveries that cannot claim the database lease', async () => {
     mocks.claim.mockResolvedValue(null);

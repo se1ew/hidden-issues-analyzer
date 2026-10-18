@@ -20,7 +20,7 @@ import PDFDocument from 'pdfkit';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { getOverviewStats } from './stats.service.js';
-import { listHiddenIssues } from './clustering.service.js';
+import { listHiddenIssues } from './legacy-issues.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPORTS_DIR = path.resolve(__dirname, '../../reports_output');

@@ -6,6 +6,10 @@ import { HttpError } from '../middleware/error.js';
 import { EXTRACTION_PROMPT, EXTRACTION_PROMPT_VERSION, EXTRACTION_METHOD_VERSION, ExtractionResultSchema, prepareExtraction, type ExtractionResult } from './extraction.service.js';
 import { CreateAnalysisRunSchema, type CreateAnalysisRunInput, type ListAnalysisRunsInput, type ListAnalysisInputsInput } from '../schemas/analysis-runs.schema.js';
 import { env } from '../config/env.js';
+import { defaultEmbeddingConfiguration } from '../lib/embeddings.js';
+import { embeddingVersion } from '../schemas/embedding.schema.js';
+import { GroupingSettingsSchema } from '../schemas/grouping.schema.js';
+import { publishGrouping, type GroupingPlan } from './clustering.service.js';
 import { AnalysisResultSchema, type AnalysisResult } from './analyzer.service.js';
 
 export const ACTIVE_RUN_STATUSES = ['queued', 'running'] as const;
@@ -34,6 +38,8 @@ export function inputHash(review: { text: string; rating: number | null; reviewD
 export async function createAnalysisRun(userId: string, request: CreateAnalysisRunInput) {
   const input = CreateAnalysisRunSchema.parse(request);
   const { apiKey: _secret, ...configuration } = llm.config;
+  const embedding = defaultEmbeddingConfiguration();
+  const grouping = GroupingSettingsSchema.parse(input.grouping ?? {});
   try {
     const run = await prisma.$transaction(async (tx) => {
       // Coordinate creation and deletion through the same product row lock.
@@ -61,9 +67,9 @@ export async function createAnalysisRun(userId: string, request: CreateAnalysisR
       });
       const created = await tx.analysisRun.create({ data: {
         userId, productId: input.productId, scope: input as Prisma.InputJsonObject,
-        settings: { ...configuration, prompt: EXTRACTION_PROMPT },
+        settings: { ...configuration, prompt: EXTRACTION_PROMPT, grouping, embedding },
         provider: configuration.provider, model: configuration.model, modelVersion: 'unverified',
-        promptVersion: EXTRACTION_PROMPT_VERSION, embeddingVersion: 'not-applied', methodVersion: EXTRACTION_METHOD_VERSION,
+        promptVersion: EXTRACTION_PROMPT_VERSION, embeddingVersion: embeddingVersion(embedding), methodVersion: EXTRACTION_METHOD_VERSION,
         total: reviews.length,
         events: { create: { toStatus: 'queued', initiator: 'owner', stateVersion: 0 } },
       } });
@@ -258,7 +264,16 @@ async function publishLegacyResults(tx: Prisma.TransactionClient, run: AnalysisR
   }
 }
 
-export async function finishAnalysisRun(runId: string, token: string, errorCode?: string) {
+export async function markGroupingStage(runId: string, token: string) {
+  return prisma.$transaction(async tx => {
+    const current = await lockRun(tx, runId);
+    if (!ownsLease(current, token) || current.cancelRequestedAt) return false;
+    await tx.analysisRun.update({ where: { id: runId }, data: { stage: 'grouping', stateVersion: { increment: 1 } } });
+    return true;
+  });
+}
+
+export async function finishAnalysisRun(runId: string, token: string, errorCode?: string, groupingPlan?: GroupingPlan) {
   return prisma.$transaction(async (tx) => {
     const current = await lockRun(tx, runId);
     if (!ownsLease(current, token)) return null;
@@ -268,22 +283,27 @@ export async function finishAnalysisRun(runId: string, token: string, errorCode?
       return Array.isArray(issues) && issues.length > 0;
     });
     const processed = current.succeeded + current.failed;
+    const groupingReady = !!groupingPlan && !errorCode && processed === current.total;
     const status = current.cancelRequestedAt ? 'cancelled'
       : errorCode === 'worker_shutdown' ? 'interrupted'
       : current.total === 0 ? 'completed'
       : current.succeeded === 0 ? 'failed'
-      : current.failed || errorCode || processed < current.total || hasComplaints ? 'partial' : 'completed';
+      : current.failed || errorCode || processed < current.total || (hasComplaints && !groupingReady) ? 'partial' : 'completed';
     const finishReason = status === 'cancelled' ? 'owner_cancelled'
       : current.total === 0 ? 'empty_selection'
-      : errorCode ?? (hasComplaints ? 'grouping_pending' : status === 'completed' ? 'extraction_without_complaints' : 'review_errors');
-    if (status === 'completed' || status === 'partial') await publishLegacyResults(tx, current);
+      : errorCode ?? (groupingReady ? status === 'completed' ? 'analysis_completed' : 'review_errors'
+        : hasComplaints ? 'grouping_pending' : status === 'completed' ? 'extraction_without_complaints' : 'review_errors');
+    const publishable = (status === 'completed' || status === 'partial') && !errorCode;
+    const publication = publishable && groupingReady && current.succeeded > 0 ? await publishGrouping(tx, current, groupingPlan!) : null;
+    if (publishable && (!hasComplaints || groupingReady)) await publishLegacyResults(tx, current);
     await tx.reviewAnalysis.updateMany({ where: { runId, status: 'running' }, data: { status: 'pending' } });
     const changed = await tx.analysisRun.updateMany({ where: { id: runId, status: 'running', leaseToken: token,
       leaseExpiresAt: { gt: new Date() } }, data: {
-      status, stage: hasComplaints ? 'grouping' : 'persistence', finishReason, finishedAt: new Date(),
+      status, stage: groupingReady ? 'persistence' : hasComplaints ? 'grouping' : 'persistence', finishReason, finishedAt: new Date(),
       leaseToken: null, leaseExpiresAt: null, stateVersion: { increment: 1 },
       diagnostics: { ...(current.diagnostics as Prisma.JsonObject | null),
-        grouping: hasComplaints ? 'not_implemented' : 'empty', errorCode: errorCode ?? null },
+        grouping: groupingReady ? 'completed' : hasComplaints ? 'pending' : 'empty',
+        publicationId: publication?.id ?? null, errorCode: errorCode ?? null },
     } });
     if (changed.count !== 1) throw new HttpError(409, 'Worker потерял право записи');
     const finished = await tx.analysisRun.findUniqueOrThrow({ where: { id: runId } });

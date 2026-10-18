@@ -1,273 +1,117 @@
-import { ownedProductScope } from './ownership.service.js';
-// @ts-expect-error — у пакета нет типов
-import densityClustering from 'density-clustering';
-
+import { Prisma, type AnalysisRun } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { embed } from '../lib/embeddings.js';
-import { logger } from '../lib/logger.js';
-import { llm } from '../lib/llm.js';
-import { z } from 'zod';
+import { HttpError } from '../middleware/error.js';
+import { GroupingSettingsSchema, type GroupingSettings } from '../schemas/grouping.schema.js';
+import { EmbeddingConfigurationSchema, embeddingVersion } from '../schemas/embedding.schema.js';
+import { clusterMentions, stableMatches, type Coverage, type PreparedGroup, type GroupingPoint } from './grouping-engine.js';
 
-interface ClusterSummary {
-  title: string;
-  description: string;
-  keywords: string[];
+export const mentionInclude = { aspect: true, analysis: { include: { input: true } } } as const;
+export type StoredMention = Prisma.IssueMentionGetPayload<{ include: typeof mentionInclude }>;
+export function groupingPoint(mention: StoredMention, productId: string): GroupingPoint {
+  const { input, sentiment } = mention.analysis;
+  if (!sentiment) throw new Error('Успешный анализ не содержит тональность');
+  if (input.text.slice(mention.quoteStart, mention.quoteEnd) !== mention.quote) throw new Error('Сохранённая цитата не соответствует снимку');
+  return { id: mention.id, reviewId: input.sourceReviewId, productId, runId: mention.runId, inputHash: input.inputHash,
+    defect: mention.defect, quote: mention.quote, quoteStart: mention.quoteStart, quoteEnd: mention.quoteEnd,
+    category: mention.aspect.category, aspect: mention.aspect.name, scope: mention.scope,
+    rating: input.rating, sentiment, importedAt: input.importedAt, consequences: mention.consequences };
+}
+export interface GroupingPlan { runId: string; coverage: Coverage; settings: GroupingSettings; embeddingVersion: string; groups: PreparedGroup[] }
+
+export async function prepareRunGrouping(runId: string, signal?: AbortSignal): Promise<GroupingPlan> {
+  const run = await prisma.analysisRun.findUniqueOrThrow({ where: { id: runId } });
+  const saved = run.settings as Prisma.JsonObject;
+  if (!saved.grouping || !saved.embedding) throw new HttpError(409, 'Для старого запуска нужен новый анализ с настройками группировки');
+  const settings = GroupingSettingsSchema.parse(saved.grouping);
+  const embedding = EmbeddingConfigurationSchema.parse(saved.embedding);
+  const coverage = { total: run.total, succeeded: run.succeeded, failed: run.failed };
+  signal?.throwIfAborted();
+  const mentions = await prisma.issueMention.findMany({ where: { runId, analysis: { status: 'succeeded' } },
+    include: mentionInclude, orderBy: { id: 'asc' }, take: settings.maxMentions + 1 });
+  if (mentions.length > settings.maxMentions) throw new HttpError(422, `В запуске больше ${settings.maxMentions} жалоб. Уменьшите область анализа.`);
+  const analyses = await prisma.reviewAnalysis.findMany({ where: { runId, status: 'succeeded' }, select: { diagnostics: true } });
+  if (analyses.some(item => {
+    const diagnostics = item.diagnostics as Prisma.JsonObject | null;
+    return diagnostics?.evidencePending && Array.isArray(diagnostics.legacyIssues) && diagnostics.legacyIssues.length;
+  })) throw new HttpError(409, 'Жалобы старого формата не имеют проверяемых доказательств');
+  const points = mentions.map(mention => groupingPoint(mention, run.productId));
+  const vectors = await embed(points.map(point => point.defect), embedding, signal);
+  signal?.throwIfAborted();
+  return { runId, coverage, settings, embeddingVersion: embeddingVersion(embedding), groups: clusterMentions(points, vectors, coverage, settings) };
 }
 
-interface ReviewIssuePoint {
-  reviewId: string;
-  reviewSentimentScore: number;
-  issueText: string;
-  productId: string | null;
-}
-
-/**
- * Косинусное расстояние между двумя нормированными векторами.
- * Если оба вектора L2-нормированы (наш случай), то cos_dist = 1 - dot.
- */
-function cosineDistance(a: number[], b: number[]): number {
-  let dot = 0;
-  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
-  return 1 - dot;
-}
-
-/**
- * Запрашивает у LLM краткое название и описание кластера на основе репрезентативных issue-фраз.
- */
-async function summarizeCluster(samples: string[]): Promise<ClusterSummary> {
-  const prompt = `Тебе даны короткие фразы-проблемы из отзывов покупателей, объединённые в один кластер.
-Сформулируй на русском:
-1) короткое название проблемы (3-7 слов)
-2) одно предложение-описание (15-25 слов)
-3) 3-5 ключевых слов
-
-Отвечай ТОЛЬКО валидным JSON без пояснений и без markdown.
-
-Фразы:
-${samples.map((s, i) => `${i + 1}. ${s}`).join('\n')}
-
-Формат ответа:
-{"title":"...","description":"...","keywords":["...","...","..."]}`;
-
-  try {
-    const parsed = await llm.completeJson({
-      messages: [
-        { role: 'system', content: 'Ты — аналитик отзывов. Отвечай только валидным JSON.' },
-        { role: 'user', content: prompt },
-      ],
-      temperature: 0.2,
-      max_tokens: 300,
-      schemaName: 'cluster_summary', jsonSchema: { type: 'object', additionalProperties: false,
-        required: ['title', 'description', 'keywords'], properties: {
-          title: { type: 'string', minLength: 1, maxLength: 120 },
-          description: { type: 'string', minLength: 1, maxLength: 400 },
-          keywords: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 40 } },
-        } },
-    }, z.object({ title: z.string().trim().min(1).max(120), description: z.string().trim().min(1).max(400),
-      keywords: z.array(z.string().trim().min(1).max(40)).max(8) }).strict());
-    return {
-      title: String(parsed.title ?? 'Без названия').slice(0, 120),
-      description: String(parsed.description ?? '').slice(0, 400),
-      keywords: Array.isArray(parsed.keywords)
-        ? parsed.keywords.slice(0, 8).map((k) => String(k).toLowerCase().slice(0, 40))
-        : [],
-    };
-  } catch (err) {
-    logger.warn({ err }, 'Cluster summary fallback');
-    return {
-      title: samples[0]?.slice(0, 60) ?? 'Кластер',
-      description: '',
-      keywords: samples.slice(0, 5).map((s) => s.slice(0, 40)),
-    };
+/** Must be called in the same transaction as the terminal state (or an owner edit). */
+export async function publishGrouping(tx: Prisma.TransactionClient, run: AnalysisRun, plan: GroupingPlan,
+  manual?: { actorUserId: string; action: Prisma.InputJsonObject; sourceId: string }) {
+  if (plan.runId !== run.id || plan.coverage.succeeded !== run.succeeded || plan.coverage.failed !== run.failed
+    || plan.coverage.total !== run.total || plan.groups.some(group => group.points.some(point => point.runId !== run.id || point.productId !== run.productId))) {
+    throw new HttpError(409, 'Область группировки изменилась');
   }
-}
-
-export interface ClusterRunResult {
-  clustersCreated: number;
-  reviewsAssigned: number;
-  noisePoints: number;
-}
-
-/**
- * Главный pipeline: собирает все issue-фразы из проанализированных отзывов,
- * считает эмбеддинги, кластеризует DBSCAN-ом ВНУТРИ КАЖДОГО ТОВАРА,
- * для каждого кластера считает size / severity / visibility / hidden_score
- * и просит LLM сформулировать заголовок.
- *
- * @param productId Если указан — пересчитывает только для этого товара. Иначе — для всех.
- */
-export async function recomputeHiddenIssues(userId: string, productId?: string): Promise<ClusterRunResult> {
-  // 1. Собираем все issue-точки (опционально ограничиваем по товару)
-  const reviewWhere = ownedProductScope(userId, productId);
-  const reviews = await prisma.review.findMany({
-    where: { ...reviewWhere, analyzedAt: { not: null }, issues: { not: null as never } },
-    select: { id: true, sentimentScore: true, issues: true, productId: true },
+  const products = await tx.$queryRaw<Array<{ id: string; publishedGroupingId: string | null }>>`
+    SELECT id,"publishedGroupingId" FROM "Product" WHERE id=${run.productId} AND "userId"=${run.userId} FOR UPDATE`;
+  const product = products[0];
+  if (!product) throw new HttpError(404, 'Товар не найден');
+  // A card may be absent from the immediately preceding scope and later recur.
+  // Match against its sealed historical evidence, not only the last publication.
+  const previous = await tx.issueClusterSnapshot.findMany({
+    where: { productId: run.productId, problemId: { not: null }, publication: { sealedAt: { not: null } } },
+    include: { members: { include: { mention: { select: { defect: true } } } } },
   });
-
-  const points: ReviewIssuePoint[] = [];
-  for (const r of reviews) {
-    if (!Array.isArray(r.issues)) continue;
-    for (const issue of r.issues as string[]) {
-      if (typeof issue === 'string' && issue.trim().length > 0) {
-        points.push({
-          reviewId: r.id,
-          reviewSentimentScore: r.sentimentScore ?? 0,
-          issueText: issue,
-          productId: r.productId,
-        });
+  const matches = stableMatches(plan.groups, previous.map(snapshot => ({ id: snapshot.id, problemId: snapshot.problemId,
+    scope: snapshot.scope, category: snapshot.category, defects: snapshot.members.map(member => member.mention.defect) })));
+  const publication = await tx.groupingPublication.create({ data: { runId: run.id, productId: run.productId,
+    sourceId: manual?.sourceId ?? product.publishedGroupingId, actorUserId: manual?.actorUserId,
+    action: manual?.action ?? { kind: 'automatic', method: plan.settings.version, embeddingVersion: plan.embeddingVersion } } });
+  for (const [index, group] of plan.groups.entries()) {
+    const match = matches[index];
+    const problemId = manual ? group.problemId : match.problemId;
+    const ambiguous = manual ? !!group.needsReview : match.ambiguous;
+    let problem = problemId ? await tx.problem.findFirst({ where: { id: problemId, productId: run.productId } }) : null;
+    if (problemId && !problem) throw new HttpError(404, 'Карточка проблемы не найдена');
+    if (!problem && !ambiguous && !group.metrics.signal) problem = await tx.problem.create({ data: {
+      productId: run.productId, title: group.title, description: group.defect,
+      events: { create: { toStatus: 'new', initiator: manual ? 'owner_grouping' : 'grouping', stateVersion: 0,
+        actorUserId: manual?.actorUserId, evidence: { runId: run.id, publicationId: publication.id } } },
+    } });
+    const snapshot = await tx.issueClusterSnapshot.create({ data: {
+      runId: run.id, productId: run.productId, publicationId: publication.id, problemId: problem?.id,
+      title: group.title, defect: group.defect, scope: group.scope, category: group.category,
+      needsReview: ambiguous || group.metrics.signal, reviewCount: group.metrics.support,
+      analyzedCount: run.succeeded, positiveContextCount: group.metrics.positiveContextCount,
+      // Legacy severity/visibility/hiddenScore intentionally remain unknown.
+      metrics: { ...group.metrics, representativeIds: group.representativeIds,
+        candidateProblemIds: ambiguous ? match.candidateProblemIds : [], recurrence: false },
+    } });
+    await tx.issueClusterMember.createMany({ data: group.points.map(point => ({ runId: run.id, clusterId: snapshot.id, issueMentionId: point.id })) });
+    if (problem?.status === 'resolved' && problem.resolvedAt && !ambiguous && !manual) {
+      const resolution = await tx.problemEvent.findFirst({ where: { problemId: problem.id, toStatus: 'resolved' }, orderBy: { stateVersion: 'desc' } });
+      const known = ((resolution?.evidence as Prisma.JsonObject | null)?.reviewIds ?? []) as string[];
+      const fresh = group.points.find(point => point.importedAt > problem.resolvedAt! && !known.includes(point.reviewId));
+      if (fresh) {
+        const updated = await tx.problem.update({ where: { id: problem.id }, data: { status: 'new', resolvedAt: null, stateVersion: { increment: 1 } } });
+        await tx.problemEvent.create({ data: { problemId: problem.id, fromStatus: 'resolved', toStatus: 'new',
+          stateVersion: updated.stateVersion, initiator: 'grouping', reason: 'new_evidence_after_resolution',
+          evidence: { runId: run.id, publicationId: publication.id, snapshotId: snapshot.id, reviewId: fresh.reviewId, mentionId: fresh.id } } });
+        await tx.issueClusterSnapshot.update({ where: { id: snapshot.id }, data: { metrics: { ...group.metrics,
+          representativeIds: group.representativeIds, candidateProblemIds: [], recurrence: true } } });
       }
     }
   }
-
-  if (points.length < 3) {
-    logger.warn({ points: points.length }, 'Not enough issue points to cluster');
-    await resetIssuesForScope(userId, productId);
-    return { clustersCreated: 0, reviewsAssigned: 0, noisePoints: points.length };
-  }
-
-  // 2. Очищаем старые HiddenIssue только в пределах scope
-  await resetIssuesForScope(userId, productId);
-
-  // 3. Группируем точки по productId — кластеризуем независимо
-  const groups = new Map<string | null, { points: ReviewIssuePoint[]; indices: number[] }>();
-  points.forEach((p, idx) => {
-    const key = p.productId;
-    const grp = groups.get(key) ?? { points: [], indices: [] };
-    grp.points.push(p);
-    grp.indices.push(idx);
-    groups.set(key, grp);
-  });
-
-  let clustersCreated = 0;
-  let reviewsAssigned = 0;
-  let totalNoise = 0;
-
-  for (const [groupProductId, group] of groups) {
-    if (group.points.length < 2) {
-      totalNoise += group.points.length;
-      continue;
-    }
-
-    // Подсчёт всех отзывов в этом товаре (для visibility)
-    const totalReviewsInGroup = await prisma.review.count({
-      where: ownedProductScope(userId, groupProductId ?? undefined),
-    });
-
-    logger.info(
-      { productId: groupProductId, points: group.points.length, totalReviewsInGroup },
-      'Clustering group',
-    );
-    const vectors = await embed(group.points.map((p) => p.issueText));
-
-    const dbscan = new densityClustering.DBSCAN();
-    const clusters: number[][] = dbscan.run(vectors, 0.35, 2, cosineDistance);
-    const noise: number[] = dbscan.noise;
-    totalNoise += noise.length;
-
-    for (const clusterIndices of clusters) {
-      if (clusterIndices.length < 2) continue;
-
-      const clusterPoints = clusterIndices.map((i) => group.points[i]);
-      const uniqueReviewIds = Array.from(new Set(clusterPoints.map((p) => p.reviewId)));
-
-      const size = uniqueReviewIds.length;
-      const visibility = totalReviewsInGroup > 0 ? size / totalReviewsInGroup : 0;
-      const severity = avg(clusterPoints.map((p) => Math.abs(p.reviewSentimentScore)));
-      const hiddenScore = severity * (1 - visibility);
-
-      const samples = clusterPoints.slice(0, 8).map((p) => p.issueText);
-      const summary = await summarizeCluster(samples);
-
-      const hiddenIssue = await prisma.hiddenIssue.create({
-        data: {
-          productId: groupProductId,
-          title: summary.title,
-          description: summary.description,
-          keywords: summary.keywords,
-          size,
-          severity,
-          visibility,
-          hiddenScore,
-        },
-      });
-
-      await prisma.review.updateMany({
-        where: { id: { in: uniqueReviewIds }, ...ownedProductScope(userId) },
-        data: { hiddenIssueId: hiddenIssue.id },
-      });
-
-      clustersCreated++;
-      reviewsAssigned += uniqueReviewIds.length;
-    }
-  }
-
-  logger.info(
-    { clustersCreated, reviewsAssigned, noisePoints: totalNoise, total: points.length },
-    'Clustering complete',
-  );
-  return { clustersCreated, reviewsAssigned, noisePoints: totalNoise };
+  await tx.groupingPublication.update({ where: { id: publication.id }, data: { sealedAt: new Date() } });
+  await tx.product.update({ where: { id: run.productId }, data: { publishedGroupingId: publication.id } });
+  return publication;
 }
 
-async function resetIssuesForScope(userId: string, productId?: string): Promise<void> {
-  const where = ownedProductScope(userId, productId);
-  await prisma.$transaction(async (tx) => {
-    await tx.review.updateMany({ where, data: { hiddenIssueId: null } });
-    await tx.hiddenIssue.deleteMany({ where });
-  });
-}
-
-function avg(arr: number[]): number {
-  if (arr.length === 0) return 0;
-  return arr.reduce((s, x) => s + x, 0) / arr.length;
-}
-
-export async function listHiddenIssues(
-  userId: string,
-  productId?: string,
-  page = 1,
-  pageSize = 20,
-) {
-  const where = ownedProductScope(userId, productId);
-  const [items, total] = await Promise.all([
-    prisma.hiddenIssue.findMany({
-      where,
-      orderBy: { hiddenScore: 'desc' },
-      include: { product: { select: { id: true, name: true } } },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    prisma.hiddenIssue.count({ where }),
-  ]);
-  return { items, total, page, pageSize };
-}
-
-export async function toggleResolvedIssue(id: string, userId: string) {
-  const existing = await prisma.hiddenIssue.findFirst({ where: { id, ...ownedProductScope(userId) } });
-  if (!existing) return null;
-  const newResolved = !existing.resolved;
-  return prisma.hiddenIssue.update({
-    where: { id, ...ownedProductScope(userId) },
-    data: { resolved: newResolved, resolvedAt: newResolved ? new Date() : null },
-  });
-}
-
-export async function getHiddenIssue(id: string, userId: string) {
-  const issue = await prisma.hiddenIssue.findFirst({
-    where: { id, ...ownedProductScope(userId) },
-    include: {
-      reviews: {
-        where: ownedProductScope(userId),
-        select: {
-          id: true,
-          text: true,
-          rating: true,
-          sentimentScore: true,
-          createdAt: true,
-        },
-        take: 50,
-        orderBy: { sentimentScore: 'asc' },
-      },
-    },
-  });
-  return issue;
+export async function recomputeRunGrouping(userId: string, runId: string) {
+  const run = await prisma.analysisRun.findFirst({ where: { id: runId, userId, product: { userId }, status: { in: ['completed', 'partial'] } } });
+  if (!run) throw new HttpError(404, 'Завершённый запуск не найден');
+  const plan = await prepareRunGrouping(runId);
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "Product" WHERE id=${run.productId} AND "userId"=${userId} FOR UPDATE`;
+    if (await tx.analysisRun.count({ where: { productId: run.productId, status: { in: ['running', 'queued'] } } })) throw new HttpError(409, 'Дождитесь завершения анализа');
+    const product = await tx.product.findUniqueOrThrow({ where: { id: run.productId }, include: { publishedGrouping: { include: { run: true } } } });
+    if (product.publishedGrouping && product.publishedGrouping.run.createdAt > run.createdAt) throw new HttpError(409, 'Нельзя заменить новый результат пересчётом старого запуска');
+    return publishGrouping(tx, run, plan);
+  }, { timeout: 30_000 });
 }

@@ -1,327 +1,126 @@
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Circle, Download, HelpCircle, Loader2, Package, RefreshCw, Search, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import clsx from 'clsx';
+import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { useHiddenIssues, useIssueDetail, useRecomputeIssues, useToggleResolved } from '../lib/queries';
 import { ProductSelector } from '../components/ProductSelector';
-import { AnalysisBanner } from '../components/AnalysisBanner';
 import { useProductStore } from '../store/product.store';
+import { useAnalysisRuns } from '../lib/queries';
+import { evidenceSegments } from '../lib/evidence';
+import { useGroupings, useGroupingHistory, useGroupEvidence, useEditGrouping, useSetProblemState, useRecomputeGrouping,
+  type RunGroup, type GroupingChange, type EditGroupingInput, type GroupingPreview, type ProblemStatus } from '../lib/grouping-queries';
 
-function getSeverityLevel(score: number) {
-  if (score >= 0.7) return { label: 'Критично', bg: 'bg-red-100', text: 'text-red-700', bar: 'bg-red-500' };
-  if (score >= 0.4) return { label: 'Важно',    bg: 'bg-amber-100', text: 'text-amber-700', bar: 'bg-amber-500' };
-  return               { label: 'Низкий',  bg: 'bg-green-100', text: 'text-green-700', bar: 'bg-green-500' };
-}
-
-type SevFilter = 'all' | 'critical' | 'important' | 'low';
-
-function matchSeverity(score: number, f: SevFilter) {
-  if (f === 'all') return true;
-  if (f === 'critical') return score >= 0.7;
-  if (f === 'important') return score >= 0.4 && score < 0.7;
-  return score < 0.4;
-}
+const stateNames: Record<ProblemStatus, string> = { new: 'На проверке', confirmed: 'Подтверждена', rejected: 'Отклонена', resolved: 'Решена' };
+const scopeNames: Record<string, string> = { product: 'Товар', delivery: 'Доставка', seller: 'Продавец', packaging: 'Упаковка' };
+const percent = (value: number | null) => value === null ? 'не определена' : `${(value * 100).toFixed(1)}%`;
+const errorText = (error: unknown) => (error as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Не удалось сохранить действие. Обновите данные и повторите.';
 
 export function IssuesPage() {
-  const { selectedProductId } = useProductStore();
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [sevFilter, setSevFilter] = useState<SevFilter>('all');
-  const { data, isLoading } = useHiddenIssues(selectedProductId, page, 50);
-  const recompute = useRecomputeIssues();
-  const toggleResolved = useToggleResolved();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  useEffect(() => { setPage(1); }, [selectedProductId]);
-
-  const handleRecompute = async () => {
-    try {
-      const res = await recompute.mutateAsync(selectedProductId);
-      toast.success(
-        `Готово: ${res.clustersCreated} кластеров, ${res.reviewsAssigned} отзывов привязано`,
-      );
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: string } } };
-      toast.error(e.response?.data?.error ?? 'Ошибка пересчёта');
-    }
-  };
-
-  const allIssues = data?.items ?? [];
-  const issues = allIssues
-    .filter((i) => matchSeverity(i.hiddenScore, sevFilter))
-    .filter((i) => !search.trim() || i.title.toLowerCase().includes(search.trim().toLowerCase()));
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / 50)) : 1;
-
-  const exportCsv = () => {
-    const rows = [
-      ['Проблема', 'Описание', 'Серьёзность', 'Score', 'Отзывов', 'Видимость', 'Товар'],
-      ...allIssues.map((i) => [
-        i.title,
-        i.description ?? '',
-        getSeverityLevel(i.hiddenScore).label,
-        (i.hiddenScore * 100).toFixed(0),
-        i.size.toString(),
-        (i.visibility * 100).toFixed(1) + '%',
-        i.product?.name ?? '',
-      ]),
-    ];
-    const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    a.download = `issues_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    toast.success('CSV скачан');
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="flex items-center gap-2">
-            <AlertTriangle className="h-6 w-6 text-primary-500" />
-            Скрытые проблемы
-          </h1>
-          <p className="text-sm text-neutral-400 mt-1">
-            Кластеры повторяющихся жалоб, ранжированные по скрытости и серьёзности
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={exportCsv} disabled={allIssues.length === 0} className="btn-outline gap-2">
-            <Download className="h-4 w-4" /> CSV
-          </button>
-          <button onClick={handleRecompute} disabled={recompute.isPending} className="btn-primary">
-            {recompute.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {selectedProductId ? 'Пересчитать для товара' : 'Пересчитать все'}
-          </button>
-        </div>
-      </div>
-
-      <ProductSelector />
-      <AnalysisBanner />
-
-      {/* Фильтры */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[180px]">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по названию..."
-            className="input pl-8 py-1.5 text-sm h-9"
-          />
-          {search && (
-            <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2">
-              <X className="h-3.5 w-3.5 text-neutral-400" />
-            </button>
-          )}
-        </div>
-        {(['all', 'critical', 'important', 'low'] as SevFilter[]).map((f) => (
-          <button
-            key={f}
-            onClick={() => setSevFilter(f)}
-            className={clsx(
-              'text-xs px-3 py-1.5 rounded-lg font-medium transition border',
-              sevFilter === f
-                ? f === 'all' ? 'bg-primary-600 text-white border-primary-600'
-                  : f === 'critical' ? 'bg-red-100 text-red-700 border-red-300'
-                  : f === 'important' ? 'bg-amber-100 text-amber-700 border-amber-300'
-                  : 'bg-green-100 text-green-700 border-green-300'
-                : 'bg-white dark:bg-neutral-800 text-neutral-500 border-neutral-200 dark:border-neutral-700 hover:border-neutral-400',
-            )}
-          >
-            {f === 'all' ? 'Все' : f === 'critical' ? 'Критично' : f === 'important' ? 'Важно' : 'Низкий'}
-          </button>
-        ))}
-        {(search || sevFilter !== 'all') && (
-          <button onClick={() => { setSearch(''); setSevFilter('all'); }} className="text-xs text-neutral-400 hover:text-red-500 transition">
-            Сбросить
-          </button>
-        )}
-      </div>
-
-      {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="card animate-pulse">
-              <div className="h-5 bg-neutral-200 rounded w-2/3 mb-2" />
-              <div className="h-3 bg-neutral-100 rounded w-full mb-4" />
-              <div className="grid grid-cols-3 gap-3">
-                {[1, 2, 3].map((j) => <div key={j} className="h-8 bg-neutral-100 rounded" />)}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : issues.length === 0 ? (
-        <div className="card text-center py-12">
-          <AlertTriangle className="h-10 w-10 mx-auto text-neutral-300 mb-3" />
-          <p className="text-sm text-neutral-400">
-            Кластеры пока не сформированы. Запустите анализ отзывов и нажмите «Пересчитать».
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {issues.map((issue, idx) => {
-            const sev = getSeverityLevel(issue.hiddenScore);
-            return (
-              <div
-                key={issue.id}
-                className={clsx('card hover:border-primary-300 transition animate-slide-in', issue.resolved && 'opacity-60')}
-                style={{ animationDelay: `${idx * 60}ms` }}
-              >
-                <div className="flex justify-between items-start gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${sev.bg} ${sev.text}`}>
-                        {sev.label}
-                      </span>
-                      {issue.product && (
-                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-primary-100 text-primary-700">
-                          <Package className="h-3 w-3" />
-                          {issue.product.name}
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-neutral-800 dark:text-neutral-100">{issue.title}</h3>
-                    {issue.description && (
-                      <p className="text-sm text-neutral-500 mt-1 line-clamp-2">{issue.description}</p>
-                    )}
-                    {issue.keywords && issue.keywords.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-3">
-                        {issue.keywords.map((kw) => (
-                          <span key={kw} className="text-xs px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
-                            {kw}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <div className="flex items-center gap-1 justify-end">
-                      <span className={`text-2xl font-bold ${sev.text}`}>
-                        {(issue.hiddenScore * 100).toFixed(0)}
-                      </span>
-                      <span className="text-xs text-neutral-400">/100</span>
-                      <div className="relative group">
-                        <HelpCircle className="h-3.5 w-3.5 text-neutral-300 cursor-help" />
-                        <div className="absolute right-0 top-5 w-56 p-2.5 text-xs bg-neutral-800 text-neutral-200 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition z-10">
-                          Оценка серьёзности AI: чем выше — тем критичнее проблема.
-                          <br /><span className="text-neutral-400">= severity × (1 − visibility)</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-xs text-neutral-400 mt-0.5">{issue.size} отзывов</div>
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <div className="flex items-center justify-between text-xs text-neutral-400 mb-1">
-                    <span>Серьёзность: {(issue.severity * 100).toFixed(0)}%</span>
-                    <span>Видимость: {(issue.visibility * 100).toFixed(1)}%</span>
-                  </div>
-                  <div className="h-1.5 w-full bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${sev.bar}`}
-                      style={{ width: `${(issue.hiddenScore * 100).toFixed(0)}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-3 flex items-center justify-between">
-                  <button
-                    onClick={() => setExpandedId(expandedId === issue.id ? null : issue.id)}
-                    className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 transition"
-                  >
-                    {expandedId === issue.id ? (
-                      <><ChevronUp className="h-3.5 w-3.5" /> Скрыть отзывы</>
-                    ) : (
-                      <><ChevronDown className="h-3.5 w-3.5" /> Показать отзывы ({issue.size})</>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => {
-                      toggleResolved.mutate(issue.id);
-                      if (!issue.resolved) toast.success('Проблема отмечена как решённая');
-                    }}
-                    className={clsx(
-                      'flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition',
-                      issue.resolved
-                        ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
-                        : 'bg-white dark:bg-neutral-800 text-neutral-500 border-neutral-200 hover:border-green-400 hover:text-green-600',
-                    )}
-                  >
-                    {issue.resolved
-                      ? <><CheckCircle2 className="h-3.5 w-3.5" /> Решено</>
-                      : <><Circle className="h-3.5 w-3.5" /> Отметить решённым</>}
-                  </button>
-                </div>
-
-                {expandedId === issue.id && (
-                  <IssueReviews issueId={issue.id} />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {data && data.total > 0 && totalPages > 1 && (
-        <div className="flex items-center justify-between pt-2 text-sm">
-          <span className="text-neutral-400">
-            {data.total} проблем всего
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className={clsx('btn-outline px-3 py-1', page === 1 && 'opacity-50')}
-            >
-              Назад
-            </button>
-            <span className="px-2 text-neutral-500">{page} / {totalPages}</span>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-              className={clsx('btn-outline px-3 py-1', page >= totalPages && 'opacity-50')}
-            >
-              Вперёд
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  const productId = useProductStore(state => state.selectedProductId);
+  return <div className="space-y-5"><div><h1>Скрытые проблемы</h1><p className="text-sm text-neutral-500">Группы жалоб и доказательства выбранного запуска</p></div>
+    <ProductSelector />{productId ? <ProductGroups key={productId} productId={productId} /> : <div className="card">Выберите товар для просмотра проблем.</div>}
+  </div>;
 }
 
-function IssueReviews({ issueId }: { issueId: string }) {
-  const { data, isLoading } = useIssueDetail(issueId);
-  const reviews = data?.reviews ?? [];
-
-  if (isLoading) {
-    return (
-      <div className="mt-3 space-y-2">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-10 bg-neutral-100 rounded animate-pulse" />
-        ))}
+function ProductGroups({ productId }: { productId: string }) {
+  const [runId, setRunId] = useState(''); const [publicationId, setPublicationId] = useState(''); const [page, setPage] = useState(1);
+  const [chosen, setChosen] = useState<string[]>([]); const [reason, setReason] = useState('Исправление группировки');
+  const [preview, setPreview] = useState<{ input: EditGroupingInput; sourceId: string; data: GroupingPreview } | null>(null);
+  const groups = useGroupings(productId, runId, publicationId, page);
+  const history = useGroupingHistory(productId); const runs = useAnalysisRuns(productId);
+  const edit = useEditGrouping(); const recompute = useRecomputeGrouping();
+  const data = groups.data; const publication = data?.publication;
+  const editable = !!publication && publication.id === data?.currentPublicationId;
+  const clearSelection = () => { setPage(1); setChosen([]); setPreview(null); };
+  const showPreview = async (change: GroupingChange) => {
+    if (!publication || !data?.currentPublicationId) return;
+    const input: EditGroupingInput = { change, reason, expectedPublicationId: data.currentPublicationId, commit: false };
+    try { const response = await edit.mutateAsync({ publicationId: publication.id, input }); setPreview({ input, sourceId: publication.id, data: response }); }
+    catch (error) { toast.error(errorText(error)); }
+  };
+  const currentRun = history.data?.items.find(item => item.id === data?.currentPublicationId)?.runId;
+  return <div className="space-y-4">
+    <div className="card space-y-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-sm">Запуск<select className="input mt-1" value={runId} onChange={event => { setRunId(event.target.value); setPublicationId(''); clearSelection(); }}>
+          <option value="">Текущий опубликованный результат</option>
+          {runs.data?.items.map(run => <option key={run.id} value={run.id}>{new Date(run.createdAt).toLocaleString('ru-RU')} · {run.succeeded}/{run.total}</option>)}
+        </select></label>
+        <label className="text-sm">История группировок<select className="input mt-1" value={publicationId} onChange={event => { setPublicationId(event.target.value); setRunId(''); clearSelection(); }}>
+          <option value="">Автоматический выбор</option>
+          {history.data?.items.map(item => <option key={item.id} value={item.id}>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.action?.kind === 'automatic' ? 'Автоматически' : 'Правка владельца'}</option>)}
+        </select></label>
+        <button className="btn-soft" disabled={!publication || recompute.isPending || !editable} onClick={async () => {
+          if (!publication) return;
+          try { await recompute.mutateAsync(publication.runId); clearSelection(); toast.success('Новая группировка сохранена'); }
+          catch (error) { toast.error(errorText(error)); }
+        }}>Пересчитать группировку</button>
       </div>
-    );
-  }
-
-  if (reviews.length === 0) {
-    return <p className="mt-3 text-xs text-neutral-400">Нет привязанных отзывов</p>;
-  }
-
-  return (
-    <div className="mt-3 space-y-2 border-t border-neutral-100 pt-3">
-      {reviews.map((r) => (
-        <div key={r.id} className="rounded-lg bg-neutral-50 px-3 py-2 text-sm">
-          <p className="text-neutral-700 line-clamp-2">{r.text}</p>
-          <p className="text-xs text-neutral-400 mt-1">
-            {r.rating ? `★ ${r.rating} · ` : ''}
-            {new Date(r.createdAt).toLocaleDateString('ru-RU')}
-            {r.sentimentScore != null && ` · score ${r.sentimentScore.toFixed(2)}`}
-          </p>
-        </div>
-      ))}
+      {publication && <p className="text-sm">Результат от {new Date(publication.createdAt).toLocaleString('ru-RU')}. Обработано {publication.run.succeeded} из {publication.run.total}; ошибок: {publication.run.failed}.</p>}
+      {publication && !editable && <p className="text-sm text-amber-700 dark:text-amber-300">Открыта историческая публикация. Решения по карточкам показываются в их текущем состоянии.</p>}
+      {publication && !editable && currentRun === publication.runId && <button className="btn-soft" disabled={edit.isPending} onClick={() => void showPreview({ kind: 'restore' })}>Восстановить эту группировку</button>}
     </div>
-  );
+    {groups.isPending && <p role="status">Загрузка групп…</p>}
+    {groups.isError && <div className="card" role="alert">Не удалось загрузить группы. <button className="btn-soft" onClick={() => void groups.refetch()}>Повторить</button></div>}
+    {!groups.isPending && !groups.isError && !publication && <div className="card">У выбранной области пока нет успешно опубликованной группировки. Запустите анализ выбранного товара в разделе «Отзывы».</div>}
+    {publication && data?.total === 0 && <div className="card">В обработанной области жалобы с проверяемыми цитатами не найдены.</div>}
+    {editable && !!data?.items.length && <div className="card flex flex-wrap gap-3 items-end">
+      <label className="text-sm flex-1">Причина правки<input className="input mt-1" value={reason} maxLength={500} onChange={event => { setReason(event.target.value); setPreview(null); }} /></label>
+      <button className="btn-soft" disabled={chosen.length < 2 || edit.isPending || !reason.trim()} onClick={() => void showPreview({ kind: 'merge', snapshotIds: chosen })}>Объединить выбранные ({chosen.length})</button>
+    </div>}
+    {preview && <div className="card space-y-3 border-amber-400" role="region" aria-label="Предпросмотр группировки">
+      <h2>Предпросмотр изменений</h2><p className="text-sm">Исходная публикация останется в истории. Пользовательские состояния не копируются в новые карточки объединённых или разделённых групп.</p>
+      <ul className="text-sm space-y-1">{preview.data.preview.map((group, index) => <li key={index}>{group.title} — {group.metrics.support} уникальных отзывов</li>)}</ul>
+      <div className="flex gap-2"><button className="btn-primary" disabled={edit.isPending} onClick={async () => {
+        try { await edit.mutateAsync({ publicationId: preview.sourceId, input: { ...preview.input, commit: true } }); setPublicationId(''); setRunId(''); clearSelection(); toast.success('Правка сохранена в новой публикации'); }
+        catch (error) { toast.error(errorText(error)); setPreview(null); }
+      }}>Сохранить изменения</button><button className="btn-soft" onClick={() => setPreview(null)}>Отмена</button></div>
+    </div>}
+    {data?.items.map(group => <GroupCard key={group.id} group={group} editable={editable} chosen={chosen.includes(group.id)}
+      onChoose={() => setChosen(values => values.includes(group.id) ? values.filter(id => id !== group.id) : [...values, group.id])}
+      onChange={showPreview} busy={edit.isPending || !reason.trim()} />)}
+    {!!data && data.total > data.pageSize && <div className="flex items-center gap-3"><button className="btn-soft" disabled={page === 1} onClick={() => setPage(page - 1)}>Назад</button>
+      <span>{page} / {Math.ceil(data.total / data.pageSize)}</span><button className="btn-soft" disabled={page * data.pageSize >= data.total} onClick={() => setPage(page + 1)}>Вперёд</button></div>}
+  </div>;
+}
+
+function GroupCard({ group, editable, chosen, onChoose, onChange, busy }: { group: RunGroup; editable: boolean; chosen: boolean; onChoose: () => void;
+  onChange: (change: GroupingChange) => Promise<void>; busy: boolean }) {
+  const [expanded, setExpanded] = useState(false); const [selected, setSelected] = useState<string[]>([]); const [note, setNote] = useState('');
+  const state = useSetProblemState(); const m = group.metrics;
+  const transitions: Record<ProblemStatus, Array<[ProblemStatus, string]>> = { new: [['confirmed', 'Подтвердить'], ['rejected', 'Отклонить'], ['resolved', 'Отметить решённой']],
+    confirmed: [['resolved', 'Отметить решённой']], rejected: [['new', 'Вернуть на проверку']], resolved: [['confirmed', 'Переоткрыть']] };
+  return <article className="card space-y-3">
+    <div className="flex gap-3 items-start">{editable && <input type="checkbox" aria-label={`Выбрать группу: ${group.title}`} checked={chosen} onChange={onChoose} className="mt-1" />}
+      <div><h2>{group.title}</h2><p className="text-sm text-neutral-500">{scopeNames[group.scope]} · {m.signal ? 'Неподтверждённый сигнал' : m.hidden ? 'Повторяющаяся жалоба в положительных отзывах' : 'Повторяющаяся жалоба'}{group.needsReview ? ' · Требует проверки' : ''}</p></div>
+      {group.problem && <span className="ml-auto text-sm font-medium">{stateNames[group.problem.status]}</span>}
+    </div>
+    {m.recurrence && <p className="text-sm text-amber-700 dark:text-amber-300">Получено новое подтверждение после решения проблемы.</p>}
+    <div className="grid sm:grid-cols-3 gap-3 text-sm">
+      <p>Поддержка: <strong>{m.support}</strong> уникальных отзывов<br />В положительном контексте: {m.positiveContextCount}/{m.support}<br />Упоминаний: {m.mentionCount}</p>
+      <p>Распространённость: {m.support}/{m.coverage.succeeded} ({percent(m.prevalence)})<br />Покрытие: {m.coverage.succeeded}/{m.coverage.total}; ошибок: {m.coverage.failed}</p>
+      <p>Среди известных оценок: 4–5 у {m.highRatingCount}/{m.knownRatingCount} ({percent(m.highRatingShare)})<br />Положительная тональность: {m.positiveSentimentCount}/{m.sentimentDenominator} ({percent(m.positiveSentimentShare)})</p>
+    </div>
+    {group.representatives.map(item => <blockquote key={item.id} className="border-l-2 border-primary-400 pl-3 text-sm whitespace-pre-wrap break-words">«{item.quote}»<p className="text-xs text-neutral-500">Оценка: {item.rating ?? 'не указана'} · Последствия: {item.consequences ?? 'не определены'}</p></blockquote>)}
+    {!!group.candidateProblems.length && editable && <label className="text-sm block">Неоднозначное совпадение — выберите карточку после проверки<select className="input mt-1" defaultValue="" disabled={busy} onChange={event => { if (event.target.value) void onChange({ kind: 'link', snapshotId: group.id, problemId: event.target.value }); }}>
+      <option value="">Выберите карточку</option>{group.candidateProblems.map(problem => <option key={problem.id} value={problem.id}>{problem.title} · {stateNames[problem.status]}</option>)}</select></label>}
+    {group.problem && editable && <div className="space-y-2"><label className="text-sm block">Комментарий к решению<input className="input mt-1" value={note} maxLength={500} onChange={event => setNote(event.target.value)} /></label>
+      <div className="flex flex-wrap gap-2">{transitions[group.problem.status].map(([status, label]) => <button className="btn-soft" key={status} disabled={state.isPending || (status === 'rejected' && !note.trim())} onClick={async () => {
+        try { await state.mutateAsync({ id: group.problem!.id, status, expectedVersion: group.problem!.stateVersion, reason: note || undefined }); setNote(''); }
+        catch (error) { toast.error(errorText(error)); }
+      }}>{label}</button>)}</div></div>}
+    {!!group.problem?.events.length && <details className="text-xs text-neutral-500"><summary>История решений</summary><ul>{group.problem.events.map(event => <li key={event.id}>{new Date(event.createdAt).toLocaleString('ru-RU')} — {stateNames[event.toStatus]}{event.reason ? `: ${event.reason}` : ''}</li>)}</ul></details>}
+    <button className="btn-soft" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? 'Скрыть доказательства' : 'Все доказательства'}</button>
+    {expanded && <div className="space-y-3"><EvidenceList group={group} selected={selected} selectable={editable} onToggle={id => setSelected(values => values.includes(id) ? values.filter(value => value !== id) : [...values, id])} />
+      {editable && <button className="btn-soft" disabled={busy || !selected.length || selected.length === group.mentionIds.length} onClick={() => void onChange({ kind: 'split', snapshotId: group.id,
+        parts: [selected, group.mentionIds.filter(id => !selected.includes(id))] })}>Выделить выбранные цитаты в отдельную группу</button>}</div>}
+  </article>;
+}
+
+function EvidenceList({ group, selected, selectable, onToggle }: { group: RunGroup; selected: string[]; selectable: boolean; onToggle: (id: string) => void }) {
+  const [page, setPage] = useState(1); const query = useGroupEvidence(group.id, page);
+  if (query.isPending) return <p role="status">Загрузка доказательств…</p>;
+  if (query.isError) return <p role="alert">Не удалось загрузить доказательства. <button className="btn-soft" onClick={() => void query.refetch()}>Повторить</button></p>;
+  const data = query.data;
+  return <div className="space-y-3">{data.items.map(item => <div key={item.id} className="rounded-lg bg-neutral-50 dark:bg-neutral-800 p-3 text-sm">
+    {selectable && <label className="flex gap-2 mb-2"><input type="checkbox" checked={selected.includes(item.id)} onChange={() => onToggle(item.id)} />Отделить эту жалобу: «{item.quote}»</label>}
+    <p className="whitespace-pre-wrap break-words">{evidenceSegments(item.text, [item], data.offsetUnit).map((segment, index) => segment.highlighted ? <mark key={index} className="bg-amber-200 text-neutral-900">{segment.text}</mark> : <span key={index}>{segment.text}</span>)}</p>
+  </div>)}{data.total > data.pageSize && <div className="flex items-center gap-2"><button className="btn-soft" disabled={page === 1} onClick={() => setPage(page - 1)}>Ранее</button><span>{page} / {Math.ceil(data.total / data.pageSize)}</span><button className="btn-soft" disabled={page * data.pageSize >= data.total} onClick={() => setPage(page + 1)}>Далее</button></div>}</div>;
 }

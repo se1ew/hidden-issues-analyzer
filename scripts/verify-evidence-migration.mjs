@@ -24,6 +24,7 @@ try {
       VALUES ('issue','parent','analysis','aspect','product','заедание','Крышка заедает',0,13);
   `);
   await db.exec(await readFile(new URL(`${latest}/migration.sql`, migrations), 'utf8'));
+  for (const name of names.filter(name => name > latest)) await db.exec(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
   assert.equal((await db.query('SELECT "originalName" FROM "AspectMention"')).rows[0].originalName, null);
   assert.equal((await db.query('SELECT masking FROM "IssueMention"')).rows[0].masking, null);
   await db.exec(`UPDATE "Review" SET text='Изменённый текст', "inputVersion"=2 WHERE id='review'`);

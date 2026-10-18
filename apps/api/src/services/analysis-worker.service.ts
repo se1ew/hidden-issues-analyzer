@@ -5,7 +5,10 @@ import { createProvider, LlmError, waitForLlm, type CompletionRequest } from '..
 import { notifyAnalysisRun } from '../lib/analysis-queue.js';
 import { AnalysisResultSchema, ANALYSIS_JSON_SCHEMA, ANALYSIS_PROMPT_VERSION } from './analyzer.service.js';
 import { ExtractionResultSchema, EXTRACTION_JSON_SCHEMA, EXTRACTION_PROMPT_VERSION, EXTRACTION_METHOD_VERSION, validateExtractionEvidence } from './extraction.service.js';
-import { beginAnalysisInput, claimAnalysisRun, finishAnalysisRun, heartbeatAnalysisRun, saveAnalysisInput } from './analysis-runs.service.js';
+import { beginAnalysisInput, claimAnalysisRun, finishAnalysisRun, heartbeatAnalysisRun, saveAnalysisInput, markGroupingStage } from './analysis-runs.service.js';
+import { GroupingSettingsSchema } from '../schemas/grouping.schema.js';
+import { EmbeddingConfigurationSchema } from '../schemas/embedding.schema.js';
+import { prepareRunGrouping, type GroupingPlan } from './clustering.service.js';
 
 const RunConfigurationSchema = z.object({
   provider: z.enum(['local', 'openrouter']), baseUrl: z.string().url(), model: z.string().min(1),
@@ -14,6 +17,7 @@ const RunConfigurationSchema = z.object({
   retries: z.number().int().min(0).max(3), retryDelayMs: z.number().int().nonnegative(),
   maxRetryDelayMs: z.number().int().positive(), responseFormat: z.enum(['none', 'json_object', 'json_schema']),
   cloudDelayMs: z.number().int().nonnegative(), webOrigin: z.string().optional(), prompt: z.string().min(1),
+  grouping: GroupingSettingsSchema.optional(), embedding: EmbeddingConfigurationSchema.optional(),
 }).strict();
 
 export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) {
@@ -35,6 +39,7 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
   heartbeat.unref();
   void notifyAnalysisRun(runId);
   let finishCode: string | undefined;
+  let groupingPlan: GroupingPlan | undefined;
   try {
     const structured = (run.promptVersion === EXTRACTION_PROMPT_VERSION && run.methodVersion === EXTRACTION_METHOD_VERSION)
       || (run.promptVersion === 'review-evidence-v2' && run.methodVersion === 'extraction-v2');
@@ -72,13 +77,18 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
       void notifyAnalysisRun(runId);
       if (configuration.provider === 'openrouter') await waitForLlm(configuration.cloudDelayMs, signal);
     }
+    if (configuration.grouping && !signal.aborted && !lostLease && await markGroupingStage(runId, token)) {
+      void notifyAnalysisRun(runId);
+      try { groupingPlan = await prepareRunGrouping(runId, signal); }
+      catch { if (!signal.aborted) finishCode = 'grouping_failed'; }
+    }
   } catch (error) {
     finishCode = signal.aborted ? undefined : error instanceof LlmError ? error.code : 'worker_configuration_error';
   } finally {
     clearInterval(heartbeat);
     if (!lostLease) {
       if (shutdown?.aborted) finishCode = 'worker_shutdown';
-      await finishAnalysisRun(runId, token, finishCode);
+      await finishAnalysisRun(runId, token, finishCode, groupingPlan);
     }
     await notifyAnalysisRun(runId);
   }

@@ -139,8 +139,7 @@ try {
   const foreignIssue = await db.hiddenIssue.create({ data: { productId: reviewB.productId, title: 'Secret problem' } });
   await request(app).get(`/api/issues/${foreignIssue.id}`).set(headersA).expect(404);
   await request(app).patch(`/api/issues/${foreignIssue.id}/resolve`).set(headersA).expect(404);
-  const recompute = await request(app).post('/api/issues/recompute').set(headersA).send({}).expect(200);
-  assert.equal(recompute.body.clustersCreated, 0);
+  await request(app).post('/api/issues/recompute').set(headersA).send({}).expect(422);
   assert.equal(await db.hiddenIssue.count({ where: { id: foreignIssue.id } }), 1);
   const stats = await request(app).get('/api/analysis/stats').set(headersA).expect(200);
   assert.equal(stats.body.total, 1);

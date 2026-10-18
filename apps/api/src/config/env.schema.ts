@@ -43,6 +43,8 @@ export const EnvSchema = z.object({
   ANALYSIS_LEASE_MS: z.coerce.number().int().min(500).max(600_000).default(30_000),
   ANALYSIS_DISPATCH_MS: z.coerce.number().int().min(100).max(60_000).default(2000),
   EMBEDDING_MODEL: z.string().trim().min(1).default('Xenova/paraphrase-multilingual-MiniLM-L12-v2'),
+  EMBEDDING_REVISION: z.string().regex(/^[a-zA-Z0-9._-]{1,100}$/).default('main'),
+  EMBEDDING_BATCH_SIZE: z.coerce.number().int().min(1).max(64).default(16),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
 }).superRefine((env, ctx) => {

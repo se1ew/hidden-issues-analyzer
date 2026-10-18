@@ -5,9 +5,10 @@ import { HttpError } from '../middleware/error.js';
 import {
   getHiddenIssue,
   listHiddenIssues,
-  recomputeHiddenIssues,
   toggleResolvedIssue,
-} from '../services/clustering.service.js';
+} from '../services/legacy-issues.service.js';
+import { z } from 'zod';
+import { recomputeRunGrouping } from '../services/clustering.service.js';
 
 export async function list(req: Request, res: Response): Promise<void> {
   const productId = (req.query.productId as string) || undefined;
@@ -32,10 +33,7 @@ export async function toggleResolved(req: Request, res: Response): Promise<void>
 }
 
 export async function recompute(req: Request, res: Response): Promise<void> {
-  const productId =
-    (req.body?.productId as string | undefined) ||
-    (req.query.productId as string | undefined) ||
-    undefined;
-  const result = await recomputeHiddenIssues(requestUserId(req), productId);
+  const { runId } = z.object({ runId: z.string().min(1).max(80) }).strict().parse(req.body);
+  const result = await recomputeRunGrouping(requestUserId(req), runId);
   res.json(result);
 }

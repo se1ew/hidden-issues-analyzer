@@ -38,6 +38,7 @@ model User {
   products      Product[]
   analysisRuns  AnalysisRun[]
   problemEvents ProblemEvent[]
+  groupingEdits GroupingPublication[] @relation("GroupingActor")
 }
 
 model RefreshToken {
@@ -55,14 +56,17 @@ model RefreshToken {
 }
 
 model Product {
-  id         String   @id @default(cuid())
-  name       String
-  sourceUrl  String?
-  createdAt  DateTime @default(now())
+  id                   String                @id @default(cuid())
+  name                 String
+  sourceUrl            String?
+  createdAt            DateTime              @default(now())
   // Nullable only during migration: legacy ownership must be assigned explicitly.
-  userId     String?
-  source     String   @default("legacy")
-  externalId String?
+  userId               String?
+  source               String                @default("legacy")
+  externalId           String?
+  publishedGroupingId  String?
+  publishedGrouping    GroupingPublication?  @relation("PublishedGrouping", fields: [publishedGroupingId, id], references: [id, productId], onDelete: Restrict, onUpdate: NoAction)
+  groupingPublications GroupingPublication[] @relation("ProductGroupings")
 
   user          User?         @relation(fields: [userId], references: [id], onDelete: Restrict)
   uploadBatches UploadBatch[]
@@ -266,41 +270,42 @@ model ReviewImportOccurrence {
 }
 
 model AnalysisRun {
-  id                String                 @id @default(cuid())
-  userId            String
-  productId         String
-  previousRunId     String?
-  status            AnalysisRunStatus      @default(queued)
-  stage             AnalysisStage          @default(preparation)
-  scope             Json
-  settings          Json
-  provider          String
-  model             String
-  modelVersion      String
-  promptVersion     String
-  embeddingVersion  String
-  methodVersion     String
-  total             Int                    @default(0)
-  succeeded         Int                    @default(0)
-  failed            Int                    @default(0)
-  stateVersion      Int                    @default(0)
-  leaseToken        String?
-  leaseExpiresAt    DateTime?
-  heartbeatAt       DateTime?
-  cancelRequestedAt DateTime?
-  finishReason      String?
-  diagnostics       Json?
-  createdAt         DateTime               @default(now())
-  startedAt         DateTime?
-  finishedAt        DateTime?
-  user              User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
-  product           Product                @relation(fields: [productId, userId], references: [id, userId], onDelete: Restrict)
-  previousRun       AnalysisRun?           @relation("RunHistory", fields: [previousRunId, productId], references: [id, productId], onDelete: Restrict)
-  nextRuns          AnalysisRun[]          @relation("RunHistory")
-  inputs            AnalysisRunReview[]
-  events            AnalysisRunEvent[]
-  clusters          IssueClusterSnapshot[]
-  reports           Report[]
+  id                   String                 @id @default(cuid())
+  userId               String
+  productId            String
+  previousRunId        String?
+  status               AnalysisRunStatus      @default(queued)
+  stage                AnalysisStage          @default(preparation)
+  scope                Json
+  settings             Json
+  provider             String
+  model                String
+  modelVersion         String
+  promptVersion        String
+  embeddingVersion     String
+  methodVersion        String
+  total                Int                    @default(0)
+  succeeded            Int                    @default(0)
+  failed               Int                    @default(0)
+  stateVersion         Int                    @default(0)
+  leaseToken           String?
+  leaseExpiresAt       DateTime?
+  heartbeatAt          DateTime?
+  cancelRequestedAt    DateTime?
+  finishReason         String?
+  diagnostics          Json?
+  createdAt            DateTime               @default(now())
+  startedAt            DateTime?
+  finishedAt           DateTime?
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  product              Product                @relation(fields: [productId, userId], references: [id, userId], onDelete: Restrict)
+  previousRun          AnalysisRun?           @relation("RunHistory", fields: [previousRunId, productId], references: [id, productId], onDelete: Restrict)
+  nextRuns             AnalysisRun[]          @relation("RunHistory")
+  inputs               AnalysisRunReview[]
+  events               AnalysisRunEvent[]
+  clusters             IssueClusterSnapshot[]
+  groupingPublications GroupingPublication[]
+  reports              Report[]
 
   @@unique([id, productId])
   @@index([userId, createdAt])
@@ -442,6 +447,8 @@ model ProblemEvent {
 model IssueClusterSnapshot {
   id                   String               @id @default(cuid())
   runId                String
+  publicationId        String?
+  publication          GroupingPublication? @relation(fields: [publicationId, runId], references: [id, runId], onDelete: Cascade)
   productId            String
   problemId            String?
   title                String
@@ -464,6 +471,39 @@ model IssueClusterSnapshot {
   @@unique([runId, id])
   @@index([problemId])
   @@index([productId, runId])
+}
+
+model GroupingPublication {
+  id          String                 @id @default(cuid())
+  runId       String
+  productId   String
+  sourceId    String?
+  actorUserId String?
+  actor       User?                  @relation("GroupingActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  source      GroupingPublication?   @relation("GroupingHistory", fields: [sourceId, productId], references: [id, productId], onDelete: Restrict, onUpdate: NoAction)
+  edits       GroupingPublication[]  @relation("GroupingHistory")
+  action      Json?
+  sealedAt    DateTime?
+  createdAt   DateTime               @default(now())
+  run         AnalysisRun            @relation(fields: [runId, productId], references: [id, productId], onDelete: Restrict)
+  product     Product                @relation("ProductGroupings", fields: [productId], references: [id], onDelete: Restrict)
+  publishedBy Product[]              @relation("PublishedGrouping")
+  snapshots   IssueClusterSnapshot[]
+
+  @@unique([id, runId])
+  @@unique([id, productId])
+  @@index([productId, createdAt])
+}
+
+model EmbeddingCache {
+  id        String   @id
+  version   String
+  textHash  String
+  dimension Int
+  vector    Json
+  createdAt DateTime @default(now())
+
+  @@unique([version, textHash])
 }
 
 model IssueClusterMember {
