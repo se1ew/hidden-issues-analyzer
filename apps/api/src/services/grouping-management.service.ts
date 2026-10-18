@@ -131,10 +131,10 @@ export async function editGrouping(userId: string, publicationId: string, reques
       edited = groups.map((group, position) => position === index ? { ...group, problemId: change.problemId, needsReview: false } : group);
     }
     const preview = edited.map(group => ({ title: group.title, metrics: group.metrics, mentionIds: group.points.map(point => point.id), problemId: group.problemId ?? null }));
-    if (!input.commit) return { preview, committed: false, publicationId: source.id };
+    if (!input.commit) return { preview, committed: false, publicationId: source.id, productId: source.productId };
     const plan: GroupingPlan = { runId: source.runId, settings, coverage, embeddingVersion: source.run.embeddingVersion, groups: edited };
     const publication = await publishGrouping(tx, source.run, plan, { actorUserId: userId, sourceId: source.id,
       action: { ...input.change, reason: input.reason, previousPublicationId: current.id } });
-    return { preview, committed: true, publicationId: publication.id };
+    return { preview, committed: true, publicationId: publication.id, productId: source.productId };
   }, { timeout: 30_000 });
 }

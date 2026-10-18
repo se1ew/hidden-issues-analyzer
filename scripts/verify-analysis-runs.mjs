@@ -4,6 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import request from 'supertest';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const name = `hia-run-check-${randomUUID().slice(0, 8)}`;
@@ -61,6 +62,11 @@ try {
   const { prisma } = await import('../apps/api/dist/lib/prisma.js'); db = prisma;
   const runs = await import('../apps/api/dist/services/analysis-runs.service.js');
   const { CreateAnalysisRunSchema } = await import('../apps/api/dist/schemas/analysis-runs.schema.js');
+  const { createApp } = await import('../apps/api/dist/app.js');
+  const { signAccessToken } = await import('../apps/api/dist/middleware/auth.js');
+  const app = createApp();
+  const http = (path, query = {}, userId = 'a') => request(app).get(`/api/${path}`)
+    .auth(signAccessToken({ sub: userId, email: `${userId}@run.test` }), { type: 'bearer' }).query(query);
   for (const id of ['a', 'b']) await db.user.create({ data: { id, email: `${id}@run.test`, passwordHash: 'unused' } });
   const product = await db.product.create({ data: { userId: 'a', name: 'Run snapshot', source: 'local' } });
   const foreign = await db.product.create({ data: { userId: 'b', name: 'Foreign', source: 'local' } });
@@ -182,6 +188,22 @@ try {
   assert.equal(unchanged.sentiment, previous.sentiment);
   assert.equal(unchanged.analyzedAt.getTime(), previous.analyzedAt.getTime());
   console.log('Run terminal states: all failures, successful empty grouping, empty selection and preserved publication after cancellation passed.');
+  for (const [id, expectedStatus] of [[created.id, 'partial'], [waiting.id, 'cancelled'], [empty.id, 'completed'], [expired.id, 'interrupted']]) {
+    const details = await http(`analysis/runs/${id}`); assert.equal(details.status, 200); assert.equal(details.body.status, expectedStatus);
+    const scope = { productId: product.id, runId: id };
+    const overview = await http('analysis/stats', scope); assert.equal(overview.status, 200);
+    assert.equal(overview.body.total, details.body.total); assert.equal(overview.body.analyzed, details.body.succeeded);
+    const reviews = await http('reviews', scope); assert.equal(reviews.status, 200); assert.equal(reviews.body.total, details.body.total);
+    const groups = await http('issues/groupings', scope); assert.equal(groups.status, 200);
+    assert.equal(groups.body.publication, null); assert.equal(groups.body.total, 0);
+    assert.equal((await http('analysis/aspects', scope)).status, 200);
+    assert.equal((await http('analysis/stats', scope, 'b')).status, 404);
+  }
+  const productResponse = await http('products'); assert.equal(productResponse.status, 200);
+  assert.equal(productResponse.body.items.find(item => item.id === product.id).latestRun.id, cancelledReanalysis.id);
+  const invalidScope = await http('analysis/stats', { productId: product.id, runId: created.id, from: '2026-01-01T00:00:00Z', to: '2026-02-01T00:00:00Z' });
+  assert.equal(invalidScope.status, 409); assert.equal(invalidScope.body.code, 'scope_mismatch');
+  console.log('Real HTTP contracts: partial/cancelled/completed-empty/interrupted runs, immutable review scope, overview/aspects/groups, latest product run, owner isolation and scope mismatch passed.');
   queueModule = await import('../apps/api/dist/lib/analysis-queue.js');
   let workerOutput = '';
   const startWorker = () => {
@@ -191,7 +213,9 @@ try {
     worker.stderr.on('data', chunk => { workerOutput = (workerOutput + chunk.toString()).slice(-3000); });
   };
   const waitFor = async (condition, label) => {
-    for (let attempt = 0; attempt < 150; attempt++) {
+    // BullMQ recovers a crashed worker after its default 30s lock and stalled
+    // scan. The old 7.5s deadline expired before the library could recover.
+    for (let attempt = 0; attempt < 1800; attempt++) {
       if (await condition()) return;
       if (worker?.exitCode !== null && worker?.exitCode !== undefined) assert.fail(`Worker exited: ${workerOutput}`);
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -265,6 +289,12 @@ try {
   await waitFor(async () => (await runs.getAnalysisRun(capacityRun.id, 'a')).status === 'cancelled', 'capacity cancellation');
   for (const complete of pendingModelReplies.splice(0)) complete();
   console.log('Redis loss reconciliation and shared API/worker model capacity passed.');
+  fixtureMode = 'normal';
+  // Kill established sockets without changing Docker's ephemeral host port.
+  run('docker', ['exec', redis, 'redis-cli', 'CLIENT', 'KILL', 'TYPE', 'normal', 'SKIPME', 'yes']);
+  const reconnected = await runs.createAnalysisRun('a', reanalyze);
+  await waitFor(async () => (await runs.getAnalysisRun(reconnected.id, 'a')).status === 'completed', 'Redis socket disconnect/reconnect');
+  console.log('Redis network disconnect/reconnect: existing worker resumed dispatch and completed a committed run.');
 } finally {
   if (worker && worker.exitCode === null) { const exited = once(worker, 'exit'); worker.kill('SIGKILL'); await exited; }
   if (queueModule) await queueModule.closeAnalysisQueue();

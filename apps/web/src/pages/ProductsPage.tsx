@@ -3,9 +3,12 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useCreateProduct, useDeleteProduct, useProducts, useRenameProduct } from '../lib/queries';
 import { useProductStore } from '../store/product.store';
+import { ErrorState } from '../components/QueryState';
+import { apiErrorMessage } from '../lib/api';
+import { runStatusNames } from '../components/DataScopePanel';
 
 export function ProductsPage() {
-  const { data, isLoading } = useProducts();
+  const { data, isLoading, isError, error, refetch } = useProducts();
   const renameProduct = useRenameProduct();
   const deleteProduct = useDeleteProduct();
   const createProduct = useCreateProduct();
@@ -40,8 +43,8 @@ export function ProductsPage() {
       toast.success('Товар удалён');
       if (selectedProductId === id) setSelectedProductId(null);
       setDeletingId(null);
-    } catch {
-      toast.error('Не удалось удалить');
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Не удалось удалить товар'));
     }
   };
 
@@ -73,7 +76,7 @@ export function ProductsPage() {
         <button className="btn-primary self-end" disabled={createProduct.isPending || !newName.trim()}>Создать товар</button>
       </form>
 
-      {isLoading ? (
+      {isError ? <ErrorState error={error} retry={refetch} /> : isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="card animate-pulse">
@@ -92,15 +95,16 @@ export function ProductsPage() {
       ) : (
         <div className="space-y-3">
           {realProducts.map((product) => (
-            <div key={product.id} className="card flex items-center gap-4">
+            <div key={product.id} className="card flex flex-wrap items-center gap-4">
               <div className="h-10 w-10 rounded-xl bg-primary-100 flex items-center justify-center shrink-0">
                 <Package className="h-5 w-5 text-primary-700" />
               </div>
 
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-[min(100%,12rem)]">
                 {editingId === product.id ? (
                   <input
                     autoFocus
+                    aria-label="Новое название товара"
                     value={editingName}
                     onChange={(e) => setEditingName(e.target.value)}
                     onKeyDown={(e) => {
@@ -119,6 +123,8 @@ export function ProductsPage() {
                       {product.reviewsCount} отзывов · {product.analyzedCount} проанализировано
                       {product.avgRating != null && ` · ★ ${product.avgRating.toFixed(2)}`}
                     </div>
+                    <p className="text-xs text-neutral-500 mt-1">Источник: {product.source ?? 'не указан'}</p>
+                    {product.latestRun ? <p className="text-xs text-neutral-500 mt-1">Последний запуск: {new Date(product.latestRun.createdAt).toLocaleString('ru-RU')} · {runStatusNames[product.latestRun.status]}<br />Покрытие запуска: {product.latestRun.succeeded}/{product.latestRun.total} · Ошибки: {product.latestRun.failed}</p> : <p className="text-xs text-neutral-500 mt-1">Запусков ещё нет · Покрытие не определено</p>}
                     {(product.externalId || product.sourceUrl) && <div className="text-xs text-neutral-400 mt-1 break-all">
                       {product.externalId && `Артикул: ${product.externalId}`}
                       {product.sourceUrl && ` · ${product.sourceUrl}`}
@@ -140,6 +146,7 @@ export function ProductsPage() {
                     </button>
                     <button
                       onClick={() => setEditingId(null)}
+                      aria-label="Отменить переименование"
                       className="btn-outline px-3 py-1.5 text-xs"
                     >
                       <X className="h-3.5 w-3.5" />

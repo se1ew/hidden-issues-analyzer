@@ -1,8 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { ProductSelector } from '../components/ProductSelector';
 import { useProductStore } from '../store/product.store';
-import { useAnalysisRuns } from '../lib/queries';
 import { evidenceSegments } from '../lib/evidence';
 import { useGroupings, useGroupingHistory, useGroupEvidence, useEditGrouping, useSetProblemState, useRecomputeGrouping,
   type RunGroup, type GroupingChange, type EditGroupingInput, type GroupingPreview, type ProblemStatus, type GroupFilters } from '../lib/grouping-queries';
@@ -17,19 +15,20 @@ const errorText = (error: unknown) => (error as { response?: { data?: { error?: 
 export function IssuesPage() {
   const productId = useProductStore(state => state.selectedProductId);
   return <div className="space-y-5"><div><h1>Скрытые проблемы</h1><p className="text-sm text-neutral-500">Группы жалоб и доказательства выбранного запуска</p></div>
-    <ProductSelector />{productId ? <ProductGroups key={productId} productId={productId} /> : <div className="card">Выберите товар для просмотра проблем.</div>}
+    {productId ? <ProductGroups key={productId} productId={productId} /> : <div className="card">Выберите товар для просмотра проблем.</div>}
   </div>;
 }
 
 function ProductGroups({ productId }: { productId: string }) {
-  const { selectedRunId, setDataScope } = useProductStore();
-  const runId = selectedRunId ?? ''; const setRunId = (value: string) => setDataScope({ runId: value || null, from: null, to: null });
+  const { selectedRunId } = useProductStore();
+  const runId = selectedRunId ?? '';
   const [publicationId, setPublicationId] = useState(''); const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<GroupFilters>({ sort: 'priority', direction: 'desc' });
   const [chosen, setChosen] = useState<string[]>([]); const [reason, setReason] = useState('Исправление группировки');
   const [preview, setPreview] = useState<{ input: EditGroupingInput; sourceId: string; data: GroupingPreview } | null>(null);
+  useEffect(() => { setPublicationId(''); setPage(1); setChosen([]); setPreview(null); }, [runId]);
   const groups = useGroupings(productId, runId, publicationId, page, filters);
-  const history = useGroupingHistory(productId); const runs = useAnalysisRuns(productId);
+  const history = useGroupingHistory(productId);
   const edit = useEditGrouping(); const recompute = useRecomputeGrouping();
   const data = groups.data; const publication = data?.publication;
   const editable = !!publication && publication.id === data?.currentPublicationId;
@@ -44,13 +43,9 @@ function ProductGroups({ productId }: { productId: string }) {
   return <div className="space-y-4">
     <div className="card space-y-3">
       <div className="flex flex-wrap items-end gap-3">
-        <label className="text-sm">Запуск<select className="input mt-1" value={runId} onChange={event => { setRunId(event.target.value); setPublicationId(''); clearSelection(); }}>
-          <option value="">Текущий опубликованный результат</option>
-          {runs.data?.items.map(run => <option key={run.id} value={run.id}>{new Date(run.createdAt).toLocaleString('ru-RU')} · {run.succeeded}/{run.total}</option>)}
-        </select></label>
-        <label className="text-sm">История группировок<select className="input mt-1" value={publicationId} onChange={event => { setPublicationId(event.target.value); setRunId(''); clearSelection(); }}>
+        <label className="text-sm">История группировок<select className="input mt-1" value={publicationId} onChange={event => { setPublicationId(event.target.value); clearSelection(); }}>
           <option value="">Автоматический выбор</option>
-          {history.data?.items.map(item => <option key={item.id} value={item.id}>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.action?.kind === 'automatic' ? 'Автоматически' : 'Правка владельца'}</option>)}
+          {history.data?.items.filter(item => !runId || item.runId === runId).map(item => <option key={item.id} value={item.id}>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.action?.kind === 'automatic' ? 'Автоматически' : 'Правка владельца'}</option>)}
         </select></label>
         <button className="btn-soft" disabled={!publication || recompute.isPending || !editable} onClick={async () => {
           if (!publication) return;
@@ -82,7 +77,7 @@ function ProductGroups({ productId }: { productId: string }) {
       <h2>Предпросмотр изменений</h2><p className="text-sm">Исходная публикация останется в истории. Пользовательские состояния не копируются в новые карточки объединённых или разделённых групп.</p>
       <ul className="text-sm space-y-1">{preview.data.preview.map((group, index) => <li key={index}>{group.title} — {group.metrics.support} уникальных отзывов</li>)}</ul>
       <div className="flex gap-2"><button className="btn-primary" disabled={edit.isPending} onClick={async () => {
-        try { await edit.mutateAsync({ publicationId: preview.sourceId, input: { ...preview.input, commit: true } }); setPublicationId(''); setRunId(''); clearSelection(); toast.success('Правка сохранена в новой публикации'); }
+        try { await edit.mutateAsync({ publicationId: preview.sourceId, input: { ...preview.input, commit: true } }); setPublicationId(''); clearSelection(); toast.success('Правка сохранена в новой публикации'); }
         catch (error) { toast.error(errorText(error)); setPreview(null); }
       }}>Сохранить изменения</button><button className="btn-soft" onClick={() => setPreview(null)}>Отмена</button></div>
     </div>}

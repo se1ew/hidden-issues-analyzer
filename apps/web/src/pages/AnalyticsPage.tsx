@@ -16,8 +16,8 @@ import {
 } from 'recharts';
 import { useState } from 'react';
 import { useStats, useTimeseries } from '../lib/queries';
-import { ProductSelector } from '../components/ProductSelector';
 import { useProductStore } from '../store/product.store';
+import { ErrorState, EmptyState } from '../components/QueryState';
 
 const SENTIMENT_COLORS = {
   positive: '#16A34A',
@@ -72,6 +72,9 @@ export function AnalyticsPage() {
 
   const hasRatingData = timeseries.data?.buckets.some((b) => b.avgRating != null) ?? false;
 
+  if (stats.isError || timeseries.isError) return <div className="space-y-4"><h1>Аналитика</h1><ErrorState error={stats.error ?? timeseries.error} retry={() => Promise.all([stats.refetch(), timeseries.refetch()])} /></div>;
+  if (!stats.isLoading && stats.data?.total === 0) return <div className="space-y-4"><h1>Аналитика</h1><EmptyState title="Нет отзывов в выбранной области">Загрузите отзывы или измените область данных.</EmptyState></div>;
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -96,7 +99,7 @@ export function AnalyticsPage() {
         </button>
       </div>
 
-      <ProductSelector />
+
 
       {/* Period selector */}
       <div className="flex items-center gap-2">

@@ -12,6 +12,7 @@ export interface ProductWithStats {
   analyzedCount: number;
   avgRating: number | null;
   createdAt: Date;
+  latestRun: { id: string; status: string; total: number; succeeded: number; failed: number; createdAt: Date; finishedAt: Date | null } | null;
 }
 
 export async function listProducts(userId: string): Promise<ProductWithStats[]> {
@@ -23,6 +24,8 @@ export async function listProducts(userId: string): Promise<ProductWithStats[]> 
       reviews: {
         select: { rating: true, analyzedAt: true },
       },
+      analysisRuns: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1,
+        select: { id: true, status: true, total: true, succeeded: true, failed: true, createdAt: true, finishedAt: true } },
     },
   });
 
@@ -39,6 +42,7 @@ export async function listProducts(userId: string): Promise<ProductWithStats[]> 
       analyzedCount,
       avgRating: ratings.length > 0 ? ratings.reduce((s, x) => s + x, 0) / ratings.length : null,
       createdAt: p.createdAt,
+      latestRun: p.analysisRuns[0] ?? null,
     };
   });
 }

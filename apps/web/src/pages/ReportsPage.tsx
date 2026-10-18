@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { useGenerateReport, useProducts, useReports } from '../lib/queries';
 import { useProductStore } from '../store/product.store';
 import { api } from '../lib/api';
+import { ErrorState } from '../components/QueryState';
 
 export function ReportsPage() {
   const [format, setFormat] = useState<'pdf' | 'docx'>('pdf');
@@ -73,7 +74,7 @@ export function ReportsPage() {
               Заголовок (опц.)
             </label>
             <div className="flex gap-2">
-              <input
+              <input aria-label="Заголовок отчёта"
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -123,7 +124,7 @@ export function ReportsPage() {
 
       <div>
         <h2 className="mb-3">История отчётов</h2>
-        {reports.isLoading ? (
+        {reports.isError ? <ErrorState error={reports.error} retry={reports.refetch} /> : reports.isLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 2 }).map((_, i) => (
               <div key={i} className="card animate-pulse flex items-center gap-3 py-3.5">

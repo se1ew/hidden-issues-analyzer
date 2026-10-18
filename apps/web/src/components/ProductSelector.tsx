@@ -19,14 +19,15 @@ export function ProductSelector({ compact = false }: { compact?: boolean }) {
       }
     >
       {!compact && <Package className="h-5 w-5 text-primary-700" />}
-      <label className="text-sm font-medium text-neutral-700 whitespace-nowrap">
+      <label htmlFor={compact ? 'scope-product' : 'page-product'} className="text-sm font-medium text-neutral-700 whitespace-nowrap">
         Товар:
       </label>
       <select
+        id={compact ? 'scope-product' : 'page-product'}
         value={selectedProductId ?? ''}
         onChange={(e) => setSelectedProductId(e.target.value || null)}
         disabled={isLoading || items.length === 0}
-        className="input flex-1 min-w-[12rem] max-w-md bg-white"
+        className="input flex-1 min-w-0 max-w-full"
       >
         <option value="">Все товары ({totalReviews})</option>
         {items.map((p) => (
@@ -35,7 +36,7 @@ export function ProductSelector({ compact = false }: { compact?: boolean }) {
           </option>
         ))}
       </select>
-      {selected && (
+      {selected && !compact && (
         <span className="text-xs text-neutral-500 hidden md:inline">
           анализировано: {selected.analyzedCount}/{selected.reviewsCount}
           {selected.avgRating != null && ` · ★ ${selected.avgRating.toFixed(2)}`}

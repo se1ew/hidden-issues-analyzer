@@ -9,7 +9,7 @@ import toast from 'react-hot-toast';
 export function AnalysisBanner() {
   const navigate = useNavigate();
   const { selectedProductId } = useProductStore();
-  const { progress, startJob } = useAnalysisStore();
+  const { progress } = useAnalysisStore();
   const stats = useStats(selectedProductId);
   const runAnalysis = useRunAnalysis();
 
@@ -28,8 +28,7 @@ export function AnalysisBanner() {
 
   const handleRun = async () => {
     try {
-      const res = await runAnalysis.mutateAsync(undefined);
-      startJob(res.jobId);
+      await runAnalysis.mutateAsync(undefined);
       toast('Анализ запущен — перейдите в «Отзывы» для отслеживания');
       navigate('/reviews');
     } catch {

@@ -1,52 +1,20 @@
-import { Sparkles, X, Loader2, Copy, Check } from 'lucide-react';
+import { Sparkles, Loader2, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAiSummary } from '../lib/queries';
+import { Modal } from './Modal';
 
-interface Props {
-  summary: string;
-  onClose: () => void;
-}
-
-export function AiSummaryModal({ summary, onClose }: Props) {
+export function AiSummaryModal({ summary, onClose }: { summary: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(summary);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-    toast.success('Скопировано');
+  const handleCopy = async () => {
+    try { await navigator.clipboard.writeText(summary); setCopied(true); toast.success('Скопировано'); }
+    catch { toast.error('Не удалось скопировать. Выделите текст вручную.'); }
   };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl w-full max-w-lg animate-fade-in">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100 dark:border-neutral-800">
-          <div className="flex items-center gap-2 text-primary-600">
-            <Sparkles className="h-5 w-5" />
-            <span className="font-semibold text-base">AI-анализ продукта</span>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition">
-            <X className="h-4 w-4 text-neutral-400" />
-          </button>
-        </div>
-
-        <div className="px-5 py-5">
-          <p className="text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed whitespace-pre-line">
-            {summary}
-          </p>
-        </div>
-
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-neutral-100 dark:border-neutral-800">
-          <button onClick={handleCopy} className="btn-outline gap-2 text-sm">
-            {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-            {copied ? 'Скопировано' : 'Копировать'}
-          </button>
-          <button onClick={onClose} className="btn-primary text-sm">Закрыть</button>
-        </div>
-      </div>
-    </div>
-  );
+  return <Modal title="AI-сводка по товару" onClose={onClose} className="max-w-lg">
+    <p className="text-xs text-neutral-500 mb-3">Автоматическая сводка требует проверки по исходным отзывам.</p>
+    <p className="text-sm whitespace-pre-line break-words">{summary}</p>
+    <div className="flex justify-end mt-5"><button onClick={() => void handleCopy()} className="btn-outline">{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? 'Скопировано' : 'Копировать'}</button></div>
+  </Modal>;
 }
 
 interface TriggerProps {

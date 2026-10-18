@@ -55,6 +55,7 @@ npm run dev
 | `npm run typecheck` | TypeScript обоих workspace и конфигов web без генерации JS |
 | `npm run lint` | ESLint API и web с общей flat config |
 | `npm test` | API и web тесты параллельно |
+| `npm run test:integration:runs` | Сборка API и отдельные временные PostgreSQL/Redis + worker; нужен Docker в PATH |
 | `npm run check` | typecheck → lint → test → build |
 | `npm run build` | API, затем web; web-конфиги не генерируют JS рядом с исходниками |
 | `npm run start:api` / `npm run start:worker` | Собранные API / worker |

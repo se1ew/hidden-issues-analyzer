@@ -2,27 +2,32 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnalysisRunHistory } from './AnalysisRunHistory';
+import { AnalysisRunSync } from './AnalysisRunSync';
+import { MemoryRouter } from 'react-router-dom';
+import { useProductStore } from '../store/product.store';
 import { useAnalysisStore } from '../store/analysis.store';
 import type { AnalysisRunItem } from '../lib/queries';
 
 const mocks = vi.hoisted(() => ({ history: vi.fn(), cancel: vi.fn(), retry: vi.fn(), on: vi.fn(), off: vi.fn() }));
 vi.mock('../lib/queries', () => ({
   useAnalysisRuns: mocks.history,
+  useAnalysisRun: () => ({}),
   useProducts: () => ({ data: { items: [{ id: 'product', name: 'Aurora' }] } }),
   useCancelAnalysis: () => ({ mutateAsync: mocks.cancel, isPending: false }),
   useRetryFailedAnalysis: () => ({ mutateAsync: mocks.retry, isPending: false }),
 }));
-vi.mock('../lib/socket', () => ({ connectSocket: () => ({ on: mocks.on, off: mocks.off }) }));
+vi.mock('../lib/socket', () => ({ connectSocket: () => ({ on: mocks.on, off: mocks.off, emit: vi.fn() }) }));
 const run = (changes: Partial<AnalysisRunItem> = {}): AnalysisRunItem => ({
   id: 'run', runId: 'run', productId: 'product', status: 'running', stage: 'extraction',
   provider: 'local', model: 'fixture', total: 5, succeeded: 2, failed: 1, processed: 3,
   remaining: 2, stateVersion: 4, createdAt: '2026-10-12T12:00:00Z', startedAt: null,
   finishedAt: null, cancelRequestedAt: null, finishReason: null, ...changes,
 });
-const show = () => render(<QueryClientProvider client={new QueryClient()}><AnalysisRunHistory /></QueryClientProvider>);
+const show = () => render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><AnalysisRunSync /><AnalysisRunHistory /></MemoryRouter></QueryClientProvider>);
 beforeEach(() => {
   vi.clearAllMocks();
   useAnalysisStore.getState().clear();
+  useProductStore.getState().setSelectedProductId('product');
   mocks.history.mockReturnValue({ data: { items: [run()] } });
   mocks.cancel.mockResolvedValue({});
 });

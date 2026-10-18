@@ -7,6 +7,7 @@ import { useCreateManualReview, useParsingHistory, useProducts, useRunAnalysis, 
 import { useProductStore } from '../store/product.store';
 import { CsvImportWizard } from '../components/CsvImportWizard';
 import { LlmStatus } from '../components/LlmStatus';
+import { ErrorState } from '../components/QueryState';
 
 type Tab = 'csv' | 'manual' | 'parsing';
 
@@ -15,7 +16,7 @@ export function UploadPage() {
   const [text, setText] = useState('');
   const [rating, setRating] = useState<number | ''>('');
   const [productName, setProductName] = useState('');
-  const [productChoice, setProductChoice] = useState('');
+  const [productChoice, setProductChoice] = useState(useProductStore.getState().selectedProductId ?? '');
   const productId = productChoice && productChoice !== '__new__' ? productChoice : undefined;
   const newProductName = productChoice === '__new__' ? productName.trim() : undefined;
   const productReady = Boolean(productId || newProductName);
@@ -68,6 +69,8 @@ export function UploadPage() {
   return (
     <div className="space-y-6">
       <LlmStatus />
+      {products.isError && <ErrorState error={products.error} retry={products.refetch} />}
+      {parsingHistory.isError && <ErrorState error={parsingHistory.error} retry={parsingHistory.refetch} />}
       {uploadedCount !== null && (
         <div className="card space-y-3">
           <p>Добавлено отзывов: {uploadedCount}. Можно запустить анализ выбранного товара.</p>
@@ -80,7 +83,7 @@ export function UploadPage() {
       <div>
         <h1>Загрузка отзывов</h1>
         <p className="text-sm text-neutral-400 mt-1">
-          Загрузите CSV-файл или введите отзывы вручную
+          Выберите источник: CSV-файл, ручной ввод или Wildberries
         </p>
       </div>
 
@@ -102,10 +105,11 @@ export function UploadPage() {
         {[
           { key: 'csv' as const, label: 'CSV-файл', icon: FileText },
           { key: 'manual' as const, label: 'Ручной ввод', icon: Type },
-          { key: 'parsing' as const, label: 'Парсинг URL', icon: Globe },
+          { key: 'parsing' as const, label: 'Wildberries', icon: Globe },
         ].map(({ key, label, icon: Icon }) => (
           <button
             key={key}
+            aria-pressed={tab === key}
             onClick={() => setTab(key)}
             className={clsx(
               'flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-all duration-200',
@@ -133,7 +137,7 @@ export function UploadPage() {
             <div className="flex gap-2">
               <input
                 type="url"
-                value={parseUrl}
+                aria-label="Ссылка Wildberries" value={parseUrl}
                 onChange={(e) => setParseUrl(e.target.value)}
                 placeholder="https://www.wildberries.ru/catalog/12345678/detail.aspx"
                 className="input flex-1"
@@ -212,7 +216,7 @@ export function UploadPage() {
 
       {tab === 'manual' && (
         <div className="card space-y-4">
-          <textarea
+          <textarea aria-label="Текст отзыва"
             maxLength={10_000}
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -225,7 +229,7 @@ export function UploadPage() {
                 Рейтинг (опц.)
               </label>
               <select
-                value={rating}
+                aria-label="Оценка отзыва" value={rating}
                 onChange={(e) => setRating(e.target.value === '' ? '' : Number(e.target.value))}
                 className="input w-32"
               >

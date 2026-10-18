@@ -25,6 +25,7 @@
     "typecheck:web": "npm run typecheck --workspace=@hia/web",
     "check": "npm-run-all typecheck lint test test:sql build",
     "test:sql": "node scripts/verify-evidence-migration.mjs && node scripts/verify-grouping-migration.mjs",
+    "test:integration:runs": "npm run build:api && node scripts/verify-analysis-runs.mjs",
     "benchmark:grouping": "tsx scripts/benchmark-grouping.mjs",
     "start:api": "npm run start --workspace=@hia/api",
     "start:worker": "npm run start:worker --workspace=@hia/api",

@@ -3,6 +3,8 @@ import { api } from './api';
 import { useProductStore } from '../store/product.store';
 import type { EvidenceRange } from './evidence';
 import { useDataScope, useOwnerId } from './data-scope';
+import { invalidateProductData } from './invalidation';
+import { useAnalysisStore } from '../store/analysis.store';
 
 export interface AnalysisInputItem {
   id: string; sourceReviewId: string; text: string; rating: number | null;
@@ -22,6 +24,7 @@ export function useAnalysisInputs(runId: string, page: number) {
 }
 
 export interface AnalysisRunItem {
+  scope?: { period?: { from: string; to: string } };
   previousRunId?: string | null; resultsDisposition?: 'retained_unpublished' | 'run_scoped';
   id: string; runId: string; productId: string;
   status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'interrupted';
@@ -40,11 +43,21 @@ export function useAnalysisRuns(productId?: string | null) {
   });
 }
 
+export function useAnalysisRun(runId: string | null) {
+  return useQuery({ queryKey: ['analysis-run', useOwnerId(), runId], enabled: !!runId,
+    queryFn: async () => (await api.get<AnalysisRunItem>(`/api/analysis/runs/${runId}`)).data,
+    refetchInterval: query => ['queued', 'running'].includes(query.state.data?.status ?? '') ? 1000 : false });
+}
+export function selectStartedRun(run: AnalysisRunItem) {
+  if (useProductStore.getState().selectedProductId !== run.productId) return;
+  useAnalysisStore.getState().syncRun(run);
+  useProductStore.getState().setDataScope({ runId: run.id, from: run.scope?.period?.from ?? null, to: run.scope?.period?.to ?? null });
+}
 export function useRetryFailedAnalysis() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async (runId: string) => (await api.post<AnalysisRunItem>(`/api/analysis/runs/${runId}/retry-failed`)).data,
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['analysis-runs'] }); },
+    onSuccess: data => { selectStartedRun(data); void invalidateProductData(qc, ownerId, data.productId, ['analysis-runs']); },
   });
 }
 
@@ -57,6 +70,7 @@ export interface Product {
   source?: string | null;
   externalId?: string | null;
   reviewsCount: number;
+  latestRun?: { id: string; status: string; total: number; succeeded: number; failed: number; createdAt: string; finishedAt: string | null } | null;
   analyzedCount: number;
   avgRating: number | null;
   createdAt: string;
@@ -210,15 +224,15 @@ export function usePreviewCsv() {
 }
 
 export function useCreateProduct() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async (name: string) => (await api.post<{ id: string; name: string }>('/api/products', { name })).data,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); },
+    onSuccess: data => { void invalidateProductData(qc, ownerId, data.id, ['products']); },
   });
 }
 
 export function useUploadCsv() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async ({ file, productName, productId, delimiter, mapping }: {
       file: File; productName?: string; productId?: string; delimiter?: string; mapping?: CsvMapping;
@@ -236,26 +250,18 @@ export function useUploadCsv() {
       );
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['reviews'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-      qc.invalidateQueries({ queryKey: ['products'] });
-    },
+    onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['reviews', 'stats', 'timeseries', 'products', 'profile'], false); },
   });
 }
 
 export function useCreateManualReview() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async (input: { text: string; rating?: number; productName?: string; productId?: string }) => {
       const { data } = await api.post<{ id: string; productId: string }>('/api/reviews/upload/text', input);
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['reviews'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-      qc.invalidateQueries({ queryKey: ['products'] });
-    },
+    onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['reviews', 'stats', 'timeseries', 'products', 'profile'], false); },
   });
 }
 
@@ -318,26 +324,26 @@ export function useAspects(productId: string | null) {
 }
 
 export function useRunAnalysis() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async (limit?: number) => {
-      const productId = useProductStore.getState().selectedProductId;
+      const { selectedProductId: productId, from, to } = useProductStore.getState();
       if (!productId) throw new Error('Выберите товар перед запуском анализа');
-      const { data } = await api.post<AnalysisRunItem & { jobId: string }>('/api/analysis/runs', { limit, productId });
-      return data;
+      return (await api.post<AnalysisRunItem & { jobId: string }>('/api/analysis/runs', { limit, productId,
+        ...(from && to ? { period: { from, to } } : {}) })).data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['analysis-runs'] }); },
+    onSuccess: data => { selectStartedRun(data); void invalidateProductData(qc, ownerId, data.productId, ['analysis-runs']); },
   });
 }
 
 export function useCancelAnalysis() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async (jobId: string) => {
-      const { data } = await api.post(`/api/analysis/${jobId}/cancel`);
+      const { data } = await api.post<AnalysisRunItem>(`/api/analysis/${jobId}/cancel`);
       return data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['analysis-runs'] }); },
+    onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['analysis-runs']); void qc.invalidateQueries({ queryKey: ['analysis-run', ownerId, data.id] }); },
   });
 }
 
@@ -363,19 +369,13 @@ export function useHiddenIssues(productId?: string | null, page = 1, pageSize = 
 }
 
 export function useRecomputeIssues() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async (runId: string) => {
-      const { data } = await api.post<{ id: string; runId: string }>('/api/issues/recompute', { runId });
+      const { data } = await api.post<{ id: string; runId: string; productId: string }>('/api/issues/recompute', { runId });
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['issues'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-      qc.invalidateQueries({ queryKey: ['reviews'] });
-      qc.invalidateQueries({ queryKey: ['groupings'] });
-      qc.invalidateQueries({ queryKey: ['grouping-history'] });
-    },
+    onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['groupings', 'grouping-history', 'stats']); },
   });
 }
 
@@ -392,7 +392,7 @@ export function useReports() {
 }
 
 export function useGenerateReport() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async (input: { format: 'pdf' | 'docx'; title?: string }) => {
       const { data } = await api.post<{ id: string; downloadUrl: string }>(
@@ -401,28 +401,23 @@ export function useGenerateReport() {
       );
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['reports'] }),
+    onSuccess: () => { void invalidateProductData(qc, ownerId, null, ['reports', 'profile']); },
   });
 }
 
 // ===== Parsing =====
 
 export function useStartParsing() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async (url: string) => {
-      const { data } = await api.post<{ source: string; reviewsAdded: number }>(
+      const { data } = await api.post<{ source: string; reviewsAdded: number; internalProductId?: string }>(
         '/api/parsing/start',
         { url },
       );
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['reviews'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-      qc.invalidateQueries({ queryKey: ['products'] });
-      qc.invalidateQueries({ queryKey: ['parsing', 'history'] });
-    },
+    onSuccess: data => { if (data.internalProductId) void invalidateProductData(qc, ownerId, data.internalProductId, ['reviews', 'stats', 'timeseries', 'products', 'profile'], false); void qc.invalidateQueries({ queryKey: ['parsing', 'history', ownerId] }); },
   });
 }
 
@@ -441,73 +436,41 @@ export function useProfileStats() {
 // ===== Product mutations =====
 
 export function useRenameProduct() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async ({ id, name }: { id: string; name: string }) => {
       const { data } = await api.patch(`/api/products/${id}`, { name });
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+    onSuccess: (_data, input) => { void invalidateProductData(qc, ownerId, input.id, ['products', 'reviews']); },
   });
 }
 
 export function useDeleteProduct() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async (id: string) => {
       await api.delete(`/api/products/${id}`);
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['products'] });
-      qc.invalidateQueries({ queryKey: ['reviews'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-      qc.invalidateQueries({ queryKey: ['issues'] });
-    },
+    onSuccess: (_data, id) => { if (useProductStore.getState().selectedProductId === id) useProductStore.getState().setSelectedProductId(null); void invalidateProductData(qc, ownerId, id, ['products', 'reviews', 'stats', 'timeseries', 'groupings', 'grouping-history', 'analysis-runs']); },
   });
 }
 
 // ===== Review delete mutations =====
 
 export function useDeleteReview() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      await api.delete(`/api/reviews/${id}`);
-    },
-    onMutate: async (id: string) => {
-      await qc.cancelQueries({ queryKey: ['reviews'] });
-      const snapshots = qc.getQueriesData<ReviewsListResponse>({ queryKey: ['reviews'] });
-      qc.setQueriesData<ReviewsListResponse>({ queryKey: ['reviews'] }, (old) =>
-        old ? { ...old, items: old.items.filter((r) => r.id !== id), total: old.total - 1 } : old,
-      );
-      return { snapshots };
-    },
-    onError: (_err, _id, ctx) => {
-      ctx?.snapshots.forEach(([key, val]) => qc.setQueryData(key, val));
-    },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['reviews'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-    },
-  });
+  const qc = useQueryClient(); const ownerId = useOwnerId();
+  return useMutation({ mutationFn: async (id: string) => {
+    const productId = useProductStore.getState().selectedProductId;
+    await api.delete(`/api/reviews/${id}`); return productId;
+  }, onSuccess: productId => { void invalidateProductData(qc, ownerId, productId, ['reviews', 'stats', 'timeseries', 'products'], false); } });
 }
-
 export function useDeleteReviewsBulk() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (productId?: string | null) => {
-      const { data } = await api.delete<{ deleted: number }>('/api/reviews', {
-        params: productId ? { productId } : {},
-      });
-      return data;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['reviews'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-      qc.invalidateQueries({ queryKey: ['products'] });
-      qc.invalidateQueries({ queryKey: ['issues'] });
-    },
-  });
+  const qc = useQueryClient(); const ownerId = useOwnerId();
+  return useMutation({ mutationFn: async (productId?: string | null) => {
+    const data = (await api.delete<{ deleted: number }>('/api/reviews', { params: productId ? { productId } : {} })).data;
+    return { ...data, productId };
+  }, onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['reviews', 'stats', 'timeseries', 'products'], false); } });
 }
 
 // ===== Issue detail (with reviews) =====
@@ -526,25 +489,9 @@ export function useIssueDetail(id: string | null) {
 // ===== Toggle Issue resolved =====
 
 export function useToggleResolved() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const { data } = await api.patch<HiddenIssue>(`/api/issues/${id}/resolve`);
-      return data;
-    },
-    onMutate: async (id: string) => {
-      await qc.cancelQueries({ queryKey: ['issues'] });
-      const snapshots = qc.getQueriesData<HiddenIssuesResponse>({ queryKey: ['issues'] });
-      qc.setQueriesData<HiddenIssuesResponse>({ queryKey: ['issues'] }, (old) =>
-        old ? { ...old, items: old.items.map((i) => i.id === id ? { ...i, resolved: !i.resolved } : i) } : old,
-      );
-      return { snapshots };
-    },
-    onError: (_err, _id, ctx) => {
-      ctx?.snapshots.forEach(([key, val]) => qc.setQueryData(key, val));
-    },
-    onSettled: () => qc.invalidateQueries({ queryKey: ['issues'] }),
-  });
+  const qc = useQueryClient(); const ownerId = useOwnerId();
+  return useMutation({ mutationFn: async (id: string) => (await api.patch<HiddenIssue>(`/api/issues/${id}/resolve`)).data,
+    onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['issues']); } });
 }
 
 // ===== AI Summary =====

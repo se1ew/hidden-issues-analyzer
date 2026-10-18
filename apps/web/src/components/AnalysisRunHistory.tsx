@@ -1,9 +1,6 @@
-import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAnalysisRuns, useCancelAnalysis, useRetryFailedAnalysis, useProducts, type AnalysisRunItem } from '../lib/queries';
-import { connectSocket } from '../lib/socket';
-import { useAnalysisStore } from '../store/analysis.store';
 import { useProductStore } from '../store/product.store';
 import { AnalysisRunResults } from './AnalysisRunResults';
 
@@ -19,21 +16,6 @@ export function AnalysisRunHistory() {
   const products = useProducts();
   const cancel = useCancelAnalysis();
   const retry = useRetryFailedAnalysis();
-  const syncRun = useAnalysisStore((state) => state.syncRun);
-  const qc = useQueryClient();
-  useEffect(() => {
-    if (!history.data) return;
-    const active = history.data.items.find((run) => ['queued', 'running'].includes(run.status));
-    syncRun(active ?? history.data.items[0] ?? null);
-    void qc.invalidateQueries({ queryKey: ['reviews'] });
-    void qc.invalidateQueries({ queryKey: ['stats'] });
-  }, [history.data, qc, syncRun]);
-  useEffect(() => {
-    const socket = connectSocket();
-    const updated = () => { void qc.invalidateQueries({ queryKey: ['analysis-runs'] }); };
-    socket.on('analysis:state', updated);
-    return () => { socket.off('analysis:state', updated); };
-  }, [qc]);
 
   return <div className="card space-y-4">
     <h2 className="text-base font-semibold">Запуски анализа</h2>

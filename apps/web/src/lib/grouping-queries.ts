@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { EvidenceRange } from './evidence';
 import { useDataScope, useOwnerId } from './data-scope';
+import { invalidateProductData } from './invalidation';
 
 export interface GroupMetrics {
   support: number; mentionCount: number; prevalence: number | null; signal: boolean; hidden: boolean;
@@ -25,7 +26,7 @@ export interface GroupingResponse { items: RunGroup[]; total: number; pageSize: 
 export type GroupingChange = { kind: 'merge'; snapshotIds: string[] } | { kind: 'split'; snapshotId: string; parts: string[][] }
   | { kind: 'restore' } | { kind: 'link'; snapshotId: string; problemId: string };
 export interface EditGroupingInput { expectedPublicationId: string; reason: string; change: GroupingChange; commit: boolean }
-export interface GroupingPreview { preview: Array<{ title: string; metrics: GroupMetrics; mentionIds: string[]; problemId: string | null }>; committed: boolean; publicationId: string }
+export interface GroupingPreview { preview: Array<{ title: string; metrics: GroupMetrics; mentionIds: string[]; problemId: string | null }>; committed: boolean; publicationId: string; productId?: string }
 
 export interface GroupFilters { category?: string; status?: string; minSupport?: number; minMasking?: number; minPriority?: number;
   sort?: 'priority' | 'support' | 'masking' | 'aspect' | 'state'; direction?: 'asc' | 'desc' }
@@ -45,19 +46,19 @@ export function useGroupEvidence(snapshotId: string, page: number) {
     queryFn: async () => (await api.get<{ items: GroupEvidence[]; total: number; pageSize: number; offsetUnit: string }>(`/api/issues/snapshots/${snapshotId}/evidence`, { params: { page, pageSize: 10 } })).data });
 }
 export function useEditGrouping() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({ mutationFn: async ({ publicationId, input }: { publicationId: string; input: EditGroupingInput }) =>
     (await api.post<GroupingPreview>(`/api/issues/groupings/${publicationId}/edit`, input)).data,
-    onSuccess: data => { if (data.committed) { void qc.invalidateQueries({ queryKey: ['groupings'] }); void qc.invalidateQueries({ queryKey: ['grouping-history'] }); } } });
+    onSuccess: data => { if (data.committed) void invalidateProductData(qc, ownerId, data.productId, ['groupings', 'grouping-history', 'stats']); } });
 }
 export function useSetProblemState() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({ mutationFn: async ({ id, ...input }: { id: string; status: ProblemStatus; expectedVersion: number; reason?: string }) =>
-    (await api.patch(`/api/issues/problems/${id}/state`, input)).data,
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['groupings'] }); } });
+    (await api.patch<{ productId: string }>(`/api/issues/problems/${id}/state`, input)).data,
+    onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['groupings']); } });
 }
 export function useRecomputeGrouping() {
-  const qc = useQueryClient();
-  return useMutation({ mutationFn: async (runId: string) => (await api.post('/api/issues/recompute', { runId })).data,
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['groupings'] }); void qc.invalidateQueries({ queryKey: ['grouping-history'] }); } });
+  const qc = useQueryClient(); const ownerId = useOwnerId();
+  return useMutation({ mutationFn: async (runId: string) => (await api.post<{ productId: string }>('/api/issues/recompute', { runId })).data,
+    onSuccess: data => { void invalidateProductData(qc, ownerId, data.productId, ['groupings', 'grouping-history', 'stats']); } });
 }

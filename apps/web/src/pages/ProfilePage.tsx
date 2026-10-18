@@ -2,19 +2,27 @@ import { FileText, MessageSquare, Moon, Sun, Upload, User as UserIcon } from 'lu
 import { useAuthStore } from '../store/auth.store';
 import { useThemeStore } from '../store/theme.store';
 import { useProfileStats, useStats } from '../lib/queries';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { logoutSession, apiErrorMessage } from '../lib/api';
+import { ErrorState } from '../components/QueryState';
 
 export function ProfilePage() {
   const { user } = useAuthStore();
   const profileStats = useProfileStats();
   const overallStats = useStats();
   const { isDark, toggle } = useThemeStore();
+  const [loggingOut, setLoggingOut] = useState(false), [logoutError, setLogoutError] = useState('');
+  const navigate = useNavigate();
 
   return (
     <div className="space-y-6">
       <div>
         <h1>Профиль</h1>
-        <p className="text-sm mt-1" style={{ color: '#5A7A96' }}>Информация об аккаунте и активности</p>
+        <p className="text-sm mt-1 text-neutral-500">Информация об аккаунте и активности</p>
       </div>
+
+      {(profileStats.isError || overallStats.isError) && <ErrorState error={profileStats.error ?? overallStats.error} retry={() => Promise.all([profileStats.refetch(), overallStats.refetch()])} />}
 
       <div className="card flex items-center gap-4">
         <div className="h-16 w-16 rounded-full bg-gradient-to-br from-primary-400 to-primary-700 flex items-center justify-center shadow-card">
@@ -70,6 +78,7 @@ export function ProfilePage() {
           </div>
           <button
             onClick={toggle}
+            role="switch" aria-checked={isDark}
             className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${
               isDark ? 'bg-primary-600' : 'bg-primary-200'
             }`}
@@ -88,6 +97,10 @@ export function ProfilePage() {
             </span>
           </button>
         </div>
+      </div>
+      <div className="card space-y-3"><h2 className="text-base">Текущая сессия</h2><p className="text-sm text-neutral-500">Выход отзывает сессию на сервере. Для продолжения потребуется повторный вход.</p>
+        {logoutError && <p role="alert" className="text-sm">{logoutError}</p>}
+        <button className="btn-outline" disabled={loggingOut} onClick={async () => { setLoggingOut(true); setLogoutError(''); try { await logoutSession(); navigate('/login', { replace: true }); } catch (error) { setLogoutError(apiErrorMessage(error)); } finally { setLoggingOut(false); } }}>{loggingOut ? 'Завершение сессии…' : 'Выйти из аккаунта'}</button>
       </div>
     </div>
   );

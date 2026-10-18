@@ -1,10 +1,12 @@
 import { useCheckLlm, useLlmConfiguration } from '../lib/queries';
+import { ErrorState } from './QueryState';
 
 export function LlmStatus() {
   const settings = useLlmConfiguration();
   const check = useCheckLlm();
   const error = check.error as { response?: { data?: { error?: string } } } | null;
   return <div className="card space-y-2">
+    {settings.isError && <ErrorState error={settings.error} retry={settings.refetch} />}
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <p className="font-semibold">Модель анализа</p>

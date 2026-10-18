@@ -3,8 +3,6 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { useQueryClient } from '@tanstack/react-query';
-import { connectSocket } from '../lib/socket';
 import {
   useReviews,
   useRunAnalysis,
@@ -13,12 +11,13 @@ import {
   useDeleteReviewsBulk,
   type ReviewListItem,
 } from '../lib/queries';
-import { ProductSelector } from '../components/ProductSelector';
 import { AnalysisBanner } from '../components/AnalysisBanner';
 import { LlmStatus } from '../components/LlmStatus';
 import { AnalysisRunHistory } from '../components/AnalysisRunHistory';
 import { useProductStore } from '../store/product.store';
 import { useAnalysisStore } from '../store/analysis.store';
+import { Modal } from '../components/Modal';
+import { ErrorState } from '../components/QueryState';
 
 const SENTIMENT_LABEL: Record<string, { label: string; cls: string }> = {
   positive: { label: 'позитив', cls: 'badge-positive' },
@@ -53,14 +52,13 @@ export function ReviewsPage() {
   const [selected, setSelected] = useState<ReviewListItem | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
-  const { selectedProductId } = useProductStore();
-  const { jobId, progress, lastError, startJob, updateProgress, finish, setError, clearError } = useAnalysisStore();
-  const qc = useQueryClient();
+  const { selectedProductId, selectedRunId } = useProductStore();
+  const { jobId, progress, lastError, clearError } = useAnalysisStore();
   const cancelAnalysis = useCancelAnalysis();
   const deleteReview = useDeleteReview();
   const deleteReviewsBulk = useDeleteReviewsBulk();
 
-  const { data, isLoading, refetch } = useReviews({
+  const { data, isLoading, isError, error, refetch } = useReviews({
     page,
     pageSize: 25,
     sentiment: sentiment || undefined,
@@ -72,56 +70,10 @@ export function ReviewsPage() {
 
   const runAnalysis = useRunAnalysis();
 
-  useEffect(() => {
-    const socket = connectSocket();
-    const onStep = (s: { jobId: string; step: string; label: string }) => {
-      if (s.jobId === useAnalysisStore.getState().jobId) updateProgress({ step: s.step, label: s.label });
-    };
-    const onProgress = (p: { jobId: string; processed: number; total: number; step?: string }) => {
-      if (p.jobId !== useAnalysisStore.getState().jobId) return;
-      updateProgress({ processed: p.processed, total: p.total, step: p.step });
-      void qc.invalidateQueries({ queryKey: ['stats'] });
-    };
-    const onComplete = (event: { jobId: string }) => {
-      if (event.jobId !== useAnalysisStore.getState().jobId) return;
-      finish();
-      toast.success('Анализ завершён');
-      refetch();
-      void qc.invalidateQueries({ queryKey: ['stats'] });
-    };
-    const onError = (e: { jobId: string; message: string }) => {
-      if (e.jobId !== useAnalysisStore.getState().jobId) return;
-      setError(e.message);
-    };
-    const onCancelled = (event: { jobId: string }) => {
-      if (event.jobId !== useAnalysisStore.getState().jobId) return;
-      finish();
-      toast('Анализ остановлен');
-    };
-    socket.on('analysis:step', onStep);
-    socket.on('analysis:progress', onProgress);
-    socket.on('analysis:complete', onComplete);
-    socket.on('analysis:error', onError);
-    socket.on('analysis:cancelled', onCancelled);
-    return () => {
-      socket.off('analysis:step', onStep);
-      socket.off('analysis:progress', onProgress);
-      socket.off('analysis:complete', onComplete);
-      socket.off('analysis:error', onError);
-      socket.off('analysis:cancelled', onCancelled);
-    };
-  }, [refetch, updateProgress, finish, setError, qc]);
-
-  useEffect(() => {
-    if (!jobId) return;
-    const socket = connectSocket();
-    socket.emit('job:subscribe', jobId);
-  }, [jobId]);
-
   const handleRunAnalysis = async () => {
     try {
       const res = await runAnalysis.mutateAsync(200);
-      startJob(res.jobId);
+
       toast(`Анализ запущен (job ${res.jobId.slice(-8)})`);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } };
@@ -135,9 +87,9 @@ export function ReviewsPage() {
 
   // Сбрасываем страницу при смене товара
   useEffect(() => {
-    setPage(1);
+    setPage(1); setSelected(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProductId]);
+  }, [selectedProductId, selectedRunId]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
@@ -188,7 +140,7 @@ export function ReviewsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-start">
+      <div className="flex flex-wrap gap-4 justify-between items-start">
         <div>
           <h1>Отзывы</h1>
           <p className="text-sm text-neutral-400 mt-1">
@@ -211,7 +163,7 @@ export function ReviewsPage() {
                 <span className="text-xs text-neutral-500">Удалить все?</span>
                 <button
                   onClick={handleDeleteAll}
-                  disabled={deleteReviewsBulk.isPending}
+                  disabled={deleteReviewsBulk.isPending || !!selectedRunId}
                   className="btn px-3 py-2 text-xs bg-red-600 text-white hover:bg-red-700"
                 >
                   {deleteReviewsBulk.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Да'}
@@ -226,7 +178,7 @@ export function ReviewsPage() {
             ) : (
               <button
                 onClick={() => setConfirmDeleteAll(true)}
-                disabled={!data || data.total === 0}
+                disabled={!!selectedRunId || !data || data.total === 0}
                 className="btn-outline text-red-600 border-red-200 hover:bg-red-50"
                 title="Удалить все отзывы"
               >
@@ -247,7 +199,7 @@ export function ReviewsPage() {
             </button>
             {progress !== null && jobId && (
               <button
-                onClick={() => cancelAnalysis.mutate(jobId, { onSettled: () => finish() })}
+                onClick={() => cancelAnalysis.mutate(jobId, { onError: () => toast.error('Не удалось отправить отмену. Повторите запрос.') })}
                 disabled={cancelAnalysis.isPending}
                 className="btn-outline text-red-600 border-red-200 hover:bg-red-50 px-3"
                 title="Остановить анализ"
@@ -307,7 +259,7 @@ export function ReviewsPage() {
         </div>
       </div>
 
-      <ProductSelector />
+
       <AnalysisBanner />
       <LlmStatus />
       <AnalysisRunHistory />
@@ -333,7 +285,7 @@ export function ReviewsPage() {
           )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <select
+          <select aria-label="Тональность отзывов"
             value={sentiment}
             onChange={(e) => {
               setSentiment(e.target.value);
@@ -346,7 +298,7 @@ export function ReviewsPage() {
             <option value="negative">Негативные</option>
             <option value="neutral">Нейтральные</option>
           </select>
-          <select
+          <select aria-label="Наличие проблем"
             value={hasIssues}
             onChange={(e) => {
               setHasIssues(e.target.value);
@@ -358,7 +310,7 @@ export function ReviewsPage() {
             <option value="true">С проблемами</option>
             <option value="false">Без проблем</option>
           </select>
-          <select
+          <select aria-label="Рейтинг отзывов"
             value={rating}
             onChange={(e) => {
               setRating(e.target.value);
@@ -374,7 +326,7 @@ export function ReviewsPage() {
             ))}
           </select>
           <input
-            type="search"
+            type="search" aria-label="Поиск по тексту отзывов"
             placeholder="Поиск по тексту..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
@@ -398,8 +350,9 @@ export function ReviewsPage() {
         </div>
       </div>
 
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm">
+      {isError && <ErrorState error={error} retry={refetch} />}
+      {!isError && <div className="card overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="text-left text-xs text-neutral-400 border-b border-neutral-100">
               <th className="pb-3 pr-3">Текст</th>
@@ -436,13 +389,13 @@ export function ReviewsPage() {
                 return (
                   <tr
                     key={r.id}
-                    className="border-b border-neutral-50 hover:bg-primary-50 cursor-pointer transition group"
+                    className="border-b border-neutral-50 hover:bg-primary-50 dark:hover:bg-neutral-800 cursor-pointer transition group"
                     onClick={() => setSelected(r)}
                   >
-                    <td className="py-3 pr-3 max-w-md truncate">{r.text}</td>
+                    <td className="py-3 pr-3 max-w-md truncate"><button className="text-left max-w-full truncate" onClick={() => setSelected(r)} aria-label={`Открыть отзыв: ${r.text.slice(0, 80)}`}>{r.text}</button></td>
                     <td className="py-3 pr-3">
                       {r.product ? (
-                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-primary-100 text-primary-800 max-w-[14rem] truncate">
+                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-primary-100 text-primary-800 dark:bg-primary-900 dark:text-primary-100 max-w-[14rem] truncate">
                           <Package className="h-3 w-3 shrink-0" />
                           <span className="truncate">{r.product.name}</span>
                         </span>
@@ -460,8 +413,9 @@ export function ReviewsPage() {
                     </td>
                     <td className="py-3 pl-1">
                       <button
+                          disabled={deleteReview.isPending || !!selectedRunId}
                         onClick={(e) => handleDeleteReview(r.id, e)}
-                        className="opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-red-500 transition"
+                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-neutral-500 hover:text-red-600 transition disabled:opacity-50"
                         title="Удалить отзыв"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -500,7 +454,7 @@ export function ReviewsPage() {
             </div>
           </div>
         )}
-      </div>
+      </div>}
 
       {selected && <ReviewModal review={selected} onClose={() => setSelected(null)} />}
     </div>
@@ -508,28 +462,8 @@ export function ReviewsPage() {
 }
 
 function ReviewModal({ review, onClose }: { review: ReviewListItem; onClose: () => void }) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
-
   return (
-    <div
-      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-xl p-6 max-w-2xl w-full max-h-[80vh] overflow-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex justify-between items-start mb-4">
-          <h2>Детали отзыва</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
+    <Modal title="Детали отзыва" onClose={onClose}>
         <div className="space-y-4 text-sm">
           <div>
             <div className="text-xs text-neutral-400 mb-1">Текст</div>
@@ -590,8 +524,7 @@ function ReviewModal({ review, onClose }: { review: ReviewListItem; onClose: () 
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

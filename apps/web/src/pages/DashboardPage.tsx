@@ -15,9 +15,9 @@ import { useAuthStore } from '../store/auth.store';
 import { useStats, useReviews, useRunAnalysis } from '../lib/queries';
 import { useGroupings } from '../lib/grouping-queries';
 import { useProductStore } from '../store/product.store';
-import { ProductSelector } from '../components/ProductSelector';
 import { AiSummaryButton } from '../components/AiSummaryModal';
 import toast from 'react-hot-toast';
+import { ErrorState, EmptyState } from '../components/QueryState';
 
 export function DashboardPage() {
   const { user } = useAuthStore();
@@ -44,6 +44,8 @@ export function DashboardPage() {
       toast.error('Не удалось запустить анализ');
     }
   };
+
+  if (stats.isError) return <div className="space-y-4"><h1>Обзор</h1><ErrorState error={stats.error} retry={stats.refetch} /></div>;
 
   /* ── Состояние A: нет данных ── */
   if (isEmpty) {
@@ -89,7 +91,7 @@ export function DashboardPage() {
         <AiSummaryButton productId={selectedProductId} />
       </div>
 
-      <ProductSelector />
+
 
       {/* ── Состояние B: нужен анализ ── */}
       {needsAnalysis && (
@@ -154,7 +156,7 @@ export function DashboardPage() {
               Все <ArrowRight className="h-3 w-3" />
             </button>
           </div>
-          {issues.isLoading ? (
+          {issues.isError ? <ErrorState error={issues.error} retry={issues.refetch} /> : !selectedProductId ? <EmptyState title="Выберите товар">Группы проблем доступны для конкретного товара.</EmptyState> : issues.isLoading ? (
             <SkeletonList rows={3} />
           ) : !issues.data || issues.data.items.length === 0 ? (
             <div className="flex flex-col items-center py-8 gap-3 text-center">
@@ -207,7 +209,7 @@ export function DashboardPage() {
               Все <ArrowRight className="h-3 w-3" />
             </button>
           </div>
-          {recentReviews.isLoading ? (
+          {recentReviews.isError ? <ErrorState error={recentReviews.error} retry={recentReviews.refetch} /> : recentReviews.isLoading ? (
             <SkeletonList rows={5} />
           ) : !recentReviews.data || recentReviews.data.items.length === 0 ? (
             <div className="flex flex-col items-center py-8 gap-3 text-center">

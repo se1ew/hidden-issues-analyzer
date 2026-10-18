@@ -18,6 +18,8 @@ import { useThemeStore } from '../store/theme.store';
 import clsx from 'clsx';
 import { logoutSession } from '../lib/api';
 import toast from 'react-hot-toast';
+import { useProductStore } from '../store/product.store';
+import { useProducts } from '../lib/queries';
 
 const navGroups = [
   [
@@ -38,7 +40,7 @@ const navGroups = [
 
 function SidebarRoot({ children }: { children: React.ReactNode }) {
   return (
-    <aside className="sidebar flex w-64 shrink-0 flex-col">
+    <aside className="sidebar flex w-60 max-w-[85vw] h-full shrink-0 flex-col overflow-y-auto">
       {children}
     </aside>
   );
@@ -60,6 +62,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { user } = useAuthStore();
   const [loggingOut, setLoggingOut] = React.useState(false);
   const { isDark, toggle: toggleTheme } = useThemeStore();
+  const { selectedProductId, selectedRunId } = useProductStore();
+  const products = useProducts();
+  const product = products.data?.items.find(item => item.id === selectedProductId);
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -82,11 +87,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         </div>
         <div>
           <div className="text-sm font-bold tracking-wide sidebar-title">ReviewLens</div>
-          <div className="text-xs sidebar-subtitle">Review analytics</div>
+          <div className="text-xs sidebar-subtitle">Анализ отзывов</div>
         </div>
       </SidebarSection>
 
-      <nav className="flex-1 px-3 py-4 space-y-4">
+      <div className="px-5 py-3 text-xs sidebar-subtitle break-words"><span className="block font-medium line-clamp-3" title={product?.name}>{product?.name ?? 'Все товары'}</span><span>{selectedRunId ? 'Выбран сохранённый запуск' : 'Все загруженные отзывы'}</span></div>
+      <nav aria-label="Основная навигация" className="flex-1 px-3 py-4 space-y-4">
         {navGroups.map((group, gi) => (
           <div key={gi} className={clsx('space-y-0.5', gi > 0 && 'border-t border-white/10 pt-3')}>
             {group.map(({ to, label, icon: Icon }) => (
@@ -129,6 +135,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             onClick={toggleTheme}
             className="p-2 rounded-xl transition-all duration-200 sidebar-nav-item sidebar-nav-inactive"
             title={isDark ? 'Светлая тема' : 'Тёмная тема'}
+            aria-label={isDark ? 'Включить светлую тему' : 'Включить тёмную тему'}
           >
             {isDark ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4" />}
           </button>
