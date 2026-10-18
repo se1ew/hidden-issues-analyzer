@@ -15,7 +15,7 @@ export async function scopedOverview(userId: string, query: DataScope) {
   const scope = await resolveRunScope(userId, query);
   if (scope.runId) {
     const data = await readRunData(userId, scope);
-    return { ...data.overview, scope: data.scope };
+    return { ...data.overview, scope: data.scope, analytics: data.analytics };
   }
   const where = ownedProductScope(userId, scope.productId);
   const [loadedTotal, unprocessedCount] = await Promise.all([prisma.review.count({ where }), prisma.review.count({ where: { ...where, analyzedAt: null } })]);

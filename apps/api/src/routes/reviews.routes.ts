@@ -23,6 +23,7 @@ reviewsRouter.get('/', validate(ListReviewsQuerySchema, 'query'), ctrl.list);
 reviewsRouter.get('/imports/:id', ctrl.importDetails);
 reviewsRouter.get('/imports/:id/errors', ctrl.downloadImportErrors);
 reviewsRouter.delete('/', ctrl.deleteBulk);
+reviewsRouter.get('/export/csv', ctrl.exportCsv);
 reviewsRouter.get('/:id', ctrl.getById);
 reviewsRouter.delete('/:id', ctrl.deleteOne);
 reviewsRouter.post('/upload/csv', upload.single('file'), ctrl.uploadCsv);

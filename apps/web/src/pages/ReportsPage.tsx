@@ -1,179 +1,43 @@
-import { Download, FileText, Loader2 } from 'lucide-react';
-import { ProductSelector } from '../components/ProductSelector';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { useGenerateReport, useProducts, useReports } from '../lib/queries';
+import { useGenerateReport, useProducts, useReports, useStats } from '../lib/queries';
 import { useProductStore } from '../store/product.store';
-import { api } from '../lib/api';
 import { ErrorState } from '../components/QueryState';
-
+import { apiErrorMessage } from '../lib/api';
+import { downloadFile } from '../lib/download';
+const sections = { overview: 'Объём, покрытие и ошибки', analytics: 'Показатели и календарные периоды', aspects: 'Аспекты и тональность', problems: 'Все группы и пользовательские статусы', evidence: 'Цитаты и последствия', method: 'Метод и ограничения' };
 export function ReportsPage() {
   const [format, setFormat] = useState<'pdf' | 'docx'>('pdf');
   const [title, setTitle] = useState('');
-
-  const { selectedProductId } = useProductStore();
-  const products = useProducts();
-
-  const selectedProduct = products.data?.items.find((p) => p.id === selectedProductId);
-  const autoTitle = (() => {
-    const date = new Date().toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
-    const productName = selectedProduct?.name;
-    return productName ? `${productName} — ${date}` : `Отчёт ${date}`;
-  });
-
-  const reports = useReports();
-  const generate = useGenerateReport();
-
-  const handleGenerate = async () => {
+  const [included, setIncluded] = useState(Object.keys(sections));
+  const [days, setDays] = useState(30);
+  const [error, setError] = useState<unknown>(null);
+  const { selectedProductId: productId, selectedRunId } = useProductStore();
+  const products = useProducts(), stats = useStats(productId), reports = useReports(), generate = useGenerateReport();
+  const runId = selectedRunId ?? stats.data?.scope.runId;
+  const product = products.data?.items.find(item => item.id === productId);
+  const scope = stats.data?.scope;
+  const ready = !!productId && !!runId && scope?.runId === runId && !['running', 'queued'].includes(stats.data?.runStatus ?? '') && included.length > 0;
+  const download = async (id: string, extension: string) => { try { await downloadFile(`/api/reports/${id}/download`, `report-${id}.${extension}`); } catch (failure) { setError(failure); } };
+  const submit = async () => {
+    if (!ready) return;
+    setError(null);
     try {
-      const result = await generate.mutateAsync({ format, title: title.trim() || undefined });
-      toast.success('Отчёт сгенерирован');
-      await downloadReport(result.id);
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: string } } };
-      toast.error(e.response?.data?.error ?? 'Не удалось сгенерировать');
-    }
+      const result = await generate.mutateAsync({ format, title: title.trim() || undefined, productId, runId, period: scope?.period ?? null, sections: included, days });
+      toast.success('Снимок отчёта сохранён'); await download(result.id, format);
+    } catch (failure) { setError(failure); }
   };
-
-  const downloadReport = async (id: string) => {
-    try {
-      const res = await api.get<Blob>(`/api/reports/${id}/download`, { responseType: 'blob' });
-      // res.data is already a Blob when responseType:'blob'
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement('a');
-      a.href = url;
-      const cd = res.headers['content-disposition'] as string | undefined;
-      const m = cd?.match(/filename="([^"]+)"/);
-      a.download = m?.[1] ?? `report-${id}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch {
-      toast.error('Не удалось скачать');
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1>Отчёты</h1>
-        <p className="text-sm text-primary-600 dark:text-primary-400 mt-1">
-          Сгенерируйте PDF или DOCX-отчёт по результатам анализа
-        </p>
-      </div>
-
-      <ProductSelector />
-
-      <div className="card-hero">
-        <h3 className="mb-4 text-white">Сгенерировать новый отчёт</h3>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-primary-300 mb-2">
-              Заголовок (опц.)
-            </label>
-            <div className="flex gap-2">
-              <input aria-label="Заголовок отчёта"
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={autoTitle()}
-                className="input flex-1"
-              />
-              <button
-                type="button"
-                onClick={() => setTitle(autoTitle())}
-                className="btn-outline px-3 py-2 text-xs whitespace-nowrap"
-                title="Подставить автозаголовок"
-              >
-                Авто
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-primary-300 mb-2">Формат</label>
-            <div className="flex gap-2">
-              {(['pdf', 'docx'] as const).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setFormat(f)}
-                  className={`btn font-semibold px-5 transition-all duration-200 ${
-                    format === f
-                      ? 'bg-white text-primary-800 shadow-card'
-                      : 'bg-white/15 text-white border border-white/30 hover:bg-white/25'
-                  }`}
-                >
-                  {f.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <button onClick={handleGenerate} disabled={generate.isPending} className="btn bg-white text-primary-800 font-semibold hover:bg-primary-50 shadow-card">
-            {generate.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <FileText className="h-4 w-4" />
-            )}
-            Сгенерировать и скачать
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <h2 className="mb-3">История отчётов</h2>
-        {reports.isError ? <ErrorState error={reports.error} retry={reports.refetch} /> : reports.isLoading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <div key={i} className="card animate-pulse flex items-center gap-3 py-3.5">
-                <div className="h-9 w-9 rounded-xl bg-neutral-200 shrink-0" />
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-3.5 bg-neutral-200 rounded w-1/2" />
-                  <div className="h-2.5 bg-neutral-100 rounded w-1/4" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : !reports.data || reports.data.items.length === 0 ? (
-          <div className="card text-center py-12 flex flex-col items-center gap-3">
-            <div className="h-14 w-14 rounded-2xl bg-primary-200 dark:bg-primary-800/40 flex items-center justify-center">
-              <Download className="h-7 w-7 text-primary-600 dark:text-primary-400" />
-            </div>
-            <p className="text-sm text-primary-700 dark:text-primary-400 font-medium">
-              Пока нет сгенерированных отчётов
-            </p>
-            <p className="text-xs text-primary-500 dark:text-primary-500">
-              Нажмите «Сгенерировать и скачать» выше
-            </p>
-          </div>
-        ) : (
-          <div className="card divide-y divide-primary-200/60 dark:divide-primary-700/40">
-            {reports.data.items.map((r) => (
-              <div key={r.id} className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-xl bg-primary-200 dark:bg-primary-800/50 flex items-center justify-center flex-shrink-0">
-                    <FileText className="h-4.5 w-4.5 text-primary-700 dark:text-primary-300" />
-                  </div>
-                  <div>
-                    <div className="font-semibold text-primary-900 dark:text-primary-100 text-sm">
-                      {r.title}
-                    </div>
-                    <div className="text-xs text-primary-500 dark:text-primary-500 mt-0.5">
-                      {r.format.toUpperCase()} · {new Date(r.createdAt).toLocaleString('ru-RU')}
-                    </div>
-                  </div>
-                </div>
-                <button onClick={() => downloadReport(r.id)} className="btn-outline px-3 py-1.5 text-xs gap-1.5">
-                  <Download className="h-3.5 w-3.5" />
-                  Скачать
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return <div className="space-y-5"><header><h1>Отчёты</h1><p className="text-sm text-neutral-500 mt-1">Сохранённый снимок выбранного запуска со всеми группами. Скачивание готового файла не запускает анализ.</p></header>
+    {stats.isError && <ErrorState error={stats.error} retry={stats.refetch} />}
+    <section className="card space-y-4"><h2 className="text-lg">Новый отчёт</h2><p className="text-sm break-words">Товар: {product?.name ?? 'выберите товар'} · Запуск: {runId ?? 'выберите завершённый запуск'}</p><p className="text-xs break-words">Период запуска: {scope?.period ? `${scope.period.from} — ${scope.period.to}` : 'без ограничения по дате'}. Чтобы изменить область, выберите другой запуск в верхней панели.</p>
+      <label className="block text-sm">Заголовок<input className="input mt-1 w-full" value={title} maxLength={200} onChange={event => setTitle(event.target.value)} placeholder={product ? `Анализ отзывов ${product.name}` : 'Анализ отзывов'} /></label>
+      <div className="flex flex-wrap gap-4"><label className="text-sm">Формат<select className="input mt-1" value={format} onChange={event => setFormat(event.target.value as 'pdf' | 'docx')}><option value="pdf">PDF</option><option value="docx">DOCX</option></select></label><label className="text-sm">Дней в календарном окне<select className="input mt-1" value={days} onChange={event => setDays(Number(event.target.value))}><option value={30}>30</option><option value={60}>60</option><option value={90}>90</option></select></label></div>
+      <fieldset className="space-y-2"><legend className="text-sm font-semibold mb-2">Разделы</legend>{Object.entries(sections).map(([key, label]) => <label className="flex gap-2 text-sm" key={key}><input type="checkbox" disabled={key === 'method'} checked={included.includes(key)} onChange={event => setIncluded(values => event.target.checked ? [...values, key] : values.filter(value => value !== key))} />{label}</label>)}</fieldset>
+      <p className="text-xs text-neutral-500">Идентификатор области, модель и ограничения включаются всегда. Числа и пользовательские решения фиксируются на момент формирования.</p>
+      {!ready && <p className="text-sm">Выберите товар, завершённый запуск и хотя бы один раздел.</p>}
+      {error != null && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{apiErrorMessage(error)}</p>}
+      <button className="btn-primary" disabled={!ready || generate.isPending} onClick={() => void submit()}>{generate.isPending ? 'Формирование отчёта…' : 'Сформировать и скачать'}</button>
+    </section>
+    <section className="card space-y-3"><h2 className="text-lg">История отчётов</h2>{reports.isError ? <ErrorState error={reports.error} retry={reports.refetch} /> : reports.isPending ? <p role="status">Загрузка…</p> : !reports.data.items.length ? <p>Готовых отчётов пока нет.</p> : <ul className="space-y-3">{reports.data.items.map(report => <li className="flex flex-wrap gap-3 justify-between border-t border-neutral-200 dark:border-neutral-700 pt-3" key={report.id}><div className="min-w-0"><p className="font-semibold break-words">{report.title}</p><p className="text-xs text-neutral-500">{report.format.toUpperCase()} · {new Date(report.createdAt).toLocaleString('ru-RU')}</p><p className="text-xs text-neutral-500 break-words">{report.legacy ? 'Старый отчёт без сохранённой области' : `Товар: ${report.productId ?? '—'} · Запуск: ${report.runId ?? '—'}`}</p></div><button className="btn-outline" onClick={() => void download(report.id, report.format)}>Скачать</button></li>)}</ul>}</section>
+  </div>;
 }

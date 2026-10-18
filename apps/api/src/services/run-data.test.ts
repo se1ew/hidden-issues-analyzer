@@ -54,7 +54,9 @@ describe('run-scoped HTTP read contracts', () => {
   it('keeps unknown dates separate and never substitutes import time', async () => {
     const res = await get('/analysis/timeseries', { bucket: 'day', days: 30 });
     expect(res.body.unknownDateCount).toBe(1);
-    expect(res.body.buckets).toEqual([{ date: '2026-10-10', positive: 0, negative: 1, neutral: 0, avgRating: 3 }]);
+    expect(res.body.buckets).toHaveLength(30);
+    expect(res.body.buckets.find((row: { date: string }) => row.date === '2026-10-10')).toMatchObject({ positive: 0, negative: 1, neutral: 0, avgRating: 3, ratingCount: 2 });
+    expect(res.body.buckets.find((row: { date: string }) => row.date === '2026-10-11')).toMatchObject({ total: 0, avgRating: null, complaintRate: null });
   });
   it('rejects a period mismatch before loading evidence', async () => {
     const res = await get('/analysis/stats', { from: '2026-10-02T00:00:00Z', to: period.to });

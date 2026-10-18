@@ -168,9 +168,9 @@ npm run preview:web    # локальный просмотр собранног�
    затем импортировать корректные записи; либо ввести отзыв вручную / указать WB-ссылку
 3. На **Дашборде** выбрать продукт через `ProductSelector` — все данные фильтруются глобально
 4. На странице **Отзывы** нажать «Запустить анализ» — LLM проанализирует пачку, прогресс — real-time
-5. На **Аналитика** появятся метрики, графики и кнопка «AI Summary» (LLM-вывод по продукту)
+5. На **Аналитика** выбрать сохранённый запуск: доступны аспекты, доли жалоб и календарные окна UTC
 6. На **Скрытые проблемы** нажать «Пересчитать» — DBSCAN-кластеризация; проблемы можно отметить как resolved
-7. На **Отчёты** сгенерировать PDF или DOCX
+7. На **Отчёты** выбрать завершённый запуск и разделы, сформировать PDF или DOCX по снимку; CSV на странице отзывов выгружает всю отфильтрованную область
 
 ## Ключевые API эндпоинты
 
@@ -183,6 +183,7 @@ GET    /api/auth/me              текущий пользователь
 POST   /api/reviews/upload/csv   multipart файл
 POST   /api/reviews/upload/text  ручной отзыв
 GET    /api/reviews              пагинация + фильтры
+GET    /api/reviews/export/csv  вся область с фильтрами списка, без пагинации
 GET    /api/reviews/:id
 
 POST   /api/analysis/run         { limit? } — анализ pending отзывов (jobId)
@@ -201,7 +202,7 @@ DELETE /api/products/:id         удалить продукт
 
 POST   /api/parsing/start        { url } — парсинг WB
 
-POST   /api/reports/generate     { format: 'pdf'|'docx', title? }
+POST   /api/reports/generate     { productId, runId, period, format, sections, days?, title? }
 GET    /api/reports
 GET    /api/reports/:id/download
 
@@ -228,6 +229,7 @@ server → client: 'analysis:error'    { jobId, message }
 
 Группировка запусков, атомарные публикации, показатели и ограничения:
 [docs/grouping.md](docs/grouping.md). `npm run benchmark:grouping` измеряет
-алгоритм на синтетических векторах без загрузки модели. Обзор и аналитика используют выбранный сохранённый запуск; отчёты ещё
-используют переходные данные и обновляются в фазе 15. Рабочие страницы,
+алгоритм на синтетических векторах без загрузки модели. Обзор, аналитика и новые отчёты используют выбранный сохранённый запуск.
+Календарные расчёты, полный CSV и снимок отчёта описаны в
+[docs/analytics-and-reports.md](docs/analytics-and-reports.md). Рабочие страницы,
 знаменатели показателей и проверки: [docs/working-pages.md](docs/working-pages.md).

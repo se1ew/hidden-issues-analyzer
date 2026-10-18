@@ -1,292 +1,65 @@
 import fs from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import {
-  AlignmentType,
-  Document,
-  HeadingLevel,
-  Packer,
-  Paragraph,
-  Table,
-  TableCell,
-  TableRow,
-  TextRun,
-  WidthType,
-} from 'docx';
+import { Document, HeadingLevel, Packer, Paragraph } from 'docx';
 import PDFDocument from 'pdfkit';
-
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
-import { getOverviewStats } from './stats.service.js';
-import { listHiddenIssues } from './legacy-issues.service.js';
+import type { GenerateReportInput } from '../schemas/reports.schema.js';
+import { captureReport, type ReportSnapshot } from './report-snapshot.js';
+import { reportBlocks } from './report-content.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPORTS_DIR = path.resolve(__dirname, '../../reports_output');
-
-if (!fs.existsSync(REPORTS_DIR)) {
-  fs.mkdirSync(REPORTS_DIR, { recursive: true });
+const REPORTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../reports_output');
+export async function generateReport(request: GenerateReportInput, userId: string) {
+  const payload = await captureReport(userId, request);
+  const title = request.title ?? `Анализ отзывов ${payload.product.name}`;
+  await fs.promises.mkdir(REPORTS_DIR, { recursive: true });
+  const filePath = path.join(REPORTS_DIR, `report-${randomUUID()}.${request.format}`);
+  try {
+    await renderReport(filePath, request.format, title, payload);
+    const bytes = await fs.promises.readFile(filePath);
+    const report = await prisma.report.create({ data: { userId, title, format: request.format, filePath,
+      productId: request.productId, runId: request.runId, legacy: false, artifactKey: path.basename(filePath),
+      mimeType: request.format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      parameters: { request, snapshot: payload } as unknown as Prisma.InputJsonObject,
+      sizeBytes: BigInt(bytes.length), sha256: createHash('sha256').update(bytes).digest('hex') } });
+    logger.info({ reportId: report.id, runId: request.runId, format: request.format }, 'Report generated');
+    return { id: report.id, downloadUrl: `/api/reports/${report.id}/download` };
+  } catch (error) { await fs.promises.rm(filePath, { force: true }); throw error; }
 }
-
-interface ReportPayload {
-  generatedAt: Date;
-  stats: Awaited<ReturnType<typeof getOverviewStats>>;
-  issues: Awaited<ReturnType<typeof listHiddenIssues>>['items'];
+function accessibleReports(userId: string) {
+  return { userId, OR: [{ product: { userId } }, { legacy: true, parameters: { path: ['ownerScope'], equals: userId } }] };
 }
-
-async function buildPayload(userId: string): Promise<ReportPayload> {
-  const [stats, issuesResult] = await Promise.all([getOverviewStats(userId), listHiddenIssues(userId)]);
-  return { generatedAt: new Date(), stats, issues: issuesResult.items };
-}
-
-export async function generateReport(
-  format: 'pdf' | 'docx',
-  userId: string,
-  title?: string,
-): Promise<{ id: string; downloadUrl: string }> {
-  const payload = await buildPayload(userId);
-  const reportTitle = title?.trim() || 'Отчёт по анализу отзывов';
-  const filename = `report-${randomUUID()}.${format}`;
-  const filePath = path.join(REPORTS_DIR, filename);
-
-  if (format === 'pdf') {
-    await renderPdf(filePath, reportTitle, payload);
-  } else {
-    await renderDocx(filePath, reportTitle, payload);
-  }
-
-  const report = await prisma.report.create({
-    data: {
-      userId,
-      title: reportTitle,
-      format,
-      filePath,
-      parameters: { ownerScope: userId },
-    },
-  });
-
-  logger.info({ reportId: report.id, format, filePath }, 'Report generated');
-  return { id: report.id, downloadUrl: `/api/reports/${report.id}/download` };
-}
-
 export async function getReport(id: string, userId: string) {
   return prisma.report.findFirst({ where: { id, ...accessibleReports(userId) } });
 }
-
-function accessibleReports(userId: string) {
-  return { userId, OR: [
-    { product: { userId } },
-    { legacy: true, parameters: { path: ['ownerScope'], equals: userId } },
-  ] };
-}
-
 export async function listReports(userId: string) {
-  return prisma.report.findMany({
-    where: accessibleReports(userId),
-    select: { id: true, title: true, format: true, createdAt: true, legacy: true },
-    orderBy: { createdAt: 'desc' },
-    take: 50,
-  });
+  return prisma.report.findMany({ where: accessibleReports(userId),
+    select: { id: true, title: true, format: true, createdAt: true, legacy: true, productId: true, runId: true }, orderBy: { createdAt: 'desc' }, take: 50 });
 }
-
-// =================== PDF ===================
-
-async function renderPdf(filePath: string, title: string, payload: ReportPayload): Promise<void> {
-  return new Promise((resolve, reject) => {
+export async function renderReport(filePath: string, format: 'pdf' | 'docx', title: string, payload: ReportSnapshot) {
+  const blocks = reportBlocks(payload);
+  if (format === 'docx') {
+    const doc = new Document({ styles: { default: { document: { run: { font: 'Arial', size: 22 }, paragraph: { spacing: { after: 140 } } } } },
+      sections: [{ properties: {}, children: [new Paragraph({ text: title, heading: HeadingLevel.TITLE }),
+        ...blocks.map(block => new Paragraph({ text: block.text, ...(block.heading ? { heading: HeadingLevel.HEADING_2, keepNext: true } : {}) }))] }] });
+    await fs.promises.writeFile(filePath, await Packer.toBuffer(doc)); return;
+  }
+  await new Promise<void>((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const stream = fs.createWriteStream(filePath);
-    doc.pipe(stream);
-
-    // pdfkit по умолчанию использует Helvetica без кириллицы. Подгружаем системный шрифт DejaVu/Arial если есть.
-    const fontPath = findCyrillicFont();
-    if (fontPath) doc.font(fontPath);
-
-    doc.fontSize(20).text(title, { align: 'center' });
-    doc.moveDown();
-    doc
-      .fontSize(10)
-      .fillColor('#777')
-      .text(`Дата формирования: ${payload.generatedAt.toLocaleString('ru-RU')}`, {
-        align: 'center',
-      });
-    doc.fillColor('#000');
-    doc.moveDown();
-
-    // Stats
-    doc.fontSize(14).text('Сводная статистика', { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(11);
-    const lines = [
-      `Всего отзывов: ${payload.stats.total}`,
-      `Проанализировано: ${payload.stats.analyzed} (ожидают: ${payload.stats.pending})`,
-      `Средний рейтинг: ${payload.stats.avgRating?.toFixed(2) ?? '—'}`,
-      `Доля негативных: ${payload.stats.negativePct.toFixed(1)}%`,
-      `Позитивных: ${payload.stats.sentiment.positive}, негативных: ${payload.stats.sentiment.negative}, нейтральных: ${payload.stats.sentiment.neutral}`,
-      `Скрытых проблем выявлено: ${payload.stats.issuesCount}`,
-    ];
-    for (const line of lines) doc.text('• ' + line);
-
-    doc.moveDown();
-    doc.fontSize(14).text('Топ скрытых проблем', { underline: true });
-    doc.moveDown(0.5);
-
-    if (payload.issues.length === 0) {
-      doc.fontSize(11).fillColor('#777').text('Скрытые проблемы пока не выявлены.');
-      doc.fillColor('#000');
-    } else {
-      doc.fontSize(11);
-      payload.issues.slice(0, 20).forEach((issue, i) => {
-        doc
-          .fillColor('#000')
-          .text(`${i + 1}. ${issue.title}`, { continued: false })
-          .fillColor('#577')
-          .fontSize(10)
-          .text(
-            `   hidden_score=${(issue.hiddenScore * 100).toFixed(1)} | size=${issue.size} | severity=${(
-              issue.severity * 100
-            ).toFixed(0)}% | visibility=${(issue.visibility * 100).toFixed(2)}%`,
-          );
-        if (issue.description) {
-          doc.fontSize(11).fillColor('#333').text(`   ${issue.description}`);
-        }
-        doc.fontSize(11).moveDown(0.3);
-      });
+    stream.on('finish', resolve); stream.on('error', reject); doc.on('error', reject); doc.pipe(stream);
+    // Bundling a licensed font is the next task in phase 15; retain the existing fallback meanwhile.
+    const font = ['C:/Windows/Fonts/arial.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'].find(candidate => fs.existsSync(candidate));
+    if (font) doc.font(font);
+    doc.fontSize(19).fillColor('#111111').text(title); doc.moveDown();
+    for (const block of blocks) {
+      if (block.heading && doc.y > doc.page.height - 130) doc.addPage();
+      doc.fontSize(block.heading ? 13 : 10).fillColor('#111111').text(block.text, { paragraphGap: block.heading ? 9 : 5 });
+      if (block.heading) doc.moveDown(0.3);
     }
-
     doc.end();
-    stream.on('finish', () => resolve());
-    stream.on('error', reject);
   });
-}
-
-function findCyrillicFont(): string | null {
-  const candidates = [
-    'C:\\Windows\\Fonts\\arial.ttf',
-    'C:\\Windows\\Fonts\\ARIAL.TTF',
-    'C:\\Windows\\Fonts\\segoeui.ttf',
-    'C:\\Windows\\Fonts\\tahoma.ttf',
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-    '/Library/Fonts/Arial.ttf',
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return null;
-}
-
-// =================== DOCX ===================
-
-async function renderDocx(filePath: string, title: string, payload: ReportPayload): Promise<void> {
-  const doc = new Document({
-    sections: [
-      {
-        children: [
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            heading: HeadingLevel.HEADING_1,
-            children: [new TextRun({ text: title, bold: true, size: 36 })],
-          }),
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [
-              new TextRun({
-                text: `Дата формирования: ${payload.generatedAt.toLocaleString('ru-RU')}`,
-                italics: true,
-                color: '777777',
-                size: 20,
-              }),
-            ],
-          }),
-          new Paragraph({ text: '' }),
-
-          new Paragraph({
-            heading: HeadingLevel.HEADING_2,
-            children: [new TextRun({ text: 'Сводная статистика', bold: true })],
-          }),
-
-          ...buildStatsRows(payload.stats),
-
-          new Paragraph({ text: '' }),
-          new Paragraph({
-            heading: HeadingLevel.HEADING_2,
-            children: [new TextRun({ text: 'Топ скрытых проблем', bold: true })],
-          }),
-
-          ...(payload.issues.length === 0
-            ? [
-                new Paragraph({
-                  children: [
-                    new TextRun({
-                      text: 'Скрытые проблемы пока не выявлены.',
-                      italics: true,
-                      color: '777777',
-                    }),
-                  ],
-                }),
-              ]
-            : buildIssuesTable(payload.issues)),
-        ],
-      },
-    ],
-  });
-
-  const buffer = await Packer.toBuffer(doc);
-  await fs.promises.writeFile(filePath, buffer);
-}
-
-function buildStatsRows(stats: ReportPayload['stats']): Paragraph[] {
-  const rows = [
-    `Всего отзывов: ${stats.total}`,
-    `Проанализировано: ${stats.analyzed} (ожидают: ${stats.pending})`,
-    `Средний рейтинг: ${stats.avgRating?.toFixed(2) ?? '—'}`,
-    `Доля негативных: ${stats.negativePct.toFixed(1)}%`,
-    `Распределение: pos=${stats.sentiment.positive}, neg=${stats.sentiment.negative}, neu=${stats.sentiment.neutral}`,
-    `Скрытых проблем: ${stats.issuesCount}`,
-  ];
-  return rows.map(
-    (text) =>
-      new Paragraph({
-        children: [new TextRun({ text: '• ' + text })],
-      }),
-  );
-}
-
-function buildIssuesTable(issues: ReportPayload['issues']): Array<Paragraph | Table> {
-  const header = new TableRow({
-    children: [
-      headerCell('#'),
-      headerCell('Название'),
-      headerCell('Hidden score'),
-      headerCell('Размер'),
-      headerCell('Серьёзность'),
-      headerCell('Видимость'),
-    ],
-  });
-  const rows = issues.slice(0, 20).map((issue, i) =>
-    new TableRow({
-      children: [
-        cell(String(i + 1)),
-        cell(issue.title),
-        cell((issue.hiddenScore * 100).toFixed(1)),
-        cell(String(issue.size)),
-        cell((issue.severity * 100).toFixed(0) + '%'),
-        cell((issue.visibility * 100).toFixed(2) + '%'),
-      ],
-    }),
-  );
-  const table = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [header, ...rows],
-  });
-  return [table];
-}
-
-function headerCell(text: string): TableCell {
-  return new TableCell({
-    children: [new Paragraph({ children: [new TextRun({ text, bold: true })] })],
-  });
-}
-function cell(text: string): TableCell {
-  return new TableCell({ children: [new Paragraph({ text })] });
 }

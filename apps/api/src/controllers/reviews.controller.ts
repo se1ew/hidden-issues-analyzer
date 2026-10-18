@@ -5,7 +5,7 @@ import { z } from 'zod';
 
 import { HttpError } from '../middleware/error.js';
 import * as reviewsService from '../services/reviews.service.js';
-import type { CreateManualReviewInput, ListReviewsQuery } from '../schemas/reviews.schema.js';
+import { ListReviewsQuerySchema, type CreateManualReviewInput, type ListReviewsQuery } from '../schemas/reviews.schema.js';
 import { CsvOptionsSchema, inspectReviewsCsv } from '../services/csv.service.js';
 import { ImportProductSchema } from '../schemas/products.schema.js';
 import { prisma } from '../lib/prisma.js';
@@ -91,4 +91,14 @@ export async function deleteBulk(req: Request, res: Response): Promise<void> {
   const productId = (req.query.productId as string) || undefined;
   const count = await reviewsService.deleteReviewsBulk(requestUserId(req), productId);
   res.json({ deleted: count });
+}
+
+export async function exportCsv(req: Request, res: Response): Promise<void> {
+  const query = ListReviewsQuerySchema.parse(req.query);
+  const data = await prisma.$transaction(db => reviewsService.listReviews(query, requestUserId(req), db, true), { isolationLevel: 'RepeatableRead', timeout: 30000 });
+  const { csvDocument } = await import('../services/csv-export.js');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="reviews.csv"');
+  res.send(csvDocument([['id', 'text', 'rating', 'sentiment', 'issues', 'reviewDate', 'importedAt', 'source', 'productId', 'runId'],
+    ...data.items.map(item => [item.id, item.text, item.rating, item.sentiment, JSON.stringify(item.issues ?? []), item.reviewDate, item.createdAt, item.source, item.productId, query.runId ?? ''])]));
 }

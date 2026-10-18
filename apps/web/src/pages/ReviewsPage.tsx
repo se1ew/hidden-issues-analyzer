@@ -1,3 +1,6 @@
+import { downloadFile } from '../lib/download';
+import { useDataScope } from '../lib/data-scope';
+import { apiErrorMessage } from '../lib/api';
 import { Download, Filter, Loader2, Package, Play, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -53,9 +56,11 @@ export function ReviewsPage() {
 
   const [selected, setSelected] = useState<ReviewListItem | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [analysisMode, setAnalysisMode] = useState<'new_only' | 'reanalyze'>('new_only');
 
   const { selectedProductId, selectedRunId } = useProductStore();
+  const scope = useDataScope(selectedProductId);
   const { jobId, progress, lastError, clearError } = useAnalysisStore();
   const cancelAnalysis = useCancelAnalysis();
   const deleteReview = useDeleteReview();
@@ -118,27 +123,14 @@ export function ReviewsPage() {
     }
   };
 
-  const handleExportCsv = () => {
-    if (!data || data.items.length === 0) return;
-    const headers = ['id', 'text', 'rating', 'sentiment', 'issues', 'date'];
-    const rows = data.items.map((r) => [
-      r.id,
-      `"${r.text.replace(/"/g, '""')}"`,
-      r.rating ?? '',
-      r.sentiment ?? '',
-      `"${(r.issues ?? []).join('; ')}"`,
-      new Date(r.createdAt).toLocaleDateString('ru-RU'),
-    ]);
-    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `reviews-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+  const handleExportCsv = async () => {
+    setExporting(true);
+    try {
+      await downloadFile('/api/reviews/export/csv', 'reviews.csv', { ...scope,
+        sentiment: sentiment || undefined, rating: rating || undefined, hasIssues: hasIssues || undefined, search: search || undefined });
+      toast.success('Экспортирована вся отфильтрованная выборка');
+    } catch (error) { toast.error(apiErrorMessage(error)); }
+    finally { setExporting(false); }
   };
 
   return (
@@ -155,9 +147,9 @@ export function ReviewsPage() {
           <div className="flex gap-2">
             <button
               onClick={handleExportCsv}
-              disabled={!data || data.items.length === 0}
+              disabled={exporting || !data || data.total === 0}
               className="btn-outline"
-              title="Экспорт в CSV"
+              title="Экспорт всей отфильтрованной выборки в CSV"
             >
               <Download className="h-4 w-4" />
               CSV

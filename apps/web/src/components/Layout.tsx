@@ -9,7 +9,7 @@ import { AnalysisRunSync } from './AnalysisRunSync';
 export function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
-  const scoped = ['/dashboard', '/reviews', '/issues', '/analytics'].includes(location.pathname);
+  const scoped = ['/dashboard', '/reviews', '/issues', '/analytics', '/reports'].includes(location.pathname);
   return <div className="flex h-dvh overflow-hidden">
     <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:z-[70] focus:bg-white focus:p-4">Перейти к содержимому</a>
     <div className="hidden md:flex"><Sidebar /></div>

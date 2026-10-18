@@ -4,6 +4,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import fs from 'node:fs/promises';
+import { parse as parseCsv } from 'csv-parse/sync';
 import request from 'supertest';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -369,6 +371,57 @@ try {
   assert.equal(afterImport.scope.runId, repeatedRun); assert.equal(afterImport.loadedTotal, 6); assert.equal(afterImport.scopeTotal, 5);
   assert.equal(originalRows.length, 4);
   console.log('Published working pages: exact evidence filters, group links, persisted states/recurrence, merge/split/restore, historical publication and separate loaded/run/success counts passed.');
+  {
+  // Cross-check the real API, full CSV, saved report payload and rendered content.
+  const { reportBlocks } = await import('../apps/api/dist/services/report-content.js');
+  const analytics = (await http('analysis/stats', scope)).body.analytics;
+  assert.equal(analytics.complaintCount, 5); assert.equal(analytics.complaintRate, 1);
+  assert.equal(analytics.highRatedCount, 2); assert.equal(analytics.highRatedComplaintCount, 2);
+  assert.equal(analytics.highRatedComplaintRate, 1); assert.equal(analytics.ratingSum, 13);
+  assert.equal(analytics.ratingCount, 4); assert.equal(analytics.avgRating, 3.25);
+  assert.equal(analytics.aspects[0].reviews, 5);
+  const reportInput = { ...scope, period: null, format: 'docx', days: 30, sections: ['overview', 'analytics', 'aspects', 'problems', 'evidence', 'method'] };
+  const documentResponse = await mutation('post', 'reports/generate', reportInput);
+  assert.equal(documentResponse.status, 201, JSON.stringify(documentResponse.body));
+  assert(!JSON.stringify(documentResponse.body).includes('filePath'));
+  const saved = await db.report.findUniqueOrThrow({ where: { id: documentResponse.body.id } });
+  const frozen = saved.parameters.snapshot;
+  assert.equal(saved.productId, scope.productId); assert.equal(saved.runId, scope.runId); assert.equal(saved.legacy, false);
+  assert.equal(frozen.publicationId, currentPublication); assert.equal(frozen.groups.length, 2);
+  assert.deepEqual(frozen.analytics, analytics);
+  assert.equal(frozen.groups.flatMap(group => group.evidence).length, 5);
+  const reportText = reportBlocks(frozen).map(block => block.text).join('\n');
+  assert(reportText.includes('3.25')); assert(reportText.includes('2/2 (100.0%)')); assert(reportText.includes('Отклонена'));
+  const download = await http(`reports/${saved.id}/download`); assert.equal(download.status, 200);
+  assert.equal((await http(`reports/${saved.id}/download`, {}, 'b')).status, 404);
+  assert.equal((await mutation('post', 'reports/generate', reportInput, 'b')).status, 404);
+  assert.equal((await mutation('post', 'reports/generate', { ...reportInput, period: { from: '2026-01-01T00:00:00Z', to: '2026-02-01T00:00:00Z' } })).status, 409);
+  const pdfResponse = await mutation('post', 'reports/generate', { ...reportInput, format: 'pdf' });
+  assert.equal(pdfResponse.status, 201, JSON.stringify(pdfResponse.body));
+  const pdfSaved = await db.report.findUniqueOrThrow({ where: { id: pdfResponse.body.id } });
+  const qaDir = new URL('../.cache/analytics-report-check/', import.meta.url); await fs.mkdir(qaDir, { recursive: true });
+  await fs.copyFile(saved.filePath, new URL('report.docx', qaDir)); await fs.copyFile(pdfSaved.filePath, new URL('report.pdf', qaDir));
+  await fs.writeFile(new URL('snapshot.json', qaDir), JSON.stringify(frozen, null, 2));
+  // More than two UI pages, plus dangerous text prefixes and multiline Unicode.
+  await db.review.createMany({ data: Array.from({ length: 61 }, (_, index) => ({ productId: evidenceProduct.id, source: 'csv',
+    text: index === 0 ? '=1+1' : index === 1 ? 'Кавычки "текст", строка\nследующая' : `Полный экспорт ${index}`, rating: 4 })) });
+  const fullCsv = await http('reviews/export/csv', { productId: evidenceProduct.id, page: 2, pageSize: 1 });
+  assert.equal(fullCsv.status, 200); const allRows = parseCsv(fullCsv.text, { bom: true, columns: true });
+  assert.equal(allRows.length, 67); assert(allRows.some(row => row.text === "'=1+1"));
+  assert(allRows.some(row => row.text === 'Кавычки "текст", строка\nследующая'));
+  const filteredCsv = await http('reviews/export/csv', { ...scope, rating: 5, hasIssues: 'true', pageSize: 1 });
+  assert.equal(parseCsv(filteredCsv.text, { bom: true, columns: true }).length, 2);
+  assert.equal((await http('reviews/export/csv', scope, 'b')).status, 404);
+  const fullFilteredCsv = await http('reviews/export/csv', { productId: evidenceProduct.id, search: 'Полный экспорт' });
+  assert.equal(parseCsv(fullFilteredCsv.text, { bom: true, columns: true }).length, 59);
+  // Later changes to product data and problem states cannot alter a stored report.
+  await db.problem.update({ where: { id: battery.problem.id }, data: { title: 'Изменено после отчёта' } });
+  const afterReport = await db.report.findUniqueOrThrow({ where: { id: saved.id } });
+  assert.deepEqual(afterReport.parameters.snapshot, frozen);
+  await fs.rm(saved.filePath); await fs.rm(pdfSaved.filePath);
+  console.log('Scoped analytics/report/CSV: hand-calculated 13/4 rating, 2/2 high-rating complaints, 5 unique complaints, all 67 exported rows, filters, Unicode/formula handling, frozen complete report and owner boundaries passed.');
+  }
+
 } finally {
   if (worker && worker.exitCode === null) { const exited = once(worker, 'exit'); worker.kill('SIGKILL'); await exited; }
   if (queueModule) await queueModule.closeAnalysisQueue();

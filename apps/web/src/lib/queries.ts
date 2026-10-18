@@ -91,7 +91,20 @@ export function useProducts() {
 
 // ===== Types =====
 
+export interface AnalyticsSummary {
+  total: number; succeeded: number; failed: number; ratingCount: number; ratingSum: number; avgRating: number | null;
+  complaintCount: number; complaintRate: number | null; highRatedCount: number; highRatedComplaintCount: number; highRatedComplaintRate: number | null;
+  aspects: Array<{ category: string; name: string; reviews: number; positive: number; negative: number; neutral: number }>;
+}
+export interface CalendarResult {
+  buckets: TimeseriesBucket[]; unknownDateCount?: number | null; timezone?: string;
+  comparison?: { current: AnalyticsSummary & { from: string; to: string }; previous: AnalyticsSummary & { from: string; to: string }; comparable: boolean; reasons: string[];
+    complaintRate: MetricChange; avgRating: MetricChange };
+  limitation?: string;
+}
+export interface MetricChange { delta: number | null; meaning: 'unknown' | 'unchanged' | 'improvement' | 'worsening' }
 export interface OverviewStats {
+  analytics?: AnalyticsSummary;
   hasRun: boolean; loadedTotal: number; scopeTotal: number | null; succeededCount: number; failedCount: number; remainingCount: number | null;
   coverageRatio: number | null; unprocessedCount: number; runStatus: string | null; publicationId: string | null;
   problemCount: number | null; hiddenProblemCount: number | null; newProblemCount: number | null; signalCount: number | null;
@@ -111,6 +124,7 @@ export interface TimeseriesBucket {
   negative: number;
   neutral: number;
   avgRating: number | null;
+  succeeded?: number; complaintCount?: number; complaintRate?: number | null; ratingCount?: number;
 }
 
 export interface IssueReview {
@@ -175,6 +189,7 @@ export interface HiddenIssue {
 }
 
 export interface ReportItem {
+  legacy?: boolean; productId?: string | null; runId?: string | null;
   id: string;
   title: string;
   format: 'pdf' | 'docx';
@@ -313,7 +328,7 @@ export function useTimeseries(
   return useQuery({
     queryKey: ['timeseries', useOwnerId(), scope, params],
     queryFn: async () => {
-      const { data } = await api.get<{ buckets: TimeseriesBucket[]; unknownDateCount?: number | null }>('/api/analysis/timeseries', {
+      const { data } = await api.get<CalendarResult>('/api/analysis/timeseries', {
         params: {
           ...scope,
           bucket: params.bucket,
@@ -406,7 +421,7 @@ export function useReports() {
 export function useGenerateReport() {
   const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
-    mutationFn: async (input: { format: 'pdf' | 'docx'; title?: string }) => {
+    mutationFn: async (input: { format: 'pdf' | 'docx'; title?: string; productId: string; runId: string; period: { from: string; to: string } | null; sections: string[]; days: number }) => {
       const { data } = await api.post<{ id: string; downloadUrl: string }>(
         '/api/reports/generate',
         input,

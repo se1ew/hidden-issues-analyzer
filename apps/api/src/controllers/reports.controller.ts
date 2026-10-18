@@ -2,15 +2,10 @@ import { requestUserId } from '../middleware/auth.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Request, Response } from 'express';
-import { z } from 'zod';
+import { GenerateReportSchema } from '../schemas/reports.schema.js';
 
 import { HttpError } from '../middleware/error.js';
 import * as service from '../services/reports.service.js';
-
-const GenerateSchema = z.object({
-  format: z.enum(['pdf', 'docx']),
-  title: z.string().trim().min(1).max(200).optional(),
-});
 
 export async function list(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new HttpError(401, 'Unauthorized');
@@ -19,8 +14,8 @@ export async function list(req: Request, res: Response): Promise<void> {
 }
 
 export async function generate(req: Request, res: Response): Promise<void> {
-  const parsed = GenerateSchema.parse(req.body);
-  const result = await service.generateReport(parsed.format, requestUserId(req), parsed.title);
+  const parsed = GenerateReportSchema.parse(req.body);
+  const result = await service.generateReport(parsed, requestUserId(req));
   res.status(201).json(result);
 }
 

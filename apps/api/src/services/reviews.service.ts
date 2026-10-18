@@ -54,14 +54,14 @@ export async function createManualReview(input: CreateManualReviewInput, userId:
   return { id: result.reviewIds[0], productId: result.productId };
 }
 
-export async function listReviews(query: ListReviewsQuery, userId: string) {
+export async function listReviews(query: ListReviewsQuery, userId: string, db: Prisma.TransactionClient = prisma, exportAll = false) {
   if (query.runId) {
-    const data = await readRunData(userId, query);
+    const data = await readRunData(userId, query, db);
     const selected = data.inputs.filter(item => (!query.sentiment || item.analysis?.sentiment === query.sentiment)
       && (query.rating === undefined || item.rating === query.rating)
       && (query.hasIssues === undefined || !!item.analysis?.issues.length === query.hasIssues)
       && (!query.search || item.text.toLocaleLowerCase().includes(query.search.toLocaleLowerCase())));
-    return { items: selected.slice((query.page - 1) * query.pageSize, query.page * query.pageSize).map(item => ({
+    return { items: (exportAll ? selected : selected.slice((query.page - 1) * query.pageSize, query.page * query.pageSize)).map(item => ({
       id: item.sourceReviewId, inputId: item.id, text: item.text, rating: item.rating,
       reviewDate: item.reviewDate, source: item.source, externalId: item.externalId,
       sentiment: item.analysis?.sentiment ?? null, sentimentScore: item.analysis?.sentimentScore ?? null,
@@ -87,11 +87,10 @@ export async function listReviews(query: ListReviewsQuery, userId: string) {
   }
 
   const [items, total] = await Promise.all([
-    prisma.review.findMany({
+    db.review.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-      skip: (query.page - 1) * query.pageSize,
-      take: query.pageSize,
+      ...(exportAll ? {} : { skip: (query.page - 1) * query.pageSize, take: query.pageSize }),
       select: {
         id: true,
         text: true,
@@ -111,7 +110,7 @@ export async function listReviews(query: ListReviewsQuery, userId: string) {
         product: { select: { id: true, name: true } },
       },
     }),
-    prisma.review.count({ where }),
+    db.review.count({ where }),
   ]);
 
   return { items, total, page: query.page, pageSize: query.pageSize };
