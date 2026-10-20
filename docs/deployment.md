@@ -129,3 +129,24 @@ Production-проверка поддерживает Playwright через `PLAY
 или file URL) и `BROWSER_EXECUTABLE` (необязательный путь браузера). Она проверяет
 регистрацию, refresh cookie, 48 страниц/тем/ширин и отсутствие внешних запросов.
 Без этих переменных `test:production:compose` выполняет HTTP/Socket.IO проверки.
+
+## Firewall на сервере демонстрации
+
+Production compose публикует только `APP_PORT`; PostgreSQL и Redis не имеют
+host ports. По умолчанию приложение доступно только через loopback. Для LAN
+нужен `APP_BIND=0.0.0.0`, правильный `WEB_ORIGIN` и частный профиль сети Windows.
+На целевом ПК в PowerShell администратора:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/firewall.ps1 -Port 8080 -WhatIf
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/firewall.ps1 -Port 8080
+# Удаление только этого правила: добавьте -Remove.
+```
+
+Правило допускает TCP 8080 только с `LocalSubnet` в профиле `Private`.
+Оно не открывает 4000, 5432, 6379 и 8081; эти порты нельзя выбрать как порт
+приложения в скрипте. На основном ПК проверен WhatIf; системные правила не
+изменялись. Runtime привязывайте к loopback и проверьте его достижимость из
+контейнера через `host.docker.internal`. Не включайте публичный доступ к нему.
+Если конкретный runtime требует иной привязки, ограничьте его входящие правила
+Docker-соединениями и повторите проверку с другого устройства.
