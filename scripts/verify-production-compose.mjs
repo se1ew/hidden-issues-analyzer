@@ -21,6 +21,7 @@ await fs.writeFile(envFile, [
   `JWT_REFRESH_SECRET=${randomBytes(32).toString('hex')}`,
   `APP_PORT=${port}`, `WEB_ORIGIN=${base}`, 'LLM_PROVIDER=local',
   'LLM_BASE_URL=http://host.docker.internal:1/v1', 'LLM_MODEL=unavailable-check-model',
+  'RATE_LIMIT_MAX=10000', // This isolated runner opens 48 pages faster than a human.
 ].join('\n'), { flag: 'wx' });
 const env = { ...process.env, APP_ENV_FILE: envFile };
 const args = ['compose', '--env-file', envFile, '-f', 'compose.production.yaml', '-p', project];
@@ -52,6 +53,15 @@ try {
   }, body: JSON.stringify({ email: 'production@fixture.invalid', password: 'production-fixture-123' }) });
   assert.equal(registered.status, 201);
   const { accessToken } = await registered.json();
+  const { io } = await import('socket.io-client');
+  const socket = io(base, { auth: { token: accessToken }, transports: ['websocket'], extraHeaders: { Origin: base } });
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Production Socket.IO connection timed out')), 5000);
+      socket.once('connect', () => { clearTimeout(timer); resolve(); });
+      socket.once('connect_error', error => { clearTimeout(timer); reject(error); });
+    });
+  } finally { socket.disconnect(); }
   const created = await fetch(base + '/api/products', { method: 'POST', headers: {
     'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}`,
   }, body: JSON.stringify({ name: 'Production smoke' }) });
@@ -64,6 +74,10 @@ try {
   const retained = await fetch(base + `/api/products/${product.id}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   assert.equal(retained.status, 200);
   assert.equal((await retained.json()).name, 'Production smoke');
+  if (process.env.PLAYWRIGHT_MODULE) {
+    const { verifyProductionBrowser } = await import('./verify-production-browser.mjs');
+    await verifyProductionBrowser(base);
+  }
   console.log('Persistent storage: database row, shared reports/uploads and embedding cache survived full container recreation.');
   console.log('Production compose: image, deploy migrations, internal DB/Redis, separate worker, readiness, SPA, registration and product creation passed.');
 } finally {
