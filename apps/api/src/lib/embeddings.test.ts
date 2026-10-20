@@ -9,6 +9,15 @@ beforeEach(() => {
 });
 const config = { model: 'fixture', revision: 'main', batchSize: 2, method: 'quantized-mean-l2-v1' as const };
 describe('bounded and versioned production embeddings', () => {
+  it('uses the configured persistent model cache', async () => {
+    const { env } = await import('../config/env.js');
+    env.EMBEDDING_CACHE_DIR = 'fixture-cache';
+    try {
+      const { embed } = await import('./embeddings.js');
+      await embed(['cache-path-check'], config);
+      expect(mocks.pipeline).toHaveBeenCalledWith('feature-extraction', 'fixture', expect.objectContaining({ cache_dir: 'fixture-cache' }));
+    } finally { delete env.EMBEDDING_CACHE_DIR; }
+  });
   it('batches inference and reuses only the matching model version', async () => {
     const { embed } = await import('./embeddings.js');
     expect(await embed(['a', 'b', 'c', 'd', 'e'], config)).toEqual(Array.from({ length: 5 }, () => [0.6, 0.8]));

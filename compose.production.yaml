@@ -10,6 +10,11 @@ x-app: &app
     WEB_DIST_DIR: /app/apps/web/dist
     DATABASE_URL: postgresql://hia:${POSTGRES_PASSWORD:?Create deploy/.env}@postgres:5432/hia_db
     REDIS_URL: redis://redis:6379
+    EMBEDDING_CACHE_DIR: /app/models_cache
+  volumes:
+    - reports:/app/apps/api/reports_output
+    - uploads:/app/apps/api/uploads
+    - models:/app/models_cache
   extra_hosts:
     - host.docker.internal:host-gateway
   init: true
@@ -70,3 +75,6 @@ services:
 volumes:
   postgres:
   redis:
+  reports:
+  uploads:
+  models:

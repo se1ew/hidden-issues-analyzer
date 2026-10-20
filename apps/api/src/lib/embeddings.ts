@@ -18,7 +18,8 @@ async function extractor(config: EmbeddingConfiguration) {
     if (extractors.size >= 2) throw new Error('В worker уже загружены две версии эмбеддингов; перезапустите worker для смены модели');
     const loading = (async () => {
       const { pipeline } = await import('@xenova/transformers');
-      return await pipeline('feature-extraction', config.model, { quantized: true, revision: config.revision }) as unknown as Extractor;
+      return await pipeline('feature-extraction', config.model, { quantized: true, revision: config.revision,
+        ...(env.EMBEDDING_CACHE_DIR ? { cache_dir: env.EMBEDDING_CACHE_DIR } : {}) }) as unknown as Extractor;
     })().catch(error => { extractors.delete(version); throw error; });
     extractors.set(version, loading);
   }

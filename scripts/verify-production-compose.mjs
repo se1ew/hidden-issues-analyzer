@@ -53,6 +53,15 @@ try {
     'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}`,
   }, body: JSON.stringify({ name: 'Production smoke' }) });
   assert.equal(created.status, 201);
+  const product = await created.json();
+  const paths = ['/app/apps/api/reports_output/persistence-check.txt', '/app/models_cache/persistence-check.txt', '/app/apps/api/uploads/persistence-check.txt'];
+  compose('exec', '-T', 'api', 'node', '-e', `const fs=require('node:fs'); for(const p of ${JSON.stringify(paths)}) fs.writeFileSync(p,'${project}');`);
+  compose('up', '-d', '--no-build', '--force-recreate', '--wait', '--wait-timeout', '120');
+  compose('exec', '-T', 'worker', 'node', '-e', `const fs=require('node:fs'),assert=require('node:assert/strict'); for(const p of ${JSON.stringify(paths)}) assert.equal(fs.readFileSync(p,'utf8'),'${project}');`);
+  const retained = await fetch(base + `/api/products/${product.id}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  assert.equal(retained.status, 200);
+  assert.equal((await retained.json()).name, 'Production smoke');
+  console.log('Persistent storage: database row, shared reports/uploads and embedding cache survived full container recreation.');
   console.log('Production compose: image, deploy migrations, internal DB/Redis, separate worker, readiness, SPA, registration and product creation passed.');
 } finally {
   compose('down', '--volumes', '--remove-orphans'); // This random project owns every removed container and volume.
