@@ -35,8 +35,10 @@ await fs.copyFile(path.join(models, 'embedding-assets.json'), path.join(output, 
 if (!values['skip-build']) run('docker', ['build', '--label', `org.opencontainers.image.revision=${commit}`, '-t', 'reviewlens-app:local', '.']);
 const images = ['reviewlens-app:local', 'postgres:16-alpine', 'redis:7-alpine'];
 const imageInfo = images.map(name => ({ name, id: run('docker', ['image', 'inspect', name, '--format', '{{.Id}}']) }));
+for (const name of images) assert.equal(run('docker', ['image', 'inspect', name, '--format', '{{.Os}}/{{.Architecture}}']), 'linux/amd64', 'The target bundle requires Linux amd64 images');
+assert.equal(run('docker', ['image', 'inspect', images[0], '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}']), commit, 'Application image must match the recorded source revision');
 run('docker', ['image', 'save', '--output', path.join(output, 'images.tar'), ...images]);
-git('archive', '--format=zip', '--output', path.join(output, 'source.zip'), 'HEAD');
+git('archive', '--format=zip', '--output', path.join(output, 'source.zip'), commit);
 await fs.copyFile(path.join(root, 'scripts/verify-offline-bundle.ps1'), path.join(output, 'verify.ps1'), 1);
 const files = [];
 async function collect(directory) {
