@@ -483,6 +483,18 @@ try {
     const { verifyEndToEnd } = await import('./verify-end-to-end.mjs');
     await verifyEndToEnd(app, db, waitFor);
   }
+  const savedBeforeOutage = await http('analysis/stats', scope);
+  modelServer.closeAllConnections(); await new Promise(resolve => modelServer.close(resolve)); modelServer = undefined;
+  assert.equal((await request(app).post('/api/analysis/provider/check').auth(signAccessToken({ sub: 'a', email: 'a@run.test' }), { type: 'bearer' })).status, 503);
+  assert.deepEqual((await http('analysis/stats', scope)).body, savedBeforeOutage.body);
+  for (const endpoint of ['reviews', 'issues/groupings', 'analysis/aspects']) assert.equal((await http(endpoint, scope)).status, 200);
+  assert.equal((await http(`analysis/runs/${scope.runId}`)).status, 200);
+  assert.equal((await http('reports')).status, 200);
+  const runCountBeforeOutage = await db.analysisRun.count();
+  assert.equal((await request(app).post('/api/analysis/run').auth(signAccessToken({ sub: 'a', email: 'a@run.test' }), { type: 'bearer' })
+    .send({ productId: scope.productId, mode: 'reanalyze' })).status, 503);
+  assert.equal(await db.analysisRun.count(), runCountBeforeOutage);
+  console.log('Stopped model: saved overview, reviews, groups, aspects, history and reports remain readable; rejected new analysis leaves existing state intact.');
   if (worker && worker.exitCode === null && !worker.signalCode) { const exited = once(worker, 'exit'); worker.kill('SIGKILL'); await exited; }
   const { verifyImportCheckpoints } = await import('./verify-import-checkpoints.mjs');
   await verifyImportCheckpoints(app, db);
