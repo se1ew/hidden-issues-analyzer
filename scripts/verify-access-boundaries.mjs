@@ -120,7 +120,7 @@ try {
   for (const endpoint of ['/api/reviews/upload/text', '/api/reviews/upload/csv', '/api/analysis/run', '/api/issues/recompute', '/api/reports/generate', '/api/parsing/start']) {
     await request(app).post(endpoint).send({}).expect(401);
   }
-  await db.product.create({ data: { id: 'legacy', name: 'Unassigned legacy' } });
+  await assert.rejects(db.$executeRawUnsafe(`INSERT INTO "Product" (id,name) VALUES ('legacy','Unassigned legacy')`));
   const manualA = await request(app).post('/api/reviews/upload/text').set(headersA).send({ text: '  Мой отзыв  ', productName: 'Shared name', rating: 5 }).expect(201);
   const manualB = await request(app).post('/api/reviews/upload/text').set(headersB).send({ text: 'Секретный отзыв B', productName: 'Shared name', rating: 1 }).expect(201);
   const reviewA = await db.review.findUniqueOrThrow({ where: { id: manualA.body.id } });

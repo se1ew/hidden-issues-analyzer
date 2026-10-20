@@ -61,7 +61,8 @@ try {
   const dump = run('docker', ['exec', name, 'pg_dump', '-U', 'check', '-d', 'legacy', '--no-owner', '--no-privileges']);
   sql('restored', dump);
   assert.equal(sql('legacy', 'SELECT row_to_json(r) FROM "Review" r ORDER BY id;'), sql('restored', 'SELECT row_to_json(r) FROM "Review" r ORDER BY id;'));
-  for (const entry of domainDirs) sql('restored', fs.readFileSync(path.join(migrations, entry, 'migration.sql'), 'utf8'));
+  const ownerMigration = '20261020150000_require_product_owner';
+  for (const entry of domainDirs.filter(entry => entry < ownerMigration)) sql('restored', fs.readFileSync(path.join(migrations, entry, 'migration.sql'), 'utf8'));
   const db = client('restored', port);
   const review = await db.review.findUniqueOrThrow({ where: { id: 'r1' } });
   assert.equal(review.text, 'Красивый, но шумит.');
@@ -69,18 +70,22 @@ try {
   assert.equal(review.legacyAnalysis, true);
   assert.equal(review.importedAt.toISOString(), '2026-01-01T00:00:00.000Z');
   assert.equal(review.uploadBatchId, null);
-  assert.equal((await db.product.findUniqueOrThrow({ where: { id: 'p1' } })).userId, null);
+  assert.equal((await db.$queryRawUnsafe(`SELECT "userId" FROM "Product" WHERE id = 'p1'`))[0].userId, null);
   assert.equal(await db.issueMention.count(), 0);
   assert.equal((await db.review.findUniqueOrThrow({ where: { id: 'r2' } })).productId, null);
   console.log('Legacy backup/restore: text, dates, owners, old results preserved; no invented provenance or quotes.');
+  assert.throws(() => sql('restored', fs.readFileSync(path.join(migrations, ownerMigration, 'migration.sql'), 'utf8')),
+    /Assign every legacy product explicitly/);
 
   const assignmentEnv = { ...process.env, DATABASE_URL: `postgresql://check:check@127.0.0.1:${port}/restored` };
   run(process.execPath, ['scripts/assign-legacy-product.mjs', '--product', 'p1', '--user', 'u1'], { env: assignmentEnv });
-  assert.equal((await db.product.findUniqueOrThrow({ where: { id: 'p1' } })).userId, null);
+  assert.equal((await db.$queryRawUnsafe(`SELECT "userId" FROM "Product" WHERE id = 'p1'`))[0].userId, null);
   run(process.execPath, ['scripts/assign-legacy-product.mjs', '--product', 'p1', '--user', 'u1', '--apply'], { env: assignmentEnv });
   assert.equal((await db.product.findUniqueOrThrow({ where: { id: 'p1' } })).userId, 'u1');
   const reassignment = spawnSync(process.execPath, ['scripts/assign-legacy-product.mjs', '--product', 'p1', '--user', 'u2', '--apply'], { cwd: root, encoding: 'utf8', env: assignmentEnv });
   assert.notEqual(reassignment.status, 0);
+  for (const entry of domainDirs.filter(entry => entry >= ownerMigration)) sql('restored', fs.readFileSync(path.join(migrations, entry, 'migration.sql'), 'utf8'));
+  await assert.rejects(db.$executeRawUnsafe(`INSERT INTO "Product" (id,name) VALUES ('ownerless','Rejected')`));
   const runData = { userId: 'u1', productId: 'p1', scope: {}, settings: {}, provider: 'test', model: 'test', modelVersion: '1', promptVersion: '1', embeddingVersion: '1', methodVersion: '1', total: 1 };
   await assert.rejects(db.analysisRun.create({ data: { ...runData, userId: 'u2' } }), { code: 'P2003' });
   const first = await db.analysisRun.create({ data: runData });

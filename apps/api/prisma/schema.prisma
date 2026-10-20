@@ -60,15 +60,14 @@ model Product {
   name                 String
   sourceUrl            String?
   createdAt            DateTime              @default(now())
-  // Nullable only during migration: legacy ownership must be assigned explicitly.
-  userId               String?
+  userId               String
   source               String                @default("legacy")
   externalId           String?
   publishedGroupingId  String?
   publishedGrouping    GroupingPublication?  @relation("PublishedGrouping", fields: [publishedGroupingId, id], references: [id, productId], onDelete: Restrict, onUpdate: NoAction)
   groupingPublications GroupingPublication[] @relation("ProductGroupings")
 
-  user          User?         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Restrict)
   uploadBatches UploadBatch[]
   analysisRuns  AnalysisRun[]
   problems      Problem[]

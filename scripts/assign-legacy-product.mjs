@@ -12,16 +12,18 @@ dotenv.config({ path: fileURLToPath(new URL('../apps/api/.env', import.meta.url)
 const prisma = new PrismaClient();
 try {
   await prisma.$transaction(async (tx) => {
-    const [product, user] = await Promise.all([
-      tx.product.findUnique({ where: { id: values.product }, include: { _count: { select: { reviews: true } } } }),
+    const [products, user] = await Promise.all([
+      tx.$queryRaw`SELECT p.id, p."userId", (SELECT count(*)::int FROM "Review" r WHERE r."productId" = p.id) AS reviews FROM "Product" p WHERE p.id = ${values.product} FOR UPDATE`,
       tx.user.findUnique({ where: { id: values.user }, select: { id: true } }),
     ]);
+    const product = products[0];
     assert(product && user, 'Product and user must exist');
     assert(product.userId === null || product.userId === user.id, 'Refusing to change an existing owner');
-    console.log(JSON.stringify({ productId: product.id, userId: user.id, reviews: product._count.reviews, apply: values.apply }));
+    console.log(JSON.stringify({ productId: product.id, userId: user.id, reviews: product.reviews, apply: values.apply }));
     if (values.apply && product.userId === null) {
-      const result = await tx.product.updateMany({ where: { id: product.id, userId: null }, data: { userId: user.id } });
-      assert.equal(result.count, 1, 'Ownership changed concurrently; assignment aborted');
+      // Raw SQL also supports the nullable transition schema with the final Prisma Client.
+      const count = await tx.$executeRaw`UPDATE "Product" SET "userId" = ${user.id} WHERE id = ${product.id} AND "userId" IS NULL`;
+      assert.equal(count, 1, 'Ownership changed concurrently; assignment aborted');
     }
   }, { isolationLevel: 'Serializable' });
 } finally {
