@@ -1,0 +1,29 @@
+{
+  "kind": "synthetic-demo",
+  "products": [
+    {
+      "productId": "kettle-a",
+      "name": "Демо: чайник A",
+      "file": "kettle-a.csv",
+      "rows": 17
+    },
+    {
+      "productId": "kettle-b",
+      "name": "Демо: чайник B",
+      "file": "kettle-b.csv",
+      "rows": 1
+    },
+    {
+      "productId": "headphones-a",
+      "name": "Демо: наушники",
+      "file": "headphones-a.csv",
+      "rows": 4
+    },
+    {
+      "productId": "bottle-a",
+      "name": "Демо: флакон",
+      "file": "bottle-a.csv",
+      "rows": 3
+    }
+  ]
+}
