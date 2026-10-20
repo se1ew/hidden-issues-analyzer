@@ -34,6 +34,7 @@
     "test:integration:migration": "node scripts/verify-domain-migration.mjs",
     "test:production:web": "node scripts/verify-web-production.mjs",
     "test:production:hosting": "node scripts/verify-production-hosting.mjs",
+    "test:production:compose": "node scripts/verify-production-compose.mjs",
     "benchmark:grouping": "tsx scripts/benchmark-grouping.mjs",
     "start:api": "npm run start --workspace=@hia/api",
     "start:worker": "npm run start:worker --workspace=@hia/api",
