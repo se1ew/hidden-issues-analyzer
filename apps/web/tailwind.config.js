@@ -43,7 +43,7 @@ export default {
         muted: '#9CA3AF',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['ReviewLens Sans', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         card: '0 1px 3px rgba(87, 87, 87, 0.08), 0 1px 2px rgba(87, 87, 87, 0.04)',

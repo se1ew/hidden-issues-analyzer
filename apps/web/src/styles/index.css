@@ -2,10 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face { font-family: 'ReviewLens Sans'; src: url('/fonts/NotoSans-Regular.ttf') format('truetype'); font-weight: 400 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'ReviewLens Sans'; src: url('/fonts/NotoSans-Bold.ttf') format('truetype'); font-weight: 700 900; font-style: normal; font-display: swap; }
+
 @layer base {
   :root { color-scheme: light; --surface: #ffffff; --canvas: #f8f9ff; --ink: #0b1c30; --muted: #434655; --line: #c3c6d7; --accent: #004ac6; }
   .dark { color-scheme: dark; --surface: #152235; --canvas: #0b1422; --ink: #eaf1ff; --muted: #bdc8db; --line: #53617a; --accent: #b4c5ff; }
-  html { font-family: Inter, system-ui, sans-serif; color: var(--ink); }
+  html { font-family: 'ReviewLens Sans', system-ui, sans-serif; color: var(--ink); }
   body { @apply min-h-screen antialiased; background: var(--canvas); color: var(--ink); }
   h1 { @apply text-2xl font-semibold tracking-tight; color: var(--ink); }
   h2 { @apply text-xl font-semibold tracking-tight; color: var(--ink); }
