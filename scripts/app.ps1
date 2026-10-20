@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Init','Build','Start','Stop','Status','Logs','InstallAutostart','RemoveAutostart')]
+    [ValidateSet('Init','Build','Start','Local','Stop','Status','Logs','InstallAutostart','RemoveAutostart')]
     [string]$Action = 'Status',
     [string]$EnvFile = (Join-Path $PSScriptRoot '..\deploy\.env'),
     [ValidatePattern('^[a-z0-9][a-z0-9_-]{0,50}$')][string]$ProjectName = 'reviewlens',
@@ -50,6 +50,29 @@ if ($Action -eq 'Init') {
     exit 0
 }
 if (-not (Test-Path -LiteralPath $envPath)) { throw 'Run -Action Init first.' }
+if ($Action -eq 'Local') {
+    $content = [IO.File]::ReadAllText($envPath)
+    $portMatch = [regex]::Match($content, '(?m)^APP_PORT=(\d+)\r?$')
+    $localPort = $Port
+    if (-not $PSBoundParameters.ContainsKey('Port') -and $portMatch.Success) { $localPort = [int]$portMatch.Groups[1].Value }
+    if ($localPort -lt 1024 -or $localPort -gt 65535) { throw 'Invalid application port in environment file.' }
+    foreach ($entry in @("APP_PORT=$localPort",'APP_BIND=127.0.0.1',"WEB_ORIGIN=http://localhost:$localPort")) {
+        $key = $entry.Split('=')[0]
+        if ([regex]::Matches($content,"(?m)^$key=").Count -gt 1) { throw "Duplicate environment setting: $key" }
+        if ($content -match "(?m)^$key=") { $content = [regex]::Replace($content,"(?m)^$key=[^\r\n]*",$entry) }
+        else { $content += "`n$entry`n" }
+    }
+    $temporary = Join-Path (Split-Path $envPath) ('.env.reconfigure-' + [Guid]::NewGuid().ToString('N') + '.local')
+    $previous = $temporary + '.backup.local'
+    try {
+        [IO.File]::WriteAllText($temporary,$content,[Text.UTF8Encoding]::new($false))
+        [IO.File]::Replace($temporary,$envPath,$previous)
+    } finally {
+        foreach ($ownedFile in @($temporary,$previous)) { if (Test-Path -LiteralPath $ownedFile) { Remove-Item -LiteralPath $ownedFile } }
+    }
+    Write-Output "Local demonstration: http://localhost:$localPort"
+    $Action = 'Start'
+}
 switch ($Action) {
     'Build' { Invoke-Compose -Command @('build','api') }
     'Start' {
