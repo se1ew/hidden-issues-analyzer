@@ -4,6 +4,8 @@ import express, { type Express } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { logContext } from './lib/log-context.js';
 import { logger } from './lib/logger.js';
 import { LIMITS } from './lib/resource-limits.js';
@@ -63,6 +65,21 @@ export function createApp(): Express {
   app.get('/ready', async (_req, res) => { const data = await readiness(); res.status(data.status === 'ready' ? 200 : 503).json(data); });
 
   app.use('/api', apiRouter);
+
+  if (env.WEB_DIST_DIR) {
+    const directory = resolve(env.WEB_DIST_DIR);
+    const index = resolve(directory, 'index.html');
+    if (!existsSync(index)) throw new Error('WEB_DIST_DIR must contain a built index.html');
+    app.use(express.static(directory, { index: false, dotfiles: 'deny', setHeaders: (res, path) => {
+      res.setHeader('Cache-Control', path.includes(`${resolve(directory, 'assets')}`) ? 'public, max-age=31536000, immutable' : 'no-cache');
+    } }));
+    app.get('/{*path}', (req, res, next) => {
+      if (req.path === '/api' || req.path.startsWith('/api/') || req.path.startsWith('/socket.io')
+        || req.path.startsWith('/assets/') || /\.[^/]+$/.test(req.path)) return next();
+      res.setHeader('Cache-Control', 'no-cache');
+      res.sendFile(index);
+    });
+  }
 
   app.use(notFound);
   app.use(errorHandler);

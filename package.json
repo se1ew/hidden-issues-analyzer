@@ -33,6 +33,7 @@
     "test:integration:access": "npm run build:api && node scripts/verify-access-boundaries.mjs",
     "test:integration:migration": "node scripts/verify-domain-migration.mjs",
     "test:production:web": "node scripts/verify-web-production.mjs",
+    "test:production:hosting": "node scripts/verify-production-hosting.mjs",
     "benchmark:grouping": "tsx scripts/benchmark-grouping.mjs",
     "start:api": "npm run start --workspace=@hia/api",
     "start:worker": "npm run start:worker --workspace=@hia/api",
