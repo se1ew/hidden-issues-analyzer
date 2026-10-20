@@ -106,11 +106,17 @@ async function fetchFeedbacks(imtId: number, nmId: number, signal?: AbortSignal)
   throw lastError;
 }
 
+export async function inspectWildberriesSource(value: string, signal?: AbortSignal) {
+  const productId = extractWbId(value);
+  const imtId = await fetchWbImtId(productId, signal);
+  const result = await fetchFeedbacks(imtId, productId, signal);
+  return { productId, imtId, ...result };
+}
+
 export async function parseWildberries(url: string, userId: string, options: { signal?: AbortSignal; batchId?: string; internalProductId?: string } = {}) {
   const productId = extractWbId(url); const canonicalUrl = `https://www.wildberries.ru/catalog/${productId}/detail.aspx`;
   logger.info({ productId }, 'WB parse started');
-  const imtId = await fetchWbImtId(productId, options.signal);
-  const { rows, received, ignored } = await fetchFeedbacks(imtId, productId, options.signal);
+  const { rows, received, ignored } = await inspectWildberriesSource(url, options.signal);
   cancelled(options.signal);
   const base = { source: 'wildberries' as const, productId, receivedCount: received, ignoredCount: ignored,
     historyComplete: false, limitation: 'Источник возвращает доступный фрагмент отзывов; полнота истории не гарантируется.' };
