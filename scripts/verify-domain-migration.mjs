@@ -64,7 +64,8 @@ try {
   const ownerMigration = '20261020150000_require_product_owner';
   for (const entry of domainDirs.filter(entry => entry < ownerMigration)) sql('restored', fs.readFileSync(path.join(migrations, entry, 'migration.sql'), 'utf8'));
   const db = client('restored', port);
-  const review = await db.review.findUniqueOrThrow({ where: { id: 'r1' } });
+  // Transitional rows contain nullable fields that the final Client disallows.
+  const [review] = await db.$queryRawUnsafe(`SELECT * FROM "Review" WHERE id = 'r1'`);
   assert.equal(review.text, 'Красивый, но шумит.');
   assert.equal(review.hiddenIssueId, 'h1');
   assert.equal(review.legacyAnalysis, true);
@@ -72,7 +73,7 @@ try {
   assert.equal(review.uploadBatchId, null);
   assert.equal((await db.$queryRawUnsafe(`SELECT "userId" FROM "Product" WHERE id = 'p1'`))[0].userId, null);
   assert.equal(await db.issueMention.count(), 0);
-  assert.equal((await db.review.findUniqueOrThrow({ where: { id: 'r2' } })).productId, null);
+  assert.equal((await db.$queryRawUnsafe(`SELECT "productId" FROM "Review" WHERE id = 'r2'`))[0].productId, null);
   console.log('Legacy backup/restore: text, dates, owners, old results preserved; no invented provenance or quotes.');
   assert.throws(() => sql('restored', fs.readFileSync(path.join(migrations, ownerMigration, 'migration.sql'), 'utf8')),
     /Assign every legacy product explicitly/);
@@ -84,8 +85,23 @@ try {
   assert.equal((await db.product.findUniqueOrThrow({ where: { id: 'p1' } })).userId, 'u1');
   const reassignment = spawnSync(process.execPath, ['scripts/assign-legacy-product.mjs', '--product', 'p1', '--user', 'u2', '--apply'], { cwd: root, encoding: 'utf8', env: assignmentEnv });
   assert.notEqual(reassignment.status, 0);
-  for (const entry of domainDirs.filter(entry => entry >= ownerMigration)) sql('restored', fs.readFileSync(path.join(migrations, entry, 'migration.sql'), 'utf8'));
+  sql('restored', fs.readFileSync(path.join(migrations, ownerMigration, 'migration.sql'), 'utf8'));
   await assert.rejects(db.$executeRawUnsafe(`INSERT INTO "Product" (id,name) VALUES ('ownerless','Rejected')`));
+  const provenanceMigration = '20261020151000_require_review_provenance';
+  assert.throws(() => sql('restored', fs.readFileSync(path.join(migrations, provenanceMigration, 'migration.sql'), 'utf8')), /Explicitly link legacy reviews/);
+  for (const id of ['r1', 'r2']) {
+    const link = ['scripts/link-legacy-review.mjs', '--review', id, '--product', 'p1', '--batch', 'b1', '--reason', 'Verified synthetic fixture origin'];
+    run(process.execPath, link, { env: assignmentEnv });
+    assert.equal((await db.$queryRawUnsafe(`SELECT "uploadBatchId" FROM "Review" WHERE id = '${id}'`))[0].uploadBatchId, null);
+    run(process.execPath, [...link, '--apply'], { env: assignmentEnv });
+  }
+  for (const entry of domainDirs.filter(entry => entry > ownerMigration)) sql('restored', fs.readFileSync(path.join(migrations, entry, 'migration.sql'), 'utf8'));
+  await assert.rejects(db.$executeRawUnsafe(`INSERT INTO "Review" (id,text) VALUES ('orphan','Rejected')`));
+  assert.equal((await db.review.findUniqueOrThrow({ where: { id: 'r1' } })).uploadBatchId, 'b1');
+  await db.product.create({ data: { id: 'other-product', name: 'Other', userId: 'u1' } });
+  await assert.rejects(db.review.create({ data: { productId: 'other-product', uploadBatchId: 'b1', text: 'Wrong import' } }), { code: 'P2003' });
+  await db.uploadBatch.create({ data: { id: 'other-batch', userId: 'u1', productId: 'other-product', source: 'manual' } });
+  await db.review.create({ data: { id: 'foreign-review', productId: 'other-product', uploadBatchId: 'other-batch', text: 'Other product' } });
   const runData = { userId: 'u1', productId: 'p1', scope: {}, settings: {}, provider: 'test', model: 'test', modelVersion: '1', promptVersion: '1', embeddingVersion: '1', methodVersion: '1', total: 1 };
   await assert.rejects(db.analysisRun.create({ data: { ...runData, userId: 'u2' } }), { code: 'P2003' });
   const first = await db.analysisRun.create({ data: runData });
@@ -94,7 +110,7 @@ try {
   await assert.rejects(db.analysisRun.update({ where: { id: first.id }, data: { status: 'completed' } }));
   await db.analysisRun.update({ where: { id: first.id }, data: { status: 'cancelled', finishedAt: new Date() } });
   const second = await db.analysisRun.create({ data: runData });
-  await assert.rejects(db.analysisRunReview.create({ data: { runId: first.id, reviewId: 'r2', sourceReviewId: 'r2', inputVersion: 1, inputHash: 'fixture', text: 'Без товара', importedAt: new Date(), source: 'legacy' } }));
+  await assert.rejects(db.analysisRunReview.create({ data: { runId: first.id, reviewId: 'foreign-review', sourceReviewId: 'foreign-review', inputVersion: 1, inputHash: 'fixture', text: 'Other product', importedAt: new Date(), source: 'legacy' } }));
   const input = await db.analysisRunReview.create({ data: { runId: first.id, reviewId: 'r1', sourceReviewId: 'r1', inputVersion: 1, inputHash: 'fixture', text: review.text, rating: 5, importedAt: review.importedAt, source: 'legacy' } });
   await assert.rejects(db.analysisRunReview.update({ where: { id: input.id }, data: { text: 'Changed input' } }));
   await assert.rejects(db.analysisRunReview.create({ data: { runId: first.id, reviewId: 'r1', sourceReviewId: 'r1', inputVersion: 1, inputHash: 'fixture', text: review.text, importedAt: review.importedAt, source: 'legacy' } }), { code: 'P2002' });

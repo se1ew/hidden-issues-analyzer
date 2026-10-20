@@ -5,7 +5,7 @@ export function ownedProductScope(userId: string, productId?: string) {
   if (!userId) throw new HttpError(401, 'Unauthorized');
   return {
     product: { userId },
-    ...(productId ? { productId: productId === '__unassigned__' ? null : productId } : {}),
+    ...(productId ? { productId } : {}),
   };
 }
 

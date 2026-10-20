@@ -76,7 +76,8 @@ try {
   for (const id of ['a', 'b']) await db.user.create({ data: { id, email: `${id}@run.test`, passwordHash: 'unused' } });
   const product = await db.product.create({ data: { userId: 'a', name: 'Run snapshot', source: 'local' } });
   const foreign = await db.product.create({ data: { userId: 'b', name: 'Foreign', source: 'local' } });
-  await db.review.createMany({ data: [1, 2].map(number => ({ id: `review-${number}`, productId: product.id, text: `  Отзыв ${number}  `, rating: number + 3 })) });
+  const initialBatch = await db.uploadBatch.create({ data: { userId: 'a', productId: product.id, source: 'manual', status: 'completed' } });
+  await db.review.createMany({ data: [1, 2].map(number => ({ id: `review-${number}`, productId: product.id, uploadBatchId: initialBatch.id, text: `  Отзыв ${number}  `, rating: number + 3 })) });
   const input = CreateAnalysisRunSchema.parse({ productId: product.id });
   await assert.rejects(runs.createAnalysisRun('a', { ...input, productId: foreign.id }), error => error.status === 404);
   const starts = await Promise.allSettled([runs.createAnalysisRun('a', input), runs.createAnalysisRun('a', input)]);
@@ -86,7 +87,7 @@ try {
   assert.equal(created.total, 2);
   await assert.rejects(runs.getAnalysisRun(created.id, 'b'), error => error.status === 404);
   assert.equal((await runs.listAnalysisRuns('b', { page: 1, pageSize: 20 })).total, 0);
-  await db.review.create({ data: { productId: product.id, text: 'Импорт после создания запуска' } });
+  await db.review.create({ data: { productId: product.id, uploadBatchId: initialBatch.id, text: 'Импорт после создания запуска' } });
   await db.review.update({ where: { id: 'review-1' }, data: { text: 'Изменённый источник', inputVersion: 2 } });
   const snapshot = await db.analysisRunReview.findMany({ where: { runId: created.id }, orderBy: { sourceReviewId: 'asc' } });
   assert.equal(snapshot.length, 2);
@@ -308,8 +309,9 @@ try {
   const { clusterMentions } = await import('../apps/api/dist/services/grouping-engine.js');
   const { GroupingSettingsSchema } = await import('../apps/api/dist/schemas/grouping.schema.js');
   const evidenceProduct = await db.product.create({ data: { userId: 'a', name: 'Рабочие страницы — проверка', source: 'local' } });
+  const evidenceBatch = await db.uploadBatch.create({ data: { userId: 'a', productId: evidenceProduct.id, source: 'manual', status: 'completed' } });
   const originalRows = await Promise.all([['Крышка заедает', 5], ['Крышка заедает', null], ['Заряд не держит', 2], ['Заряд не держит', 1]].map(([text, rating], index) => db.review.create({ data: {
-    productId: evidenceProduct.id, text, rating, source: 'manual', reviewDate: index === 1 ? null : new Date('2026-10-10'),
+    productId: evidenceProduct.id, uploadBatchId: evidenceBatch.id, text, rating, source: 'manual', reviewDate: index === 1 ? null : new Date('2026-10-10'),
   } })));
   const publishEvidence = async () => {
     const created = await runs.createAnalysisRun('a', CreateAnalysisRunSchema.parse({ productId: evidenceProduct.id, mode: 'reanalyze' }));
@@ -347,7 +349,7 @@ try {
   assert.equal((await mutation('patch', `issues/problems/${lid.problem.id}/state`, { status: 'resolved', expectedVersion: 1 })).status, 200);
   assert.equal((await mutation('patch', `issues/problems/${battery.problem.id}/state`, { status: 'rejected', expectedVersion: 0, reason: 'Проверка сохранения решения' })).status, 200);
   assert.equal((await mutation('patch', `issues/problems/${lid.problem.id}/state`, { status: 'confirmed', expectedVersion: 0 })).status, 409);
-  await db.review.create({ data: { productId: evidenceProduct.id, source: 'manual', text: 'Крышка заедает', rating: 5 } });
+  await db.review.create({ data: { productId: evidenceProduct.id, uploadBatchId: evidenceBatch.id, source: 'manual', text: 'Крышка заедает', rating: 5 } });
   const repeatedRun = await publishEvidence(); scope = { productId: evidenceProduct.id, runId: repeatedRun };
   listing = await http('issues/groupings', scope); const repeatedLid = listing.body.items.find(item => item.problem?.id === lid.problem.id);
   assert(repeatedLid.metrics.recurrence); assert.equal(repeatedLid.problem.status, 'new');
@@ -370,7 +372,7 @@ try {
   const numbers = (await http('analysis/stats', scope)).body;
   assert.equal(numbers.loadedTotal, 5); assert.equal(numbers.scopeTotal, 5); assert.equal(numbers.succeededCount, 5); assert.equal(numbers.failedCount, 0);
   assert.equal(numbers.problemCount, 2); assert.equal(numbers.hiddenProblemCount, 1);
-  await db.review.create({ data: { productId: evidenceProduct.id, text: 'Импорт после публикации', source: 'manual' } });
+  await db.review.create({ data: { productId: evidenceProduct.id, uploadBatchId: evidenceBatch.id, text: 'Импорт после публикации', source: 'manual' } });
   const afterImport = (await http('analysis/stats', { productId: evidenceProduct.id })).body;
   assert.equal(afterImport.scope.runId, repeatedRun); assert.equal(afterImport.loadedTotal, 6); assert.equal(afterImport.scopeTotal, 5);
   assert.equal(originalRows.length, 4);
@@ -418,7 +420,8 @@ try {
   await fs.copyFile(saved.filePath, new URL('report.docx', qaDir)); await fs.copyFile(pdfSaved.filePath, new URL('report.pdf', qaDir));
   await fs.writeFile(new URL('snapshot.json', qaDir), JSON.stringify(frozen, null, 2));
   // More than two UI pages, plus dangerous text prefixes and multiline Unicode.
-  await db.review.createMany({ data: Array.from({ length: 61 }, (_, index) => ({ productId: evidenceProduct.id, source: 'csv',
+  const exportBatch = await db.uploadBatch.create({ data: { userId: 'a', productId: evidenceProduct.id, source: 'csv', status: 'completed' } });
+  await db.review.createMany({ data: Array.from({ length: 61 }, (_, index) => ({ productId: evidenceProduct.id, uploadBatchId: exportBatch.id, source: 'csv',
     text: index === 0 ? '=1+1' : index === 1 ? 'Кавычки "текст", строка\nследующая' : `Полный экспорт ${index}`, rating: 4 })) });
   const fullCsv = await http('reviews/export/csv', { productId: evidenceProduct.id, page: 2, pageSize: 1 });
   assert.equal(fullCsv.status, 200); const allRows = parseCsv(fullCsv.text, { bom: true, columns: true });

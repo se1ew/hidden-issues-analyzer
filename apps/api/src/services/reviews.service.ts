@@ -6,7 +6,6 @@ import { persistImport } from './imports.service.js';
 import { ownedProductScope } from './ownership.service.js';
 import { HttpError } from '../middleware/error.js';
 import type { CreateManualReviewInput, ListReviewsQuery } from '../schemas/reviews.schema.js';
-import { UNASSIGNED_PRODUCT_ID } from './products.service.js';
 import { inspectReviewsCsv, type CsvOptions } from './csv.service.js';
 import { ImportProductSchema } from '../schemas/products.schema.js';
 import { readRunData } from './run-data.service.js';
@@ -85,7 +84,7 @@ export async function listReviews(query: ListReviewsQuery, userId: string, db: P
     where.text = { contains: query.search, mode: 'insensitive' };
   }
   if (query.productId) {
-    where.productId = query.productId === UNASSIGNED_PRODUCT_ID ? null : query.productId;
+    where.productId = query.productId;
   }
 
   if (exportAll && await db.review.count({ where }) > LIMITS.exportRows) throw new HttpError(413, 'Экспорт превышает 2000 отзывов. Уточните товар, запуск или фильтры; частичный файл не создаётся.');

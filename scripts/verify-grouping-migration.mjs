@@ -12,7 +12,8 @@ try {
     INSERT INTO "AnalysisRun" (id,"userId","productId",status,scope,settings,provider,model,"modelVersion","promptVersion","embeddingVersion","methodVersion",total,succeeded)
       VALUES ('run','owner','p','running','{}','{}','local','fixture','test','test','test','test',4,4),
         ('foreign-run','other','foreign','failed','{}','{}','local','fixture','test','test','test','test',0,0);
-    INSERT INTO "Review" (id,"productId",text,rating) SELECT 'r'||n,'p','шумит',5 FROM generate_series(1,4) n;
+    INSERT INTO "UploadBatch" (id,"userId","productId",source) VALUES ('batch','owner','p','manual');
+    INSERT INTO "Review" (id,"productId","uploadBatchId",text,rating) SELECT 'r'||n,'p','batch','шумит',5 FROM generate_series(1,4) n;
     INSERT INTO "AnalysisRunReview" (id,"runId","reviewId","sourceReviewId","inputVersion","inputHash",text,rating,"importedAt",source)
       SELECT 'i'||n,'run','r'||n,'r'||n,1,'hash'||n,'шумит',5,now(),'manual' FROM generate_series(1,4) n;
     INSERT INTO "ReviewAnalysis" (id,"runId","runReviewId",status,sentiment) SELECT 'a'||n,'run','i'||n,'succeeded','positive' FROM generate_series(1,4) n;

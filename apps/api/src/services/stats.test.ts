@@ -13,7 +13,7 @@ beforeEach(() => {
 });
 
 describe('getOverviewStats', () => {
-  it.each([[undefined, {}], ['__unassigned__', { productId: null }], ['product-1', { productId: 'product-1' }]])(
+  it.each([[undefined, {}], ['__unassigned__', { productId: '__unassigned__' }], ['product-1', { productId: 'product-1' }]])(
     'применяет область %s к запросам статистики', async (productId, scope) => {
       const where = { ...scope, product: { userId: 'owner' } };
       const result = await getOverviewStats('owner', productId);
