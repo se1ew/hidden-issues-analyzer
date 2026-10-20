@@ -78,6 +78,15 @@ try {
     const { verifyProductionBrowser } = await import('./verify-production-browser.mjs');
     await verifyProductionBrowser(base);
   }
+  const { backupProduction, restoreProduction } = await import('./production-storage.mjs');
+  const storageOptions = { envFile, project, directory: path.join(folder, 'backup') };
+  await backupProduction(storageOptions);
+  compose('down', '--volumes'); // Discard only this runner's synthetic fixtures before restoration.
+  await restoreProduction(storageOptions);
+  assert.equal((await fetch(base + `/api/products/${product.id}`, { headers: { Authorization: `Bearer ${accessToken}` } })).status, 200);
+  compose('exec', '-T', 'api', 'node', '-e', `require('node:assert/strict').equal(require('node:fs').readFileSync('${paths[0]}','utf8'),'${project}')`);
+  await assert.rejects(restoreProduction(storageOptions), /empty database/);
+  console.log('Production backup/restore: quiesced DB + report copy, checksums, empty-target restoration, retained user/product/artifact and refusal to overwrite passed.');
   console.log('Persistent storage: database row, shared reports/uploads and embedding cache survived full container recreation.');
   console.log('Production compose: image, deploy migrations, internal DB/Redis, separate worker, readiness, SPA, registration and product creation passed.');
 } finally {

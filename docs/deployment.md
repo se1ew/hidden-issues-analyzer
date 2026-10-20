@@ -150,3 +150,35 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/firewall.ps1 -Port 8
 контейнера через `host.docker.internal`. Не включайте публичный доступ к нему.
 Если конкретный runtime требует иной привязки, ограничьте его входящие правила
 Docker-соединениями и повторите проверку с другого устройства.
+
+## Резервное копирование production
+
+С основного каталога проекта на машине с Node и Docker CLI:
+
+```powershell
+node scripts/production-storage.mjs backup --directory D:\ReviewLens-backups\before-update
+```
+
+Команда ненадолго останавливает API/worker, делает согласованную копию БД и
+каталога отчётов, записывает manifest SHA-256 и возобновляет ранее работавшие
+процессы. Новый каталог backup обязателен; существующий не перезаписывается.
+Секреты подключения не выводятся. Модели/runtime и `deploy/.env` храните
+отдельно в защищённой копии; временные uploads не являются архивом источников.
+
+Восстанавливайте в отдельный новый project с теми же секретами и совместимым
+образом; API/worker должны быть остановлены, БД и каталог отчётов — пустыми:
+
+```powershell
+node scripts/production-storage.mjs restore --directory D:\ReviewLens-backups\before-update --env-file deploy/.env --project reviewlens-restored
+```
+
+Для параллельной проверки задайте в отдельном env-файле другой `APP_PORT` и
+соответствующий `WEB_ORIGIN`. Восстановление проверяет manifest и все артефакты,
+сбрасывает старые heartbeat/leases и запускает `migrate deploy`/readiness.
+Команда отказывается перезаписывать существующую БД или непустые отчёты.
+Не удаляйте исходную установку ради восстановления.
+
+Проверка `test:production:compose` сохранила synthetic project, пересоздала
+только его volumes и восстановила пользователя, товар и файл отчёта. Повторное
+восстановление в непустую установку отклонено. Перезагрузка Windows с реальным
+runtime проверяется на целевом ПК отдельно.
