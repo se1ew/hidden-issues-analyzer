@@ -52,7 +52,7 @@ try {
     'Content-Type': 'application/json', Origin: base, 'X-ReviewLens-CSRF': '1',
   }, body: JSON.stringify({ email: 'production@fixture.invalid', password: 'production-fixture-123' }) });
   assert.equal(registered.status, 201);
-  const { accessToken } = await registered.json();
+  const { accessToken, user } = await registered.json();
   const { io } = await import('socket.io-client');
   const socket = io(base, { auth: { token: accessToken }, transports: ['websocket'], extraHeaders: { Origin: base } });
   try {
@@ -67,6 +67,21 @@ try {
   }, body: JSON.stringify({ name: 'Production smoke' }) });
   assert.equal(created.status, 201);
   const product = await created.json();
+  const savedRunId = compose('exec', '-T', 'api', 'node', '--input-type=module', '-e',
+    `import {PrismaClient} from '@prisma/client'; const db=new PrismaClient(); try { const run=await db.analysisRun.create({data:{userId:${JSON.stringify(user.id)},productId:${JSON.stringify(product.id)},status:'completed',finishedAt:new Date(),scope:{},settings:{},provider:'local',model:'saved-fixture',modelVersion:'test',promptVersion:'test',embeddingVersion:'test',methodVersion:'test'}}); console.log(run.id); } finally {await db.$disconnect()}`);
+  async function readSavedSocketState() {
+    const connection = io(base, { auth: { token: accessToken }, transports: ['websocket'], extraHeaders: { Origin: base } });
+    try {
+      const state = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Saved run socket state timed out')), 5000);
+        connection.once('connect_error', error => { clearTimeout(timer); reject(error); });
+        connection.once('connect', () => connection.emit('job:subscribe', savedRunId));
+        connection.once('analysis:state', state => { clearTimeout(timer); resolve(state); });
+      });
+      assert.equal(state.id, savedRunId); assert.equal(state.status, 'completed');
+    } finally { connection.disconnect(); }
+  }
+  await readSavedSocketState();
   const paths = ['/app/apps/api/reports_output/persistence-check.txt', '/app/models_cache/persistence-check.txt', '/app/apps/api/uploads/persistence-check.txt'];
   compose('exec', '-T', 'api', 'node', '-e', `const fs=require('node:fs'); for(const p of ${JSON.stringify(paths)}) fs.writeFileSync(p,'${project}');`);
   compose('up', '-d', '--no-build', '--force-recreate', '--wait', '--wait-timeout', '120');
@@ -74,6 +89,10 @@ try {
   const retained = await fetch(base + `/api/products/${product.id}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   assert.equal(retained.status, 200);
   assert.equal((await retained.json()).name, 'Production smoke');
+  const restoredRun = await fetch(base + `/api/analysis/runs/${savedRunId}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  assert.equal(restoredRun.status, 200); assert.equal((await restoredRun.json()).status, 'completed');
+  await readSavedSocketState();
+  console.log('Production recovery: saved run survived API/container restart and Socket.IO reconnection returned its PostgreSQL state.');
   if (process.env.PLAYWRIGHT_MODULE) {
     const { verifyProductionBrowser } = await import('./verify-production-browser.mjs');
     await verifyProductionBrowser(base);
