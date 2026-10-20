@@ -34,6 +34,9 @@ try {
   const config = JSON.parse(compose('config', '--format', 'json'));
   assert.equal(config.services.api.ports.length, 1);
   for (const service of ['postgres', 'redis', 'worker', 'migrate']) assert(!config.services[service].ports);
+  assert(config.services.migrate.command.includes('deploy'));
+  assert(!config.services.migrate.command.includes('dev'));
+  assert.equal(config.services.api.depends_on.migrate.condition, 'service_completed_successfully');
   compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120');
   let ready;
   for (let i = 0; i < 80; i++) {
