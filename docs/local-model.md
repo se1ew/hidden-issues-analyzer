@@ -1,5 +1,32 @@
 # Подготовка проверки локальной модели
 
+## Эмбеддинги подготовлены 20 октября 2026
+
+Модель: `Xenova/paraphrase-multilingual-MiniLM-L12-v2`, ревизия
+`2c4055b12046f11709e9df2c122e59ffbdc2f900`, `onnx/model_quantized.onnx`,
+mean pooling + L2, 384 измерения. Четыре файла (около 135 MB) скачаны в
+`.cache/portable-models`; контрольные суммы: `docs/fixtures/embedding-assets.json`.
+
+```powershell
+node scripts/prepare-embeddings.mjs --cache .cache/portable-models
+node scripts/prepare-embeddings.mjs --cache .cache/portable-models --offline
+```
+
+Первый вызов закрепляет commit, загружает файлы, считает векторы и сохраняет
+manifest SHA-256. Второй проверяет файлы и запрещает fetch. Он успешно выполнен
+на CPU Windows (~2.1 s) и в Linux production-образе с `--network none` (~7.4 s).
+Это проверка загрузки и вычисления эмбеддингов; качество группировки LLM и
+производительность GTX 1080 по этим числам не оцениваются.
+
+В production постоянный кэш — `/app/models_cache` в именованном volume `models`.
+В `deploy/.env.example` закреплена указанная ревизия. Перенесите каталог целиком,
+включая `embedding-assets.json` и подкаталоги модели/ревизии. После копирования
+в volume повторите `node /app/scripts/prepare-embeddings.mjs --cache
+/app/models_cache --offline` внутри worker-контейнера. Не переносите `node_modules`
+Windows в Linux. Векторный ONNX и tokenizer не требуют Windows-зависимостей.
+
+Ниже — план испытания instruct-модели, для которой ещё нужен целевой ПК.
+
 11 октября 2026. Проверка на втором ПК с GTX 1080 ещё не проведена.
 Runtime и instruct-модель не установлены. Ни один аппаратный пункт фазы 18
 не считается выполненным на основании этой инструкции.

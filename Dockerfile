@@ -20,6 +20,7 @@ COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/prisma ./apps/api/prisma
 COPY --from=build /app/apps/api/assets ./apps/api/assets
 COPY --from=build /app/apps/web/dist ./apps/web/dist
+COPY --from=build /app/scripts ./scripts
 RUN mkdir -p /app/apps/api/reports_output /app/apps/api/uploads /app/models_cache \
     && chown node:node /app/apps/api/reports_output /app/apps/api/uploads /app/models_cache
 ENV NODE_ENV=production WEB_DIST_DIR=/app/apps/web/dist
