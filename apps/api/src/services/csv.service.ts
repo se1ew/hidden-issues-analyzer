@@ -28,7 +28,7 @@ const aliases = {
 type Field = keyof typeof aliases;
 const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, '_');
 
-function detectDelimiter(text: string): ',' | ';' | '\t' {
+export function detectDelimiter(text: string): ',' | ';' | '\t' {
   const counts = { ',': 0, ';': 0, '\t': 0 };
   let quoted = false;
   for (let i = 0; i < text.length; i++) {

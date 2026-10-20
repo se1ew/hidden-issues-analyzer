@@ -10,6 +10,8 @@ export interface AnalysisInputItem {
   id: string; sourceReviewId: string; text: string; rating: number | null;
   reviewDate?: string | null; importedAt?: string; source?: string;
   analysis: { status: string; sentiment: string | null; errorCode: string | null;
+    durationMs?: number | null; tokenUsage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | null;
+    diagnostics?: { cacheHit?: boolean; chunks?: number; sentimentAggregation?: string } | null;
     aspects: Array<{ id: string; name: string; originalName: string | null; category: string; sentiment: string }>;
     issues: Array<EvidenceRange & { id: string; aspectId: string; scope: string; defect: string; consequences: string | null;
       masking: { positiveContext: boolean; reasons: string[]; highRating: boolean | null } | null }> } | null;
@@ -143,6 +145,10 @@ export interface ParsingHistoryItem {
   id: string;
   filename: string | null;
   count: number;
+  addedCount?: number;
+  skippedCount?: number;
+  status?: string;
+  errorCode?: string | null;
   createdAt: string;
 }
 
@@ -189,6 +195,7 @@ export interface HiddenIssue {
 }
 
 export interface ReportItem {
+  status?: 'queued' | 'running' | 'completed' | 'failed' | 'expired'; errorCode?: string | null; attemptCount?: number;
   legacy?: boolean; productId?: string | null; runId?: string | null;
   id: string;
   title: string;
@@ -260,8 +267,8 @@ export function useCreateProduct() {
 export function useUploadCsv() {
   const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
-    mutationFn: async ({ file, productName, productId, delimiter, mapping, onProgress }: {
-      file: File; productName?: string; productId?: string; delimiter?: string; mapping?: CsvMapping; onProgress?: (percent: number) => void;
+    mutationFn: async ({ file, productName, productId, delimiter, mapping, onProgress, idempotencyKey }: {
+      file: File; productName?: string; productId?: string; delimiter?: string; mapping?: CsvMapping; onProgress?: (percent: number) => void; idempotencyKey?: string;
     }) => {
       const formData = new FormData();
       formData.append('file', file);
@@ -272,7 +279,7 @@ export function useUploadCsv() {
       const { data } = await api.post<CsvImportResult>(
         '/api/reviews/upload/csv',
         formData,
-        { onUploadProgress: progress => { if (progress.total) onProgress?.(Math.round(100 * progress.loaded / progress.total)); } },
+        { headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}, onUploadProgress: progress => { if (progress.total) onProgress?.(Math.round(100 * progress.loaded / progress.total)); } },
       );
       return data;
     },
@@ -411,6 +418,7 @@ export function useRecomputeIssues() {
 export function useReports() {
   return useQuery({
     queryKey: ['reports', useOwnerId()],
+    refetchInterval: query => query.state.data?.items.some(item => ['queued', 'running'].includes(item.status ?? '')) ? 2000 : false,
     queryFn: async () => {
       const { data } = await api.get<{ items: ReportItem[] }>('/api/reports');
       return data;
@@ -422,7 +430,7 @@ export function useGenerateReport() {
   const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async (input: { format: 'pdf' | 'docx'; title?: string; productId: string; runId: string; period: { from: string; to: string } | null; sections: string[]; days: number }) => {
-      const { data } = await api.post<{ id: string; downloadUrl: string }>(
+      const { data } = await api.post<{ id: string; status: string }>(
         '/api/reports/generate',
         input,
       );
@@ -438,11 +446,24 @@ export function useStartParsing() {
   const qc = useQueryClient(); const ownerId = useOwnerId();
   return useMutation({
     mutationFn: async (url: string) => {
-      const { data } = await api.post<{ source: string; reviewsAdded: number; internalProductId?: string }>(
+      const { data: queued } = await api.post<{ jobId: string; status: string; internalProductId?: string }>(
         '/api/parsing/start',
         { url },
       );
-      return data;
+      void qc.invalidateQueries({ queryKey: ['parsing', 'history', ownerId] });
+      for (let attempt = 0; attempt < 180; attempt++) {
+        const { data } = await api.get<{ status: string; source: string; reviewsAdded: number; internalProductId?: string; errorCode?: string }>(`/api/parsing/status/${queued.jobId}`);
+        if (['completed', 'partial'].includes(data.status)) return data;
+        if (['failed', 'interrupted'].includes(data.status)) {
+          const messages: Record<string, string> = { source_format_changed: 'Wildberries изменил формат ответа. Загрузите CSV.',
+            source_rate_limited: 'Wildberries ограничил запросы. Повторите позже либо загрузите CSV.',
+            owner_cancelled: 'Загрузка отменена. Сохранённые отзывы доступны.', worker_restarted: 'Worker перезапущен. Повторите загрузку.',
+          };
+          throw new Error(messages[data.errorCode ?? ''] ?? 'Wildberries недоступен. Повторите позже либо загрузите CSV.');
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      throw new Error('Задание сохранено. Проверьте worker и историю загрузок; результат появится после обработки.');
     },
     onSuccess: data => { if (data.internalProductId) { void invalidateProductData(qc, ownerId, data.internalProductId, ['reviews', 'timeseries', 'products', 'profile'], false); void invalidateProductData(qc, ownerId, data.internalProductId, ['stats']); } void qc.invalidateQueries({ queryKey: ['parsing', 'history', ownerId] }); },
   });
@@ -543,5 +564,16 @@ export function useParsingHistory() {
       const { data } = await api.get<{ items: ParsingHistoryItem[] }>('/api/parsing/history');
       return data;
     },
+      refetchInterval: query => query.state.data?.items.some(item => ['pending', 'running'].includes(item.status ?? '')) ? 1000 : false,
   });
+}
+
+export function useRetryReport() {
+  const qc = useQueryClient(); const ownerId = useOwnerId();
+  return useMutation({ mutationFn: async (id: string) => (await api.post(`/api/reports/${id}/retry`)).data,
+    onSuccess: () => { void invalidateProductData(qc, ownerId, null, ['reports']); } });
+}
+export function useDiagnostics() {
+  return useQuery({ queryKey: ['diagnostics', useOwnerId()], retry: false,
+    queryFn: async () => (await api.get<{ status: string; database: boolean; queue: boolean; worker: boolean; model: { action: string } }>('/api/diagnostics')).data });
 }

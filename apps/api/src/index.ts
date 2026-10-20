@@ -1,3 +1,4 @@
+import { LIMITS } from './lib/resource-limits.js';
 import { createServer } from 'node:http';
 
 import { createApp } from './app.js';
@@ -22,6 +23,9 @@ async function bootstrap(): Promise<void> {
   }, env.ANALYSIS_DISPATCH_MS);
   dispatcher.unref();
 
+  httpServer.requestTimeout = 30000;
+  httpServer.headersTimeout = 15000;
+  httpServer.keepAliveTimeout = 5000;
   httpServer.listen(env.API_PORT, env.API_HOST, () => {
     logger.info(`🚀 API listening on http://${env.API_HOST}:${env.API_PORT}`);
     logger.info(`   CORS origin: ${env.WEB_ORIGIN}`);
@@ -32,6 +36,7 @@ async function bootstrap(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     if (closing) return; closing = true;
     logger.info(`Received ${signal}, shutting down...`);
+    const hardDeadline = setTimeout(() => process.exit(1), LIMITS.shutdownMs); hardDeadline.unref();
     clearInterval(dispatcher);
     sockets.disconnectSockets(true);
     const deadline = setTimeout(() => httpServer.closeAllConnections(), 5000);

@@ -114,3 +114,12 @@ HTTP-сервер; авторизация конфигурации/провер�
 Контракты сверены с первичными источниками:
 [OpenRouter chat completions](https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion),
 [llama-server](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
+
+## Обновление 20 октября 2026
+
+Все 14 программных задач фазы 6 закрыты. Для новых запусков применяется
+`extraction-v4`: разбиение длинного отзыва с перекрытием и сохранением позиций,
+доступный usage, длительность и кэш по версии. `LLM_MODEL_VERSION=unverified`
+отключает кэш, явно заданная неизменяемая версия включает его на семь дней.
+Проверки контракта не оценивают настоящую модель. Детали и ограничения:
+[аудит](backlog-audit.md#модель-и-кэш).

@@ -1,3 +1,5 @@
+import { LIMITS } from '../lib/resource-limits.js';
+import { HttpError } from '../middleware/error.js';
 // Quote every field and neutralize spreadsheet formulas even after leading controls/spaces.
 export function csvCell(value: unknown): string {
   let text = value == null ? '' : value instanceof Date ? value.toISOString() : String(value);
@@ -5,5 +7,7 @@ export function csvCell(value: unknown): string {
   return `"${text.replace(/"/g, '""')}"`;
 }
 export function csvDocument(rows: unknown[][]): string {
-  return '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+  let bytes = 3;
+  const lines = rows.map(row => { const line = row.map(csvCell).join(','); bytes += Buffer.byteLength(line) + 2; if (bytes > LIMITS.exportBytes) throw new HttpError(413, 'CSV превышает 20 МиБ. Уточните фильтры.'); return line; });
+  return '\uFEFF' + lines.join('\r\n') + '\r\n';
 }

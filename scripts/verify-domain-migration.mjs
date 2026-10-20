@@ -35,7 +35,7 @@ try {
   run('docker', ['run', '-d', '--name', name, '-e', 'POSTGRES_USER=check', '-e', 'POSTGRES_PASSWORD=check', '-p', '127.0.0.1::5432', 'postgres:16-alpine']);
   let ready = false;
   for (let i = 0; i < 40; i++) {
-    const result = spawnSync('docker', ['exec', name, 'pg_isready', '-U', 'check'], { encoding: 'utf8' });
+    const result = spawnSync('docker', ['exec', name, 'pg_isready', '-h', '127.0.0.1', '-U', 'check'], { encoding: 'utf8' });
     if (result.status === 0) { ready = true; break; }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
@@ -46,7 +46,9 @@ try {
   console.log('Clean installation: all migrations applied.');
 
   const dirs = fs.readdirSync(migrations).filter((entry) => fs.existsSync(path.join(migrations, entry, 'migration.sql'))).sort();
-  for (const entry of dirs.slice(0, -1)) sql('legacy', fs.readFileSync(path.join(migrations, entry, 'migration.sql'), 'utf8'));
+  const legacyDirs = dirs.filter(entry => entry < '20261012120000_add_analysis_domain');
+  const domainDirs = dirs.filter(entry => entry >= '20261012120000_add_analysis_domain');
+  for (const entry of legacyDirs) sql('legacy', fs.readFileSync(path.join(migrations, entry, 'migration.sql'), 'utf8'));
   sql('legacy', `
     INSERT INTO "User" (id,email,"passwordHash","updatedAt") VALUES ('u1','one@test.invalid','unused',now()), ('u2','two@test.invalid','unused',now());
     INSERT INTO "Product" (id,name) VALUES ('p1','Legacy product');
@@ -59,7 +61,7 @@ try {
   const dump = run('docker', ['exec', name, 'pg_dump', '-U', 'check', '-d', 'legacy', '--no-owner', '--no-privileges']);
   sql('restored', dump);
   assert.equal(sql('legacy', 'SELECT row_to_json(r) FROM "Review" r ORDER BY id;'), sql('restored', 'SELECT row_to_json(r) FROM "Review" r ORDER BY id;'));
-  sql('restored', fs.readFileSync(path.join(migrations, dirs.at(-1), 'migration.sql'), 'utf8'));
+  for (const entry of domainDirs) sql('restored', fs.readFileSync(path.join(migrations, entry, 'migration.sql'), 'utf8'));
   const db = client('restored', port);
   const review = await db.review.findUniqueOrThrow({ where: { id: 'r1' } });
   assert.equal(review.text, 'Красивый, но шумит.');

@@ -1,3 +1,5 @@
+import { requireAuth } from '../middleware/auth.js';
+import { readiness } from '../services/diagnostics.service.js';
 import { Router } from 'express';
 
 import { analysisRouter } from './analysis.routes.js';
@@ -19,3 +21,5 @@ apiRouter.use('/reports', reportsRouter);
 apiRouter.use('/parsing', parsingRouter);
 apiRouter.use('/profile', profileRouter);
 apiRouter.use('/products', productsRouter);
+
+apiRouter.get('/diagnostics', requireAuth, async (_req, res) => { res.json(await readiness()); });

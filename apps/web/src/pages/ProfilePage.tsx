@@ -1,3 +1,4 @@
+import { SystemStatus } from '../components/SystemStatus';
 import { FileText, MessageSquare, Moon, Sun, Upload, User as UserIcon } from 'lucide-react';
 import { useAuthStore } from '../store/auth.store';
 import { useThemeStore } from '../store/theme.store';
@@ -98,6 +99,7 @@ export function ProfilePage() {
           </button>
         </div>
       </div>
+      <SystemStatus />
       <div className="card space-y-3"><h2 className="text-base">Текущая сессия</h2><p className="text-sm text-neutral-500">Выход отзывает сессию на сервере. Для продолжения потребуется повторный вход.</p>
         {logoutError && <p role="alert" className="text-sm">{logoutError}</p>}
         <button className="btn-outline" disabled={loggingOut} onClick={async () => { setLoggingOut(true); setLogoutError(''); try { await logoutSession(); navigate('/login', { replace: true }); } catch (error) { setLogoutError(apiErrorMessage(error)); } finally { setLoggingOut(false); } }}>{loggingOut ? 'Завершение сессии…' : 'Выйти из аккаунта'}</button>

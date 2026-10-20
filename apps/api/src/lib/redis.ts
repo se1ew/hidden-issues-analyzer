@@ -1,3 +1,4 @@
+import { logger } from './logger.js';
 import { Redis as RedisClient } from 'ioredis';
 import { env } from '../config/env.js';
 
@@ -7,9 +8,9 @@ export const redis: RedisClient = new RedisClient(env.REDIS_URL, {
 });
 
 redis.on('error', (err) => {
-  console.error('[redis] error:', err.message);
+  logger.warn({ code: err.name }, 'Redis unavailable');
 });
 
 export async function disconnectRedis(): Promise<void> {
-  await redis.quit();
+  redis.disconnect();
 }

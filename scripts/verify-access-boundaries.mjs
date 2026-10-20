@@ -11,6 +11,7 @@ import { io as connect } from 'socket.io-client';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const name = `hia-access-check-${randomUUID().slice(0, 8)}`;
+const redisName = `${name}-redis`;
 const reportFiles = [];
 const sockets = [];
 let db, io, server, modelServer, worker, closeRunNotifications, closeAnalysisQueue;
@@ -24,11 +25,13 @@ try {
   run('docker', ['run', '-d', '--name', name, '-e', 'POSTGRES_USER=check', '-e', 'POSTGRES_PASSWORD=check', '-p', '127.0.0.1::5432', 'postgres:16-alpine']);
   let ready = false;
   for (let i = 0; i < 40; i++) {
-    if (spawnSync('docker', ['exec', name, 'pg_isready', '-U', 'check']).status === 0) { ready = true; break; }
+    if (spawnSync('docker', ['exec', name, 'pg_isready', '-h', '127.0.0.1', '-U', 'check']).status === 0) { ready = true; break; }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   assert(ready, 'PostgreSQL did not become ready');
   const port = run('docker', ['port', name, '5432']).trim().split(':').at(-1);
+  run('docker', ['run', '-d', '--name', redisName, '-p', '127.0.0.1::6379', 'redis:7-alpine']);
+  const redisPort = run('docker', ['port', redisName, '6379']).trim().split(':').at(-1);
   modelServer = createServer(async (req, res) => {
     for await (const _chunk of req) { /* Consume the fixture request. */ }
     res.setHeader('Content-Type', 'application/json');
@@ -43,7 +46,7 @@ try {
   modelServer.listen(0, '127.0.0.1'); await once(modelServer, 'listening');
   Object.assign(process.env, {
     NODE_ENV: 'test', DATABASE_URL: `postgresql://check:check@127.0.0.1:${port}/check`,
-    REDIS_URL: 'redis://127.0.0.1:6379', JWT_ACCESS_SECRET: 'access-boundaries-access-secret-123456',
+    REDIS_URL: `redis://127.0.0.1:${redisPort}`, JWT_ACCESS_SECRET: 'access-boundaries-access-secret-123456',
     JWT_REFRESH_SECRET: 'access-boundaries-refresh-secret-123456', OPENROUTER_API_KEY: 'test-unused-key',
     RATE_LIMIT_MAX: '10000',
     LLM_PROVIDER: 'local', LLM_MODEL: 'fixture-model',
@@ -143,17 +146,28 @@ try {
   assert.equal(await db.hiddenIssue.count({ where: { id: foreignIssue.id } }), 1);
   const stats = await request(app).get('/api/analysis/stats').set(headersA).expect(200);
   assert.equal(stats.body.total, 1);
-  assert.equal(stats.body.avgRating, 5);
+  assert.equal(stats.body.avgRating, null); // No saved run: legacy review fields are not analytics.
   await db.review.updateMany({ data: { sentiment: 'positive', analyzedAt: new Date() } });
   const series = await request(app).get('/api/analysis/timeseries').set(headersA).expect(200);
-  assert.equal(series.body.buckets.reduce((sum, bucket) => sum + bucket.positive, 0), 1);
+  assert.equal(series.body.buckets.length, 0);
   await request(app).post('/api/analysis/run').set(headersA).send({ productId: reviewB.productId }).expect(404);
   const foreignReport = await db.report.create({ data: { userId: 'b', title: 'Secret report', format: 'pdf', filePath: 'not-a-public-path' } });
   await request(app).get(`/api/reports/${foreignReport.id}/download`).set(headersA).expect(404);
   await request(app).get(`/api/reports/${foreignReport.id}/download`).expect(401);
   const oldGlobalReport = await db.report.create({ data: { userId: 'a', title: 'Old global report', format: 'pdf', filePath: 'unverified-legacy-path' } });
   await request(app).get(`/api/reports/${oldGlobalReport.id}/download`).set(headersA).expect(404);
-  const generated = await request(app).post('/api/reports/generate').set(headersA).send({ format: 'docx' }).expect(201);
+  const runService = await import('../apps/api/dist/services/analysis-runs.service.js');
+  const reportRun = await createAnalysisRun('a', { productId: reviewA.productId, mode: 'reanalyze' });
+  const reportClaim = await runService.claimAnalysisRun(reportRun.id);
+  const reportInput = await db.analysisRunReview.findFirstOrThrow({ where: { runId: reportRun.id } });
+  await runService.beginAnalysisInput(reportRun.id, reportClaim.leaseToken, reportInput.id);
+  await runService.saveAnalysisInput(reportRun.id, reportClaim.leaseToken, reportInput.id, { durationMs: 1,
+    result: { sentiment: 'positive', sentiment_score: 0.5, aspects: [], complaints: [] } });
+  await runService.finishAnalysisRun(reportRun.id, reportClaim.leaseToken);
+  const generated = await request(app).post('/api/reports/generate').set(headersA).send({ format: 'docx', productId: reviewA.productId,
+    runId: reportRun.id, period: null, sections: ['overview', 'method'] }).expect(202);
+  const { processNextReport } = await import('../apps/api/dist/services/report-worker.js');
+  await processNextReport();
   assert.equal('filePath' in generated.body, false);
   const savedReport = await db.report.findUniqueOrThrow({ where: { id: generated.body.id } });
   reportFiles.push(savedReport.filePath);
@@ -172,11 +186,15 @@ try {
   assert.equal(first.body.skippedCount, 1);
   const imported = await db.review.findFirstOrThrow({ where: { externalId: 'ext-1', productId: reviewA.productId } });
   const second = await request(app).post('/api/reviews/upload/csv').set(headersA).field('productId', reviewA.productId).attach('file', csv, 'reviews.csv').expect(201);
-  assert.equal(second.body.count, 0);
+  assert.equal(second.body.batchId, first.body.batchId);
   const repeated = await db.review.findUniqueOrThrow({ where: { id: imported.id } });
   assert.equal(repeated.text, '  Исходный текст  ');
   assert.equal(repeated.uploadBatchId, first.body.batchId);
   assert.equal(repeated.importedAt.getTime(), imported.importedAt.getTime());
+  assert.equal(await db.reviewImportOccurrence.count({ where: { reviewId: imported.id } }), 1);
+  // A distinct import request still records a new sighting of the existing external ID.
+  await request(app).post('/api/reviews/upload/csv').set(headersA).set('Idempotency-Key', 'distinct-sighting')
+    .field('productId', reviewA.productId).attach('file', csv, 'reviews.csv').expect(201);
   assert.equal(await db.reviewImportOccurrence.count({ where: { reviewId: imported.id } }), 2);
   const batchesBefore = await db.uploadBatch.count();
   await assert.rejects(persistImport({ userId: 'a', productName: 'Rollback product', source: 'manual', rows: [{ text: null }] }));
@@ -260,8 +278,9 @@ try {
   assert.equal(await db.product.count({ where: { name: 'Must not exist' } }), 0);
   const repeatedCustom = await request(app).post('/api/reviews/upload/csv').set(headersA).field('productId', productId)
     .field('mapping', JSON.stringify(mapping)).attach('file', customCsv, 'custom.csv').expect(201);
-  assert.equal(repeatedCustom.body.count, 0);
-  assert.equal(repeatedCustom.body.skippedCount, 2);
+  assert.equal(repeatedCustom.body.batchId, partial.body.batchId);
+  assert.equal(repeatedCustom.body.count, 2);
+  assert.equal(repeatedCustom.body.skippedCount, 0);
   assert.equal(repeatedCustom.body.errorCount, 1);
   const alternate = await request(app).post('/api/products').set(headersA).send({ name: 'CSV wizard product' }).expect(201);
   assert.notEqual(alternate.body.id, productId);
@@ -332,4 +351,5 @@ try {
     fs.rmSync(resolved, { force: true });
   }
   spawnSync('docker', ['rm', '-f', name], { encoding: 'utf8' });
+  spawnSync('docker', ['rm', '-f', redisName], { encoding: 'utf8' });
 }

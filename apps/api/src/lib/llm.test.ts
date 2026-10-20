@@ -126,6 +126,11 @@ describe('local and OpenRouter HTTP adapters', () => {
       .rejects.toMatchObject({ code: 'invalid_response' });
   });
 
+  it('recognizes an out-of-memory response without exposing provider text', async () => {
+    const base = await fixture((_req, res) => { res.statusCode = 500; res.end('CUDA out of memory: secret-review-text'); });
+    try { await createProvider(config(base)).complete(request); throw new Error('expected failure'); }
+    catch (error) { expect(error).toMatchObject({ code: 'resource_exhausted' }); expect(String(error)).not.toContain('secret-review-text'); }
+  });
   it('distinguishes timeout from explicit cancellation', async () => {
     const base = await fixture(async (_req, res) => { await delay(100); json(res, envelope()); });
     const adapter = createProvider(config(base, { timeoutMs: 20, retries: 0 }));

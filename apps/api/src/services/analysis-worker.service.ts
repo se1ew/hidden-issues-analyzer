@@ -9,6 +9,8 @@ import { beginAnalysisInput, claimAnalysisRun, finishAnalysisRun, heartbeatAnaly
 import { GroupingSettingsSchema } from '../schemas/grouping.schema.js';
 import { EmbeddingConfigurationSchema } from '../schemas/embedding.schema.js';
 import { prepareRunGrouping, type GroupingPlan } from './clustering.service.js';
+import { extractReview, CHUNKING_VERSION } from './chunked-extraction.service.js';
+import type { TokenUsage } from '../lib/llm.js';
 
 const RunConfigurationSchema = z.object({
   provider: z.enum(['local', 'openrouter']), baseUrl: z.string().url(), model: z.string().min(1),
@@ -42,6 +44,7 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
   let groupingPlan: GroupingPlan | undefined;
   try {
     const structured = (run.promptVersion === EXTRACTION_PROMPT_VERSION && run.methodVersion === EXTRACTION_METHOD_VERSION)
+      || (run.promptVersion === 'review-evidence-v3' && run.methodVersion === 'extraction-v3')
       || (run.promptVersion === 'review-evidence-v2' && run.methodVersion === 'extraction-v2');
     if (!structured && (run.promptVersion !== ANALYSIS_PROMPT_VERSION || run.methodVersion !== 'extraction-v1')) {
       throw new LlmError('invalid_response', 'Версия анализа не поддерживается этим worker');
@@ -56,23 +59,31 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
       if (signal.aborted || lostLease) break;
       if (!await beginAnalysisInput(runId, token, input.id)) continue;
       const start = performance.now();
+      const metrics = { chunks: 0, cacheHit: false, usage: {} as TokenUsage, responses: 0 };
+      const execution = () => ({ chunks: metrics.chunks, cacheHit: metrics.cacheHit,
+        usageResponses: metrics.responses, chunkingVersion: CHUNKING_VERSION,
+        sentimentAggregation: metrics.chunks > 1 ? 'nonoverlap_length_weighted_score' : 'model',
+      });
       try {
         const request: CompletionRequest = {
           messages: [{ role: 'system', content: configuration.prompt },
             { role: 'user', content: `Проанализируй следующий отзыв и верни JSON:\n\n"""\n${input.text}\n"""` }],
           temperature: 0.1, max_tokens: configuration.maxOutputTokens, jsonSchema: structured ? EXTRACTION_JSON_SCHEMA : ANALYSIS_JSON_SCHEMA, schemaName: 'review_analysis',
         };
-        const result = structured
+        const result = run.methodVersion === EXTRACTION_METHOD_VERSION ? await extractReview({
+          userId: run.userId, text: input.text, prompt: configuration.prompt, promptVersion: run.promptVersion,
+          methodVersion: run.methodVersion, modelVersion: run.modelVersion ?? 'unverified',
+        }, provider, signal, metrics) : structured
           ? validateExtractionEvidence(input.text, await provider.completeJson(request, ExtractionResultSchema, signal))
           : await provider.completeJson(request, AnalysisResultSchema, signal);
         if (signal.aborted) break;
         if (!await saveAnalysisInput(runId, token, input.id,
-          { result, durationMs: Math.round(performance.now() - start) })) break;
+          { result, durationMs: Math.round(performance.now() - start), tokenUsage: { ...metrics.usage }, execution: execution() })) break;
       } catch (error) {
         if (signal.aborted || lostLease) break;
         const errorCode = error instanceof LlmError ? error.code : 'internal_error';
         if (!await saveAnalysisInput(runId, token, input.id,
-          { errorCode, durationMs: Math.round(performance.now() - start) })) break;
+          { errorCode, durationMs: Math.round(performance.now() - start), tokenUsage: { ...metrics.usage }, execution: execution() })) break;
       }
       void notifyAnalysisRun(runId);
       if (configuration.provider === 'openrouter') await waitForLlm(configuration.cloudDelayMs, signal);

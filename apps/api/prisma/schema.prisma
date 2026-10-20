@@ -159,6 +159,13 @@ model UploadBatch {
   startedAt    DateTime?
   finishedAt   DateTime?
 
+  idempotencyKey String?
+  requestHash String?
+  processedCount Int @default(0)
+  attemptCount Int @default(0)
+  leaseExpiresAt DateTime?
+  errorCode String?
+
   user        User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
   product     Product?                 @relation(fields: [productId, userId], references: [id, userId], onDelete: Restrict)
   reviews     Review[]
@@ -167,8 +174,23 @@ model UploadBatch {
   @@index([userId])
   @@index([createdAt])
   @@index([productId, status])
+  @@unique([userId, idempotencyKey])
 }
 
+enum ReportStatus {
+  queued
+  running
+  completed
+  failed
+  expired
+}
+model ServiceHeartbeat {
+  id String @id
+  role String
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
+  @@index([role, expiresAt])
+}
 model Report {
   id          String       @id @default(cuid())
   userId      String?
@@ -179,6 +201,12 @@ model Report {
   productId   String?
   runId       String?
   parameters  Json?
+  status ReportStatus @default(completed)
+  errorCode String?
+  attemptCount Int @default(0)
+  startedAt DateTime?
+  finishedAt DateTime?
+  leaseExpiresAt DateTime?
   artifactKey String?
   mimeType    String?
   sizeBytes   BigInt?
@@ -504,6 +532,15 @@ model EmbeddingCache {
   createdAt DateTime @default(now())
 
   @@unique([version, textHash])
+}
+
+// Tenant-scoped validated extractions; no credentials or raw HTTP output.
+model ExtractionCache {
+  id String @id
+  result Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
 }
 
 model IssueClusterMember {

@@ -2,11 +2,14 @@ import { requestUserId } from '../middleware/auth.js';
 import 'multer'; // augments Express.Request with `file` and `files`
 import type { Request, Response } from 'express';
 import { z } from 'zod';
+import { unlink } from 'node:fs/promises';
 
 import { HttpError } from '../middleware/error.js';
 import * as reviewsService from '../services/reviews.service.js';
 import { ListReviewsQuerySchema, type CreateManualReviewInput, type ListReviewsQuery } from '../schemas/reviews.schema.js';
-import { CsvOptionsSchema, inspectReviewsCsv } from '../services/csv.service.js';
+import { CsvOptionsSchema } from '../services/csv.service.js';
+import { inspectCsvFile } from '../services/streaming-csv.service.js';
+import { importCsvFile } from '../services/csv-import.service.js';
 import { ImportProductSchema } from '../schemas/products.schema.js';
 import { prisma } from '../lib/prisma.js';
 
@@ -19,15 +22,17 @@ function csvOptions(req: Request) {
 
 export async function previewCsv(req: Request, res: Response): Promise<void> {
   if (!req.file) throw new HttpError(400, 'Файл не загружен (поле: file)');
-  const { rows: _rows, errors, ...result } = inspectReviewsCsv(req.file.buffer, csvOptions(req));
-  res.json({ ...result, errors: errors.slice(0, 100), errorsTruncated: errors.length > 100 });
+  try {
+    const { errors, ...result } = await inspectCsvFile(req.file.path, csvOptions(req));
+    res.json({ ...result, errors: errors.slice(0, 100), errorsTruncated: errors.length > 100 });
+  } finally { await unlink(req.file.path).catch(() => undefined); }
 }
 
 export async function importDetails(req: Request, res: Response): Promise<void> {
   const batch = await prisma.uploadBatch.findFirst({ where: {
     id: req.params.id as string, userId: requestUserId(req), product: { userId: requestUserId(req) }, source: 'csv',
   }, select: { id: true, productId: true, filename: true, status: true, count: true,
-    addedCount: true, skippedCount: true, errorCount: true, diagnostics: true, createdAt: true } });
+    addedCount: true, skippedCount: true, errorCount: true, processedCount: true, diagnostics: true, createdAt: true } });
   if (!batch) throw new HttpError(404, 'Импорт не найден');
   res.json(batch);
 }
@@ -61,16 +66,13 @@ export async function getById(req: Request, res: Response): Promise<void> {
 export async function uploadCsv(req: Request, res: Response): Promise<void> {
   const file = (req as Request & { file?: Express.Multer.File }).file;
   if (!file) throw new HttpError(400, 'Файл не загружен (поле: file)');
-  const { productName, productId } = ImportProductSchema.parse(req.body ?? {});
-  const result = await reviewsService.importReviewsFromCsv(
-    file.buffer,
-    file.originalname,
-    requestUserId(req),
-    productName,
-    productId,
-    csvOptions(req),
-  );
-  res.status(201).json(result);
+  try {
+    const { productName, productId } = ImportProductSchema.parse(req.body ?? {});
+    const idempotencyKey = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional().parse(req.get('Idempotency-Key'));
+    const result = await importCsvFile({ file: file.path, filename: file.originalname,
+      userId: requestUserId(req), productName, productId, options: csvOptions(req), idempotencyKey });
+    res.status(201).json(result);
+  } finally { await unlink(file.path).catch(() => undefined); }
 }
 
 export async function createManual(req: Request, res: Response): Promise<void> {

@@ -149,6 +149,11 @@ npm run db:check       # соединение с PostgreSQL, таблица Prod
 npm run start:api      # API из production build
 npm run start:worker   # отдельный worker из production build
 npm run preview:web    # локальный просмотр собранного web
+npm run tasks:summary  # обновить сводку выполнения всех фаз в TASKS.md
+npm run test:production:web        # assets и прямое открытие вложенных маршрутов
+npm run test:integration:access    # два аккаунта, сессии, HTTP и Socket.IO
+npm run test:integration:migration # старая схема, backup/restore и новые миграции
+npm run storage:inspect           # план очистки; -- --apply применяет его
 ```
 
 Подробности воспроизводимости, ограничения worker и результаты проверки:
@@ -186,7 +191,7 @@ GET    /api/reviews              пагинация + фильтры
 GET    /api/reviews/export/csv  вся область с фильтрами списка, без пагинации
 GET    /api/reviews/:id
 
-POST   /api/analysis/run         { limit? } — анализ pending отзывов (jobId)
+POST   /api/analysis/run         { productId, mode?, selection?, period?, limit? } → 202, runId
 GET    /api/analysis/stats       сводка
 GET    /api/analysis/timeseries  динамика по дням
 GET    /api/analysis/summary     AI executive summary (LLM, ?productId)
@@ -200,7 +205,9 @@ GET    /api/products             список продуктов
 PATCH  /api/products/:id         переименовать продукт
 DELETE /api/products/:id         удалить продукт
 
-POST   /api/parsing/start        { url } — парсинг WB
+POST   /api/parsing/start        { url } — ссылка или артикул WB → 202, jobId
+GET    /api/parsing/status/:jobId  сохранённый статус и счётчики импорта
+POST   /api/parsing/status/:jobId/cancel  отмена импорта владельцем
 
 POST   /api/reports/generate     { productId, runId, period, format, sections, days?, title? }
 GET    /api/reports
@@ -233,3 +240,10 @@ server → client: 'analysis:error'    { jobId, message }
 Календарные расчёты, полный CSV и снимок отчёта описаны в
 [docs/analytics-and-reports.md](docs/analytics-and-reports.md). Рабочие страницы,
 знаменатели показателей и проверки: [docs/working-pages.md](docs/working-pages.md).
+
+Сводка всех фаз: [TASKS.md](TASKS.md). Закрытие прежних задач,
+идемпотентный потоковый CSV, очереди Wildberries, длинные отзывы и кэш:
+[аудит 20 октября](docs/backlog-audit.md). Health/readiness, сроки хранения,
+backup/restore и лимиты: [обслуживание](docs/operations.md).
+Для кэша извлечения задайте `LLM_MODEL_VERSION` как неизменяемую ревизию модели;
+значение `unverified` отключает переиспользование ответов.

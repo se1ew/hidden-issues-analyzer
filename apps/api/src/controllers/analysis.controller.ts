@@ -20,7 +20,7 @@ export async function provider(_req: Request, res: Response): Promise<void> {
 export async function checkProvider(_req: Request, res: Response): Promise<void> {
   const controller = new AbortController();
   res.once('close', () => { if (!res.writableEnded) controller.abort(); });
-  await llm.check(controller.signal);
+  await llm.check(AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
   res.json({ ...publicProviderConfiguration(), available: true });
 }
 

@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/index.js",
     "dev:worker": "tsx watch src/worker.ts",
-    "start:worker": "node dist/worker.js",
+    "start:worker": "node --max-old-space-size=768 dist/worker.js",
     "lint": "eslint \"src/**/*.ts\"",
     "test": "vitest run",
     "test:watch": "vitest",

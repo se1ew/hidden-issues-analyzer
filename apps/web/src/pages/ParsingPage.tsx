@@ -26,7 +26,7 @@ export function ParsingPage() {
       }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } };
-      toast.error(e.response?.data?.error ?? 'Ошибка парсинга');
+      toast.error(e.response?.data?.error ?? (err instanceof Error ? err.message : 'Ошибка парсинга'));
     }
   };
 
@@ -46,7 +46,7 @@ export function ParsingPage() {
         <label className="block text-sm font-medium text-neutral-600 mb-2">URL товара</label>
         <div className="flex gap-2">
           <input
-            type="url"
+            type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://www.wildberries.ru/catalog/12345678/detail.aspx"
@@ -113,17 +113,17 @@ export function ParsingPage() {
         ) : (
           <div className="card divide-y divide-neutral-100">
             {history.data.items.map((item) => (
-              <div key={item.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
-                <div>
-                  <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              <div key={item.id} className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                <div className="min-w-0 flex-1">
+                  <div className="break-all text-sm font-medium text-neutral-700 dark:text-neutral-300">
                     {item.filename ?? 'URL'}
                   </div>
                   <div className="text-xs text-neutral-400 mt-0.5">
                     {new Date(item.createdAt).toLocaleString('ru-RU')}
                   </div>
                 </div>
-                <span className="text-sm font-semibold text-primary-700">
-                  +{item.count}
+                <span className="w-36 shrink-0 text-sm font-semibold text-primary-700">
+                  Добавлено: {item.addedCount ?? item.count} · {item.status ?? 'completed'}
                 </span>
               </div>
             ))}

@@ -11,7 +11,7 @@ vi.mock('./analysis-runs.service.js', () => ({
 vi.mock('../lib/prisma.js', () => ({ prisma: { analysisRunReview: { findMany: mocks.inputs } } }));
 vi.mock('../lib/analysis-queue.js', () => ({ notifyAnalysisRun: mocks.notify }));
 vi.mock('../lib/llm.js', async (original) => ({ ...await original<typeof import('../lib/llm.js')>(),
-  createProvider: () => ({ completeJson: mocks.complete }),
+  createProvider: (config: unknown) => ({ config, completeJson: mocks.complete }),
 }));
 
 const result = { sentiment: 'positive', sentiment_score: 0.5, aspects: [], complaints: [] };

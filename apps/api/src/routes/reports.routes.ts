@@ -7,4 +7,5 @@ export const reportsRouter = Router();
 
 reportsRouter.get('/', requireAuth, ctrl.list);
 reportsRouter.post('/generate', requireAuth, ctrl.generate);
+reportsRouter.post('/:id/retry', requireAuth, ctrl.retry);
 reportsRouter.get('/:id/download', requireAuth, ctrl.download);

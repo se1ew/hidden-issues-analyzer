@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
@@ -26,7 +26,7 @@ try {
     '-p', '127.0.0.1::5432', 'postgres:16-alpine']);
   let ready = false;
   for (let attempt = 0; attempt < 40; attempt++) {
-    if (spawnSync('docker', ['exec', postgres, 'pg_isready', '-U', 'check']).status === 0) { ready = true; break; }
+    if (spawnSync('docker', ['exec', postgres, 'pg_isready', '-h', '127.0.0.1', '-U', 'check']).status === 0) { ready = true; break; }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
   assert(ready, 'Temporary PostgreSQL did not start');
@@ -42,11 +42,14 @@ try {
     let body = ''; for await (const chunk of req) body += chunk.toString();
     res.setHeader('Content-Type', 'application/json');
     if (req.url === '/v1/models') return res.end(JSON.stringify({ data: [{ id: 'fixture-model' }] }));
-    assert.equal(JSON.parse(body).model, 'fixture-model', 'Worker must use the saved model, not current environment defaults');
+    const parsedRequest = JSON.parse(body);
+    assert.equal(parsedRequest.model, 'fixture-model', 'Worker must use the saved model, not current environment defaults');
+    const e2e = parsedRequest.messages?.[1]?.content.includes('E2E');
     inferenceCalls++;
     const complete = () => { if (!res.destroyed) res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: {
       content: JSON.stringify({ sentiment: fixtureMode === 'invalid' ? 'invalid' : 'positive', sentiment_score: 0.5,
-        aspects: [{ name: 'качество', sentiment: 'positive' }], complaints: [] }),
+        aspects: [{ name: 'качество', sentiment: e2e ? 'negative' : 'positive' }], complaints: e2e ? [{ aspectIndex: 0,
+          scope: 'product', description: 'заедает крышка', quote: 'Крышка заедает', assertion: 'experienced', consequences: null }] : [] }),
     } }] })); };
     if (fixtureMode === 'hold') pendingModelReplies.push(complete); else complete();
   });
@@ -59,6 +62,7 @@ try {
     LLM_BASE_URL: `http://127.0.0.1:${modelServer.address().port}/v1`,
     LLM_TIMEOUT_MS: '5000', ANALYSIS_QUEUE_NAME: name, ANALYSIS_HEARTBEAT_MS: '100',
     ANALYSIS_LEASE_MS: '1000', ANALYSIS_DISPATCH_MS: '100',
+    EMBEDDING_MODEL: 'fixture/embedding', EMBEDDING_REVISION: '1111111111111111111111111111111111111111',
   });
   run(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy', '--schema', 'apps/api/prisma/schema.prisma'], { env: process.env });
   const { prisma } = await import('../apps/api/dist/lib/prisma.js'); db = prisma;
@@ -381,9 +385,19 @@ try {
   assert.equal(analytics.ratingCount, 4); assert.equal(analytics.avgRating, 3.25);
   assert.equal(analytics.aspects[0].reviews, 5);
   const reportInput = { ...scope, period: null, format: 'docx', days: 30, sections: ['overview', 'analytics', 'aspects', 'problems', 'evidence', 'method'] };
+  await db.serviceHeartbeat.deleteMany();
+  assert.equal((await request(app).get('/health')).status, 200);
+  const degraded = await request(app).get('/ready'); assert.equal(degraded.status, 503); assert.equal(degraded.body.worker, false);
+  assert.equal(degraded.body.database, true); assert.equal(degraded.body.queue, true);
+  assert.equal((await request(app).get('/api/diagnostics')).status, 401);
+  startWorker();
+  await waitFor(async () => (await request(app).get('/ready')).status === 200, 'worker readiness');
   const documentResponse = await mutation('post', 'reports/generate', reportInput);
-  assert.equal(documentResponse.status, 201, JSON.stringify(documentResponse.body));
+  assert.equal(documentResponse.status, 202, JSON.stringify(documentResponse.body));
   assert(!JSON.stringify(documentResponse.body).includes('filePath'));
+  assert.equal(documentResponse.body.status, 'queued');
+  assert.equal((await http(`reports/${documentResponse.body.id}/download`)).status, 409);
+  await waitFor(async () => (await db.report.findUnique({ where: { id: documentResponse.body.id } })).status === 'completed', 'asynchronous DOCX');
   const saved = await db.report.findUniqueOrThrow({ where: { id: documentResponse.body.id } });
   const frozen = saved.parameters.snapshot;
   assert.equal(saved.productId, scope.productId); assert.equal(saved.runId, scope.runId); assert.equal(saved.legacy, false);
@@ -397,7 +411,8 @@ try {
   assert.equal((await mutation('post', 'reports/generate', reportInput, 'b')).status, 404);
   assert.equal((await mutation('post', 'reports/generate', { ...reportInput, period: { from: '2026-01-01T00:00:00Z', to: '2026-02-01T00:00:00Z' } })).status, 409);
   const pdfResponse = await mutation('post', 'reports/generate', { ...reportInput, format: 'pdf' });
-  assert.equal(pdfResponse.status, 201, JSON.stringify(pdfResponse.body));
+  assert.equal(pdfResponse.status, 202, JSON.stringify(pdfResponse.body));
+  await waitFor(async () => (await db.report.findUnique({ where: { id: pdfResponse.body.id } })).status === 'completed', 'asynchronous PDF');
   const pdfSaved = await db.report.findUniqueOrThrow({ where: { id: pdfResponse.body.id } });
   const qaDir = new URL('../.cache/analytics-report-check/', import.meta.url); await fs.mkdir(qaDir, { recursive: true });
   await fs.copyFile(saved.filePath, new URL('report.docx', qaDir)); await fs.copyFile(pdfSaved.filePath, new URL('report.pdf', qaDir));
@@ -418,12 +433,57 @@ try {
   await db.problem.update({ where: { id: battery.problem.id }, data: { title: 'Изменено после отчёта' } });
   const afterReport = await db.report.findUniqueOrThrow({ where: { id: saved.id } });
   assert.deepEqual(afterReport.parameters.snapshot, frozen);
-  await fs.rm(saved.filePath); await fs.rm(pdfSaved.filePath);
+  const { backupStorage, restoreStorage } = await import('./storage-backup.mjs');
+  const backupDirectory = fileURLToPath(new URL(`backup-${Date.now()}/`, qaDir));
+  await backupStorage({ databaseUrl: process.env.DATABASE_URL, container: postgres, output: backupDirectory, reportsDir: fileURLToPath(new URL('../apps/api/reports_output/', import.meta.url)) });
+  run('docker', ['exec', postgres, 'createdb', '-U', 'check', 'restored']);
+  const restoredDirectory = fileURLToPath(new URL(`restored-${Date.now()}/`, qaDir));
+  const restoreConnection = new URL(process.env.DATABASE_URL); restoreConnection.pathname = '/restored'; const restoredUrl = restoreConnection.toString();
+  await restoreStorage({ databaseUrl: restoredUrl, container: postgres, input: backupDirectory, reportsDir: restoredDirectory });
+  const { PrismaClient } = await import('@prisma/client');
+  const restoredDb = new PrismaClient({ datasources: { db: { url: restoredUrl } }, log: [] });
+  try {
+    assert.equal(await restoredDb.review.count(), await db.review.count());
+    assert.equal(await restoredDb.issueClusterSnapshot.count(), await db.issueClusterSnapshot.count());
+    const restoredReport = await restoredDb.report.findUniqueOrThrow({ where: { id: saved.id } });
+    assert.deepEqual(restoredReport.parameters.snapshot, frozen);
+    assert.equal((await fs.readFile(restoredReport.filePath)).length, Number(saved.sizeBytes));
+    assert.equal(await restoredDb.serviceHeartbeat.count(), 0);
+  } finally { await restoredDb.$disconnect(); }
+  await assert.rejects(() => restoreStorage({ databaseUrl: restoredUrl, container: postgres, input: backupDirectory, reportsDir: restoredDirectory }), /empty database/);
+  const { maintainStorage } = await import('../apps/api/dist/services/retention.service.js');
+  const beforeCleanup = { groups: await db.issueClusterSnapshot.count(), mentions: await db.issueMention.count(), inputs: await db.analysisRunReview.count() };
+  const old = new Date(Date.now() - 31 * 86400000);
+  await db.report.update({ where: { id: saved.id }, data: { finishedAt: old } });
+  const previewCleanup = await maintainStorage(); assert(previewCleanup.expiredReports >= 1); await fs.stat(saved.filePath);
+  await maintainStorage(true);
+  assert.equal((await db.report.findUnique({ where: { id: saved.id } })).status, 'expired');
+  assert.equal((await http(`reports/${saved.id}/download`)).status, 410);
+  await assert.rejects(fs.stat(saved.filePath));
+  assert.deepEqual({ groups: await db.issueClusterSnapshot.count(), mentions: await db.issueMention.count(), inputs: await db.analysisRunReview.count() }, beforeCleanup);
+  assert.equal((await mutation('post', `reports/${saved.id}/retry`, {})).status, 202);
+  await waitFor(async () => (await db.report.findUnique({ where: { id: saved.id } })).status === 'completed', 'regenerate expired saved snapshot');
+  const regenerated = await db.report.findUniqueOrThrow({ where: { id: saved.id } }); assert.deepEqual(regenerated.parameters.snapshot, frozen);
+  await fs.rm(regenerated.filePath); await fs.rm(pdfSaved.filePath);
+  console.log('Operations: background report generation, health/readiness, snapshot-preserving expiry/rebuild, PostgreSQL+artifact backup/restore and non-destructive target checks passed.');
   console.log('Scoped analytics/report/CSV: hand-calculated 13/4 rating, 2/2 high-rating complaints, 5 unique complaints, all 67 exported rows, filters, Unicode/formula handling, frozen complete report and owner boundaries passed.');
   }
 
+  {
+    const { defaultEmbeddingConfiguration } = await import('../apps/api/dist/lib/embeddings.js');
+    const { embeddingVersion } = await import('../apps/api/dist/schemas/embedding.schema.js');
+    const version = embeddingVersion(defaultEmbeddingConfiguration());
+    const textHash = createHash('sha256').update('заедает крышка').digest('hex');
+    const id = createHash('sha256').update(`${version}:${textHash}`).digest('hex');
+    await db.embeddingCache.upsert({ where: { id }, create: { id, version, textHash, dimension: 2, vector: [1, 0] }, update: {} });
+    const { verifyEndToEnd } = await import('./verify-end-to-end.mjs');
+    await verifyEndToEnd(app, db, waitFor);
+  }
+  if (worker && worker.exitCode === null && !worker.signalCode) { const exited = once(worker, 'exit'); worker.kill('SIGKILL'); await exited; }
+  const { verifyImportCheckpoints } = await import('./verify-import-checkpoints.mjs');
+  await verifyImportCheckpoints(app, db);
 } finally {
-  if (worker && worker.exitCode === null) { const exited = once(worker, 'exit'); worker.kill('SIGKILL'); await exited; }
+  if (worker && worker.exitCode === null && !worker.signalCode) { const exited = once(worker, 'exit'); worker.kill('SIGKILL'); await exited; }
   if (queueModule) await queueModule.closeAnalysisQueue();
   if (modelServer) { modelServer.closeAllConnections(); await new Promise(resolve => modelServer.close(resolve)); }
   if (db) await db.$disconnect();

@@ -28,6 +28,7 @@ export const EnvSchema = z.object({
   LLM_PROVIDER: z.enum(['local', 'openrouter']).default('local'),
   LLM_BASE_URL: serviceUrl(['http:', 'https:']).optional(),
   LLM_MODEL: z.string().trim().min(1).max(200).optional(),
+  LLM_MODEL_VERSION: z.string().trim().min(1).max(200).default('unverified'),
   LLM_TIMEOUT_MS: z.coerce.number().int().min(100).max(600_000).default(60_000),
   LLM_CONTEXT_TOKENS: z.coerce.number().int().min(256).max(131_072).default(4096),
   LLM_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1).max(32_768).default(1024),

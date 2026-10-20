@@ -1,5 +1,5 @@
 import type { ReportSnapshot } from './report-snapshot.js';
-export interface ReportBlock { heading?: boolean; text: string }
+export interface ReportBlock { heading?: boolean; text: string; table?: { headers: string[]; rows: string[][] } }
 const value = (input: number | null) => input === null ? 'не определено' : String(input);
 const percent = (input: number | null) => input === null ? 'не определено' : `${(input * 100).toFixed(1)}%`;
 export function reportBlocks(snapshot: ReportSnapshot): ReportBlock[] {
@@ -32,7 +32,7 @@ export function reportBlocks(snapshot: ReportSnapshot): ReportBlock[] {
   if (snapshot.sections.includes('aspects')) {
     heading('Аспекты и тональность');
     if (!a.aspects.length) line('Извлечённых аспектов нет.');
-    for (const aspect of a.aspects) line(`${aspect.category} / ${aspect.name}: ${aspect.reviews}/${a.succeeded} отзывов; положительная ${aspect.positive}, отрицательная ${aspect.negative}, нейтральная ${aspect.neutral}.`);
+    if (a.aspects.length) blocks.push({ text: 'Распределение аспектов', table: { headers: ['Аспект', 'Отзывы', 'Полож.', 'Отриц.', 'Нейтр.'], rows: a.aspects.map(aspect => [`${aspect.category} / ${aspect.name}`, `${aspect.reviews}/${a.succeeded}`, String(aspect.positive), String(aspect.negative), String(aspect.neutral)]) } });
     line('Один отзыв может иметь несколько аспектов и несколько тональностей одного аспекта; столбцы не складываются в число отзывов.');
   }
   if (snapshot.sections.includes('problems') || snapshot.sections.includes('evidence')) {

@@ -1,6 +1,10 @@
 import { requireOwnedProduct } from './ownership.service.js';
 import { HttpError } from '../middleware/error.js';
 import { prisma } from '../lib/prisma.js';
+import fs from 'node:fs/promises';
+import { REPORTS_DIR } from './reports.service.js';
+import { containedFile } from './retention.service.js';
+import { logger } from '../lib/logger.js';
 
 export interface ProductWithStats {
   id: string;
@@ -75,22 +79,39 @@ export async function renameProduct(id: string, name: string, userId: string): P
 
 export async function removeProduct(id: string, userId: string): Promise<void> {
   await requireOwnedProduct(userId, id);
-  await prisma.$transaction(async (tx) => {
+  const files = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(8018214)`;
     const locked = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM "Product" WHERE id = ${id} AND "userId" = ${userId} FOR UPDATE`;
     if (!locked.length) throw new HttpError(404, 'Товар не найден');
+    if (await tx.uploadBatch.count({ where: { productId: id, status: { in: ['pending', 'running'] } } })) {
+      throw new HttpError(409, 'Сначала завершите или остановите импорт');
+    }
     if (await tx.analysisRun.count({ where: { productId: id, status: { in: ['queued', 'running'] } } })) {
       throw new HttpError(409, 'Сначала остановите активный анализ');
     }
-    // Artifact cleanup and historical data deletion are implemented with the new pipeline.
-    if (await tx.analysisRun.count({ where: { productId: id } })) {
-      throw new HttpError(409, 'Удаление товара с историей запусков ещё не поддерживается');
+    if (await tx.report.count({ where: { productId: id, status: { in: ['queued', 'running'] } } })) {
+      throw new HttpError(409, 'Дождитесь завершения генерации отчёта');
     }
-    await tx.report.deleteMany({ where: { productId: id, userId } });
+    const artifacts = await tx.report.findMany({ where: { productId: id }, select: { filePath: true } });
+    await tx.$queryRaw`SELECT set_config('reviewlens.purge_product', ${id}, true)`;
+    await tx.product.update({ where: { id }, data: { publishedGroupingId: null } });
+    await tx.report.deleteMany({ where: { productId: id } });
+    await tx.issueClusterMember.deleteMany({ where: { cluster: { productId: id } } });
+    await tx.issueClusterSnapshot.deleteMany({ where: { productId: id } });
+    // Delete history leaves first; preserve the restrictive foreign keys in normal operations.
+    while ((await tx.groupingPublication.deleteMany({ where: { productId: id, edits: { none: {} } } })).count) { /* History DAG. */ }
+    while ((await tx.analysisRun.deleteMany({ where: { productId: id, nextRuns: { none: {} } } })).count) { /* Retry DAG. */ }
     await tx.problem.deleteMany({ where: { productId: id } });
     await tx.hiddenIssue.deleteMany({ where: { productId: id } });
     await tx.review.deleteMany({ where: { productId: id, product: { userId } } });
     await tx.uploadBatch.deleteMany({ where: { productId: id, userId } });
     await tx.product.deleteMany({ where: { id, userId } });
-  });
+    return artifacts.map(report => report.filePath);
+  }, { timeout: 30000 });
+  for (const file of files) {
+    if (!containedFile(REPORTS_DIR, file)) continue;
+    const stat = await fs.lstat(file).catch(() => null);
+    if (stat?.isFile()) await fs.unlink(file).catch(() => logger.warn({ productId: id }, 'Orphan report retained for storage cleanup'));
+  }
 }

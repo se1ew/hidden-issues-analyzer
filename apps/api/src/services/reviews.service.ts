@@ -1,4 +1,5 @@
-import type { Prisma } from '@prisma/client';
+import { LIMITS } from '../lib/resource-limits.js';
+import { Prisma } from '@prisma/client';
 
 import { prisma } from '../lib/prisma.js';
 import { persistImport } from './imports.service.js';
@@ -77,7 +78,8 @@ export async function listReviews(query: ListReviewsQuery, userId: string, db: P
   if (query.sentiment) where.sentiment = query.sentiment;
   if (query.rating) where.rating = query.rating;
   if (query.hasIssues !== undefined) {
-    where.hiddenIssueId = query.hasIssues ? { not: null } : null;
+    if (query.hasIssues) where.AND = [{ issues: { not: Prisma.AnyNull } }, { NOT: { issues: { equals: [] } } }];
+    else where.OR = [{ issues: { equals: Prisma.AnyNull } }, { issues: { equals: [] } }];
   }
   if (query.search) {
     where.text = { contains: query.search, mode: 'insensitive' };
@@ -86,6 +88,7 @@ export async function listReviews(query: ListReviewsQuery, userId: string, db: P
     where.productId = query.productId === UNASSIGNED_PRODUCT_ID ? null : query.productId;
   }
 
+  if (exportAll && await db.review.count({ where }) > LIMITS.exportRows) throw new HttpError(413, 'Экспорт превышает 2000 отзывов. Уточните товар, запуск или фильтры; частичный файл не создаётся.');
   const [items, total] = await Promise.all([
     db.review.findMany({
       where,

@@ -3,7 +3,11 @@ import cors from 'cors';
 import express, { type Express } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
-import morgan from 'morgan';
+import { randomUUID } from 'node:crypto';
+import { logContext } from './lib/log-context.js';
+import { logger } from './lib/logger.js';
+import { LIMITS } from './lib/resource-limits.js';
+import { readiness } from './services/diagnostics.service.js';
 
 import { env } from './config/env.js';
 import { errorHandler, errorBody, notFound } from './middleware/error.js';
@@ -31,13 +35,17 @@ export function createApp(): Express {
       exposedHeaders: ['Content-Disposition'],
     }),
   );
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  app.use(express.json({ limit: LIMITS.jsonBytes }));
+  app.use(express.urlencoded({ extended: true, limit: LIMITS.jsonBytes }));
   app.use(cookieParser());
 
-  if (env.NODE_ENV !== 'test') {
-    app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
-  }
+  app.use((req, res, next) => {
+    const requestId = randomUUID(); res.setHeader('X-Request-ID', requestId);
+    logContext.run({ requestId }, () => {
+      res.on('finish', () => logger.info({ requestId, method: req.method, status: res.statusCode }, 'HTTP request completed'));
+      next();
+    });
+  });
 
   const limiter = rateLimit({
     windowMs: env.RATE_LIMIT_WINDOW_MS,
@@ -51,6 +59,8 @@ export function createApp(): Express {
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', uptime: process.uptime() });
   });
+
+  app.get('/ready', async (_req, res) => { const data = await readiness(); res.status(data.status === 'ready' ? 200 : 503).json(data); });
 
   app.use('/api', apiRouter);
 

@@ -120,3 +120,13 @@ Docker первоначально не запускался из-за файла
 Основания для конфигурации: [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/),
 [ESLint flat config](https://eslint.org/docs/latest/use/configure/configuration-files),
 [Vitest setupFiles](https://v2.vitest.dev/config/#setupfiles).
+
+## Актуальные проверки 20 октября 2026
+
+Node 24.19.0; `npm run check` проходит на текущем рабочем дереве.
+`test:integration:access`, `test:integration:migration`, `test:integration:runs`
+используют собственные временные PostgreSQL/Redis; проверка готовности PostgreSQL
+идёт по TCP, чтобы не принять временный сервер инициализации за рабочий.
+`test:production:web` проверяет сборку и SPA-маршруты. CI добавлен в
+`.github/workflows/ci.yml`; удалённый запуск GitHub требует публикации изменений.
+Состояние задач: [backlog-audit.md](backlog-audit.md).

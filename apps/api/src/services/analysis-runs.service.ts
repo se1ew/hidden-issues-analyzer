@@ -70,7 +70,7 @@ export async function createAnalysisRun(userId: string, request: CreateAnalysisR
       const created = await tx.analysisRun.create({ data: {
         userId, productId: input.productId, scope: input as Prisma.InputJsonObject,
         settings: { ...configuration, prompt: EXTRACTION_PROMPT, grouping, embedding },
-        provider: configuration.provider, model: configuration.model, modelVersion: 'unverified',
+        provider: configuration.provider, model: configuration.model, modelVersion: env.LLM_MODEL_VERSION ?? 'unverified',
         promptVersion: EXTRACTION_PROMPT_VERSION, embeddingVersion: embeddingVersion(embedding), methodVersion: EXTRACTION_METHOD_VERSION,
         total: reviews.length,
         events: { create: { toStatus: 'queued', initiator: 'owner', stateVersion: 0 } },
@@ -112,7 +112,7 @@ export async function listAnalysisInputs(runId: string, userId: string, query: L
     prisma.analysisRunReview.findMany({ where, orderBy: { id: 'asc' },
       skip: (query.page - 1) * query.pageSize, take: query.pageSize,
       select: { id: true, sourceReviewId: true, text: true, rating: true, reviewDate: true, source: true, importedAt: true,
-        analysis: { select: { status: true, sentiment: true, errorCode: true,
+        analysis: { select: { status: true, sentiment: true, errorCode: true, durationMs: true, tokenUsage: true, diagnostics: true,
           aspects: { orderBy: { id: 'asc' }, select: { id: true, name: true, originalName: true, category: true, sentiment: true } },
           issues: { orderBy: [{ quoteStart: 'asc' }, { id: 'asc' }], select: { id: true, aspectId: true,
             scope: true, defect: true, quote: true, quoteStart: true, quoteEnd: true, consequences: true, masking: true } } } } },
@@ -209,7 +209,9 @@ export async function beginAnalysisInput(runId: string, token: string, inputId: 
   });
 }
 
-export type InputOutcome = { result: AnalysisResult | ExtractionResult; durationMs: number } | { errorCode: string; durationMs: number };
+export type InputOutcome = ({ result: AnalysisResult | ExtractionResult } | { errorCode: string }) & {
+  durationMs: number; tokenUsage?: Prisma.InputJsonObject; execution?: Prisma.InputJsonObject;
+};
 export async function saveAnalysisInput(runId: string, token: string, inputId: string, outcome: InputOutcome) {
   const result = 'result' in outcome ? ('complaints' in outcome.result
     ? ExtractionResultSchema.parse(outcome.result) : AnalysisResultSchema.parse(outcome.result)) : undefined;
@@ -223,10 +225,11 @@ export async function saveAnalysisInput(runId: string, token: string, inputId: s
     const prepared = input && result && 'complaints' in result ? prepareExtraction(input.text, input.rating, result) : null;
     await tx.reviewAnalysis.update({ where: { id: analysis.id }, data: {
       status: result ? 'succeeded' : 'failed', finishedAt: new Date(), durationMs: outcome.durationMs,
+      ...(outcome.tokenUsage ? { tokenUsage: outcome.tokenUsage } : {}),
       ...(result ? { sentiment: result.sentiment, sentimentScore: result.sentiment_score,
         errorCode: null, diagnostics: { legacyIssues: 'issues' in result ? result.issues : prepared!.complaints.map((item) => item.description),
-          evidencePending: !prepared, ...(prepared?.metadata ?? {}) } }
-        : { errorCode: 'errorCode' in outcome ? outcome.errorCode.slice(0, 100) : 'unknown' }),
+          evidencePending: !prepared, ...(prepared?.metadata ?? {}), ...(outcome.execution ?? {}) } }
+        : { errorCode: 'errorCode' in outcome ? outcome.errorCode.slice(0, 100) : 'unknown', diagnostics: outcome.execution ?? {} }),
     } });
     if (result) for (const [index, aspect] of result.aspects.entries()) {
       const created = await tx.aspectMention.create({ data: {

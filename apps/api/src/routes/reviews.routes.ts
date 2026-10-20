@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
+import { mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { UPLOADS_DIR } from '../lib/upload-storage.js';
 
 import * as ctrl from '../controllers/reviews.controller.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -13,7 +16,10 @@ import {
 export const reviewsRouter = Router();
 
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: (_req, _file, done) => { void mkdir(UPLOADS_DIR, { recursive: true }).then(() => done(null, UPLOADS_DIR)).catch(error => done(error, UPLOADS_DIR)); },
+    filename: (_req, _file, done) => done(null, `csv-${randomUUID()}.tmp`),
+  }),
   limits: { fileSize: CSV_MAX_BYTES, files: 1, fields: 5, fieldSize: 4096 },
 });
 

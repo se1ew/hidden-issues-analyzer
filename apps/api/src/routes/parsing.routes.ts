@@ -10,3 +10,4 @@ parsingRouter.use(requireAuth);
 parsingRouter.get('/history', ctrl.history);
 parsingRouter.post('/start', ctrl.start);
 parsingRouter.get('/status/:jobId', ctrl.status);
+parsingRouter.post('/status/:jobId/cancel', ctrl.cancel);

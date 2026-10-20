@@ -16,6 +16,11 @@ export function AnalysisRunResults({ runId }: { runId: string }) {
     {items.map((input) => <article key={input.id} className="border-t border-neutral-200 dark:border-neutral-700 pt-3 space-y-2 text-sm">
       <p>Оценка: {input.rating ?? 'не указана'} · {statuses[input.analysis?.status ?? 'pending']}</p>
       <p className="text-xs text-neutral-500">Источник: {input.source ?? 'не указан'} · Дата отзыва: {input.reviewDate ? new Date(input.reviewDate).toLocaleString('ru-RU') : 'не указана'}</p>
+      {input.analysis?.durationMs !== undefined && input.analysis.durationMs !== null && <p className="text-xs text-neutral-500">
+        Обработка: {(input.analysis.durationMs / 1000).toFixed(2)} с · {input.analysis.diagnostics?.cacheHit ? 'Сохранённый ответ модели' : `Фрагментов: ${input.analysis.diagnostics?.chunks ?? 1}`}
+        {input.analysis.tokenUsage?.totalTokens !== undefined ? ` · Токены: ${input.analysis.tokenUsage.totalTokens}` : ' · Расход токенов не передан'}
+        {input.analysis.diagnostics?.sentimentAggregation === 'nonoverlap_length_weighted_score' && ' · Общая тональность рассчитана по фрагментам'}
+      </p>}
       <p className="whitespace-pre-wrap break-words">{evidenceSegments(input.text, input.analysis?.issues ?? [], offsetUnit).map((segment, index) => segment.highlighted
         ? <mark key={index} className="bg-amber-200 text-neutral-900">{segment.text}</mark> : <span key={index}>{segment.text}</span>)}</p>
       {input.analysis?.errorCode === 'invalid_evidence' && <p role="alert" className="text-amber-700 dark:text-amber-300">Модель вернула неподтверждённую цитату или последствия. Результат не принят; отзыв можно обработать повторно.</p>}

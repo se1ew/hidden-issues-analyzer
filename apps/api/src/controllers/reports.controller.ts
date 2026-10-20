@@ -16,13 +16,15 @@ export async function list(req: Request, res: Response): Promise<void> {
 export async function generate(req: Request, res: Response): Promise<void> {
   const parsed = GenerateReportSchema.parse(req.body);
   const result = await service.generateReport(parsed, requestUserId(req));
-  res.status(201).json(result);
+  res.status(202).json(result);
 }
 
 export async function download(req: Request, res: Response): Promise<void> {
   const id = req.params.id as string;
   const report = await service.getReport(id, requestUserId(req));
   if (!report) throw new HttpError(404, 'Report not found');
+  if (report.status === 'expired') throw new HttpError(410, 'Срок хранения файла истёк. Создайте новый отчёт.', undefined, 'report_expired');
+  if (report.status !== 'completed') throw new HttpError(409, 'Отчёт ещё не готов. Проверьте статус в истории.', undefined, 'report_not_ready');
   if (!fs.existsSync(report.filePath)) {
     throw new HttpError(410, 'Report file is missing');
   }
@@ -37,4 +39,8 @@ export async function download(req: Request, res: Response): Promise<void> {
       : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   );
   res.download(report.filePath, downloadName);
+}
+
+export async function retry(req: Request, res: Response): Promise<void> {
+  res.status(202).json(await service.retryReport(req.params.id as string, requestUserId(req)));
 }

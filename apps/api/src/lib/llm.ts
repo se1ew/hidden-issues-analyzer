@@ -1,9 +1,10 @@
+import { errorHint } from './bounded-json.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z, type ZodType } from 'zod';
 import { env, type Env } from '../config/env.js';
 import { withLlmCapacity } from './llm-capacity.js';
 
-export type LlmErrorCode = 'cancelled' | 'timeout' | 'network' | 'http' | 'invalid_response' | 'invalid_evidence' | 'model_unavailable' | 'input_too_long';
+export type LlmErrorCode = 'cancelled' | 'timeout' | 'network' | 'http' | 'invalid_response' | 'invalid_evidence' | 'model_unavailable' | 'resource_exhausted' | 'input_too_long';
 export class LlmError extends Error {
   constructor(public code: LlmErrorCode, message: string, public status?: number) { super(message); }
 }
@@ -11,7 +12,9 @@ export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: s
 export interface CompletionRequest {
   messages: ChatMessage[]; temperature?: number; max_tokens?: number;
   jsonSchema?: Record<string, unknown>; schemaName?: string;
+  onUsage?: (usage: TokenUsage) => void;
 }
+export interface TokenUsage { promptTokens?: number; completionTokens?: number; totalTokens?: number }
 export interface ProviderConfig {
   provider: 'local' | 'openrouter'; baseUrl: string; model: string; apiKey?: string;
   timeoutMs: number; contextTokens: number; maxOutputTokens: number; concurrency: number;
@@ -73,6 +76,8 @@ class Gate {
 
 const completionEnvelope = z.object({
   choices: z.array(z.object({ message: z.object({ content: z.string().min(1) }), finish_reason: z.string().optional() })).min(1),
+  usage: z.object({ prompt_tokens: z.number().int().nonnegative().optional(),
+    completion_tokens: z.number().int().nonnegative().optional(), total_tokens: z.number().int().nonnegative().optional() }).optional(),
 });
 
 export function createProvider(input: ProviderConfig, sharedCapacity = false): LlmProvider {
@@ -96,7 +101,8 @@ export function createProvider(input: ProviderConfig, sharedCapacity = false): L
         redirect: 'error', ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
       if (!response.ok) {
-        await response.body?.cancel();
+        const providerMessage = await errorHint(response);
+        if (/out of memory|insufficient memory|cuda.*alloc|not enough memory/i.test(providerMessage)) throw new LlmError('resource_exhausted', 'Модели не хватает памяти. Уменьшите контекст или используйте меньшую модель, затем повторите ошибочные отзывы.');
         const retryAfter = response.headers.get('Retry-After');
         const reset = response.headers.get('X-RateLimit-Reset');
         const waitMs = retryAfter ? (/^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now())
@@ -168,6 +174,10 @@ export function createProvider(input: ProviderConfig, sharedCapacity = false): L
       ...(responseFormat ? { response_format: responseFormat } : {}),
     }, signal);
     const parsed = completionEnvelope.safeParse(raw);
+    if (parsed.success && parsed.data.usage) {
+      const usage = parsed.data.usage;
+      request.onUsage?.({ promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens, totalTokens: usage.total_tokens });
+    }
     if (!parsed.success || !parsed.data.choices[0].message.content.trim()
       || (parsed.data.choices[0].finish_reason && parsed.data.choices[0].finish_reason !== 'stop')) {
       throw new LlmError('invalid_response', 'Модель не вернула полный текстовый результат');
