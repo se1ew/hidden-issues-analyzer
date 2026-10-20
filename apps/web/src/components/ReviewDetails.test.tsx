@@ -8,6 +8,20 @@ const review: ReviewListItem = { id: 'review', text: 'Хорошо, но кры�
   analysisStatus: 'succeeded', evidence: [{ id: 'mention', defect: 'крышка заедает', quote: 'крышка заедает', quoteStart: 11, quoteEnd: 25, consequences: null,
     groupLinks: [{ id: 'snapshot', title: 'Крышка', productId: 'p', runId: 'run', publicationId: 'pub' }] }] };
 describe('review metadata and evidence navigation', () => {
+  it('shows both complaints from one review with distinct quotes and group links', () => {
+    const text = 'Крышка заедает. Заряд не держит.';
+    const quotes = ['Крышка заедает', 'Заряд не держит'];
+    const multiple: ReviewListItem = { ...review, text, issues: quotes, evidence: quotes.map((quote, index) => ({
+      id: `mention-${index}`, defect: quote, quote, quoteStart: text.indexOf(quote), quoteEnd: text.indexOf(quote) + quote.length,
+      consequences: null, groupLinks: [{ id: `group-${index}`, title: quote, productId: 'p', runId: 'run', publicationId: 'pub' }],
+    })) };
+    const { container } = render(<MemoryRouter><ReviewDetails review={multiple} /></MemoryRouter>);
+    expect([...container.querySelectorAll('mark')].map(node => node.textContent)).toEqual(quotes);
+    for (const [index, quote] of quotes.entries()) {
+      expect(screen.getByRole('link', { name: `Открыть группу: ${quote}` })).toHaveAttribute('href',
+        `/issues?productId=p&runId=run&snapshotId=group-${index}&publicationId=pub`);
+    }
+  });
   it('preserves unknown dates, highlights the exact original quote and links its publication', () => {
     const { container } = render(<MemoryRouter><ReviewDetails review={review} /></MemoryRouter>);
     expect(container.querySelector('mark')?.textContent).toBe('крышка заедает');
