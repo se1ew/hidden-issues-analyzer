@@ -75,10 +75,10 @@ GPU-отчёт не требует Node, npm или проекта целико�
 `scripts/check-gpu.ps1` на второй ПК и выполнить:
 
 ```powershell
-powershell -NoProfile -File .\check-gpu.ps1 -ExpectedGpu 'GTX 1080' -OutputPath .\gpu-check.json
+powershell -NoProfile -ExecutionPolicy Bypass -File .\check-gpu.ps1 -ExpectedGpu 'GTX 1080' -OutputPath .\gpu-check.json
 ```
 
-В репозитории команда: `powershell -NoProfile -File scripts/check-gpu.ps1`.
+В репозитории команда: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-gpu.ps1`.
 Отчёт по умолчанию сохраняется в `.cache/gpu-check.json`, исключённый из Git.
 Драйвер не меняется, модель не скачивается, памяти не выделяется.
 После установки llama-server можно добавить `-RuntimePath PATH_TO_LLAMA_SERVER`:

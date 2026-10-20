@@ -19,6 +19,8 @@ function run(command, args) {
 const git = (...args) => run('git', ['-c', `safe.directory=${root.replaceAll('\\', '/')}`, ...args]);
 assert.equal(git('status', '--porcelain'), '', 'Commit and push all changes before preparing the final transfer bundle');
 const commit = git('rev-parse', 'HEAD');
+const branch = git('branch', '--show-current');
+assert(branch, 'Prepare the bundle from a named branch');
 const assets = JSON.parse(await fs.readFile(path.join(models, 'embedding-assets.json'), 'utf8'));
 assert(/^[a-f0-9]{40}$/.test(assets.revision));
 await fs.mkdir(path.dirname(output), { recursive: true }); await fs.mkdir(output);
@@ -39,6 +41,8 @@ for (const name of images) assert.equal(run('docker', ['image', 'inspect', name,
 assert.equal(run('docker', ['image', 'inspect', images[0], '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}']), commit, 'Application image must match the recorded source revision');
 run('docker', ['image', 'save', '--output', path.join(output, 'images.tar'), ...images]);
 git('archive', '--format=zip', '--output', path.join(output, 'source.zip'), commit);
+assert.equal(git('rev-parse', 'HEAD'), commit, 'Repository changed during bundle preparation; prepare a new bundle');
+git('bundle', 'create', path.join(output, 'repository.bundle'), 'HEAD', `refs/heads/${branch}`);
 await fs.copyFile(path.join(root, 'scripts/verify-offline-bundle.ps1'), path.join(output, 'verify.ps1'), 1);
 const files = [];
 async function collect(directory) {
@@ -51,6 +55,7 @@ async function collect(directory) {
 }
 await collect(output);
 await fs.writeFile(path.join(output, 'manifest.json'), JSON.stringify({ version: 1, sourceCommit: commit, createdAt: new Date().toISOString(),
+  branch,
   platform: 'linux/amd64', images: imageInfo, embeddings: { model: assets.model, revision: assets.revision },
   excluded: ['user environments and secrets', 'user database and reports', 'target GPU runtime and instruct GGUF'], files }, null, 2), { flag: 'wx' });
 console.log(JSON.stringify({ output, sourceCommit: commit, images: imageInfo.length, files: files.length, bytes: files.reduce((sum, file) => sum + file.bytes, 0) }));
