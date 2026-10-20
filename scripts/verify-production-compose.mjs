@@ -7,6 +7,8 @@ import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+// Synchronous Docker calls pause socket-close events while containers restart.
+const httpFetch = (url, options = {}) => fetch(url, { ...options, headers: { Connection: 'close', ...options.headers } });
 const root = fileURLToPath(new URL('../', import.meta.url));
 const project = `hia-production-${randomUUID().slice(0, 8)}`;
 const folder = path.join(root, '.cache', project);
@@ -41,14 +43,14 @@ try {
   compose('up', '-d', '--no-build', '--wait', '--wait-timeout', '120');
   let ready;
   for (let i = 0; i < 80; i++) {
-    try { ready = await fetch(base + '/ready', { signal: AbortSignal.timeout(2000) }); if (ready.ok) break; } catch { /* Starting. */ }
+    try { ready = await httpFetch(base + '/ready', { signal: AbortSignal.timeout(2000) }); if (ready.ok) break; } catch { /* Starting. */ }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   assert(ready?.ok, 'Production API, DB, queue and worker must become ready');
-  assert((await (await fetch(base)).text()).includes('<div id="root">'));
-  assert.equal((await fetch(base + '/reviews')).status, 200);
-  assert.equal((await fetch(base + '/api/products')).status, 401);
-  const registered = await fetch(base + '/api/auth/register', { method: 'POST', headers: {
+  assert((await (await httpFetch(base)).text()).includes('<div id="root">'));
+  assert.equal((await httpFetch(base + '/reviews')).status, 200);
+  assert.equal((await httpFetch(base + '/api/products')).status, 401);
+  const registered = await httpFetch(base + '/api/auth/register', { method: 'POST', headers: {
     'Content-Type': 'application/json', Origin: base, 'X-ReviewLens-CSRF': '1',
   }, body: JSON.stringify({ email: 'production@fixture.invalid', password: 'production-fixture-123' }) });
   assert.equal(registered.status, 201);
@@ -62,7 +64,7 @@ try {
       socket.once('connect_error', error => { clearTimeout(timer); reject(error); });
     });
   } finally { socket.disconnect(); }
-  const created = await fetch(base + '/api/products', { method: 'POST', headers: {
+  const created = await httpFetch(base + '/api/products', { method: 'POST', headers: {
     'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}`,
   }, body: JSON.stringify({ name: 'Production smoke' }) });
   assert.equal(created.status, 201);
@@ -86,10 +88,10 @@ try {
   compose('exec', '-T', 'api', 'node', '-e', `const fs=require('node:fs'); for(const p of ${JSON.stringify(paths)}) fs.writeFileSync(p,'${project}');`);
   compose('up', '-d', '--no-build', '--force-recreate', '--wait', '--wait-timeout', '120');
   compose('exec', '-T', 'worker', 'node', '-e', `const fs=require('node:fs'),assert=require('node:assert/strict'); for(const p of ${JSON.stringify(paths)}) assert.equal(fs.readFileSync(p,'utf8'),'${project}');`);
-  const retained = await fetch(base + `/api/products/${product.id}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const retained = await httpFetch(base + `/api/products/${product.id}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   assert.equal(retained.status, 200);
   assert.equal((await retained.json()).name, 'Production smoke');
-  const restoredRun = await fetch(base + `/api/analysis/runs/${savedRunId}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const restoredRun = await httpFetch(base + `/api/analysis/runs/${savedRunId}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   assert.equal(restoredRun.status, 200); assert.equal((await restoredRun.json()).status, 'completed');
   await readSavedSocketState();
   console.log('Production recovery: saved run survived API/container restart and Socket.IO reconnection returned its PostgreSQL state.');
@@ -102,7 +104,7 @@ try {
   await backupProduction(storageOptions);
   compose('down', '--volumes'); // Discard only this runner's synthetic fixtures before restoration.
   await restoreProduction(storageOptions);
-  assert.equal((await fetch(base + `/api/products/${product.id}`, { headers: { Authorization: `Bearer ${accessToken}` } })).status, 200);
+  assert.equal((await httpFetch(base + `/api/products/${product.id}`, { headers: { Authorization: `Bearer ${accessToken}` } })).status, 200);
   compose('exec', '-T', 'api', 'node', '-e', `require('node:assert/strict').equal(require('node:fs').readFileSync('${paths[0]}','utf8'),'${project}')`);
   await assert.rejects(restoreProduction(storageOptions), /empty database/);
   console.log('Production backup/restore: quiesced DB + report copy, checksums, empty-target restoration, retained user/product/artifact and refusal to overwrite passed.');
