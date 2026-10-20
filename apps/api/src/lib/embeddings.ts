@@ -19,6 +19,7 @@ async function extractor(config: EmbeddingConfiguration) {
     const loading = (async () => {
       const { pipeline } = await import('@xenova/transformers');
       return await pipeline('feature-extraction', config.model, { quantized: true, revision: config.revision,
+        local_files_only: env.EMBEDDING_LOCAL_ONLY,
         ...(env.EMBEDDING_CACHE_DIR ? { cache_dir: env.EMBEDDING_CACHE_DIR } : {}) }) as unknown as Extractor;
     })().catch(error => { extractors.delete(version); throw error; });
     extractors.set(version, loading);

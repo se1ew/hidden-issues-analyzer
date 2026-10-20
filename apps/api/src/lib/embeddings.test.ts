@@ -11,12 +11,14 @@ const config = { model: 'fixture', revision: 'main', batchSize: 2, method: 'quan
 describe('bounded and versioned production embeddings', () => {
   it('uses the configured persistent model cache', async () => {
     const { env } = await import('../config/env.js');
+    const previous = env.EMBEDDING_LOCAL_ONLY;
     env.EMBEDDING_CACHE_DIR = 'fixture-cache';
+    env.EMBEDDING_LOCAL_ONLY = true;
     try {
       const { embed } = await import('./embeddings.js');
       await embed(['cache-path-check'], config);
-      expect(mocks.pipeline).toHaveBeenCalledWith('feature-extraction', 'fixture', expect.objectContaining({ cache_dir: 'fixture-cache' }));
-    } finally { delete env.EMBEDDING_CACHE_DIR; }
+      expect(mocks.pipeline).toHaveBeenCalledWith('feature-extraction', 'fixture', expect.objectContaining({ cache_dir: 'fixture-cache', local_files_only: true }));
+    } finally { delete env.EMBEDDING_CACHE_DIR; env.EMBEDDING_LOCAL_ONLY = previous; }
   });
   it('batches inference and reuses only the matching model version', async () => {
     const { embed } = await import('./embeddings.js');

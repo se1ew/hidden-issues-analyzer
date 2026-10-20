@@ -12,6 +12,10 @@ const valid = {
   LLM_PROVIDER: 'openrouter',
 };
 
+it.each([['true', true], ['false', false]])('parses offline model mode %s explicitly', (input, expected) => {
+  expect(EnvSchema.parse({ ...valid, EMBEDDING_LOCAL_ONLY: input }).EMBEDDING_LOCAL_ONLY).toBe(expected);
+});
+
 describe('startup environment schema', () => {
   it('применяет документированные defaults', () => {
     expect(EnvSchema.parse(valid)).toMatchObject({ API_PORT: 4000, API_HOST: '0.0.0.0', JWT_ACCESS_TTL: '15m', JWT_REFRESH_TTL: '7d' });

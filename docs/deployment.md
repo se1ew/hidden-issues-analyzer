@@ -197,3 +197,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Loca
 (или ранее выбранный порт). Проверены действие Local в Windows PowerShell 5.1
 и готовность API/worker. Работа без интернета дополнительно требует заранее
 загруженных моделей; эта команда не заменяет их проверку.
+
+## Комплект переноса без скачивания npm-пакетов
+
+После коммита всех изменений и подготовки `.cache/portable-models`:
+
+```powershell
+node scripts/prepare-offline-bundle.mjs --output .cache/offline-bundle
+powershell -NoProfile -ExecutionPolicy Bypass -File .cache/offline-bundle/verify.ps1
+```
+
+Команда требует чистую рабочую папку, собирает образ, сохраняет приложение,
+PostgreSQL/Redis в `images.tar`, создаёт `source.zip` из Git HEAD и копирует
+проверенные файлы эмбеддингов. Manifest содержит commit, image IDs и SHA-256
+всех файлов. Существующий каталог не перезаписывается. Пароли, пользовательская
+БД и отчёты не входят в комплект. GPU-runtime и выбранный instruct GGUF
+добавляются после проверки целевого ПК; подготовленный bundle их не заменяет.
+
+На втором ПК проверьте bundle скриптом `verify.ps1`, загрузите `docker load
+--input images.tar`, распакуйте `source.zip`, выполните Init и Start без Build.
+Скопируйте каталог embeddings в volume models через временный worker:
+
+```powershell
+$bundleModels = 'D:\Transfer\offline-bundle\embeddings'
+docker compose --env-file deploy/.env -f compose.production.yaml run --rm --no-deps -v "${bundleModels}:/import:ro" worker node -e "require('node:fs').cpSync('/import','/app/models_cache',{recursive:true})"
+docker compose --env-file deploy/.env -f compose.production.yaml exec -T worker node /app/scripts/prepare-embeddings.mjs --cache /app/models_cache --offline
+```
+
+В production-примере `EMBEDDING_LOCAL_ONLY=true`: отсутствие файла вызывает
+ошибку вместо скрытого скачивания из интернета. Для разработки флаг false.
+Модель и revision в env должны совпадать с manifest. Не переносите каталоги
+node_modules между Windows и Linux и не запускайте `npm ci` для готового образа.
