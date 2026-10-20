@@ -33,14 +33,14 @@ CSV загружается через предпросмотр и сопоста
 
 - Загрузка отзывов: CSV / ручной ввод / парсинг Wildberries
 - LLM-анализ: локальный HTTP-провайдер или явно выбранный OpenRouter; тональность, аспекты, проблемы
-- Кластеризация жалоб через эмбеддинги (`@xenova/transformers`) + DBSCAN
+- Семантическая группировка жалоб через эмбеддинги (`@xenova/transformers`) с версионированными публикациями
 - Группы запусков с отдельными показателями поддержки, распространённости и положительного контекста
 - Последствия с цитатами, объяснимый версионированный приоритет и серверные фильтры групп: [контракты и проверки](docs/priority-and-api.md)
 - Общая область товара/периода/запуска, восстановление состояния на любой странице и доступные диалоги: [проверки интерфейса и очереди](docs/interface-and-run-sync.md)
 - AI executive summary — LLM формирует краткий аналитический вывод по продукту
 - Управление продуктами: фильтрация всех данных по продукту, переименование, удаление
 - Стабильные карточки проблем, история решений, предпросмотр объединения и разделения групп
-- 9 страниц UI: Дашборд, Загрузка, Аналитика, Скрытые проблемы, Отзывы, Отчёты, Парсинг, Продукты, Профиль
+- Рабочие страницы: Обзор, Загрузка, Аналитика, Проблемы, Отзывы, Отчёты, Товары, Профиль; Wildberries находится в «Загрузка»
 - Real-time прогресс анализа через Socket.IO
 - Экспорт PDF / DOCX отчётов
 - Dark mode, мобильный sidebar с hamburger-меню
@@ -98,7 +98,7 @@ CSV загружается через предпросмотр и сопоста
 | Database | PostgreSQL 16 + **Prisma** ORM |
 | Cache | Redis 7 (ioredis) |
 | Auth | JWT access + refresh с ротацией в БД (bcryptjs) |
-| ML / NLP | **OpenRouter** (NVIDIA Nemotron) + `@xenova/transformers` (ONNX) + `density-clustering` (DBSCAN) |
+| ML / NLP | Локальный HTTP runtime, явно выбранный OpenRouter; `@xenova/transformers` (ONNX), версионированная группировка |
 | Reports | pdfkit, docx |
 | Парсинг | нативный fetch к feedbacks API Wildberries |
 | Infra | Docker, docker-compose |
@@ -131,7 +131,44 @@ hidden-issues-analyzer/
 └── .env.example
 ```
 
-## Запуск (с нуля)
+## Рабочая установка Windows
+
+Нужен Docker Desktop с Linux containers. Node.js 24 нужен для сборки вне Docker
+и вспомогательных команд обслуживания. Для готового образа npm на сервере не нужен.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Init
+# В deploy/.env установить фактические LLM_MODEL, LLM_MODEL_VERSION и URL runtime.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Build
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Start
+```
+
+Откройте [локальное приложение](http://localhost:8080). API, страницы и Socket.IO
+работают через один адрес; БД/Redis не публикуются. `Init` создаёт независимые
+секреты и сохраняет существующий env. Миграции применяются через `migrate deploy`;
+readiness ждёт БД, очередь и worker. Локальную модель запустите отдельно на
+Windows; пример env использует `host.docker.internal:8081` из контейнера.
+
+Перед анализом перенесите подготовленный кэш эмбеддингов: production по умолчанию
+запрещает их скачивание. Точная команда копирования и автономный комплект —
+в [развёртывании](docs/deployment.md#комплект-переноса-без-скачивания-npm-пакетов).
+Runtime/instruct-модель и GPU должны пройти [целевую проверку](docs/second-pc.md).
+Доступность приложения сама по себе не подтверждает качество модели.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Status
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Logs
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Stop
+# Показ в браузере сервера при недоступной LAN:
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Local
+```
+
+Обновление: сделать backup, получить новую версию, повторить Build и Start
+(для офлайн-комплекта — загрузить новые образы вместо Build). Не меняйте Compose
+project/секреты и не используйте `down --volumes`: это удаляет данные.
+LAN, Firewall и автозапуск описаны в [docs/deployment.md](docs/deployment.md).
+
+## Разработка локально
 
 ```powershell
 # 1. Node.js 24 (точная проверенная версия в .nvmrc), npm 10 или 11
@@ -142,9 +179,10 @@ npm ci
 npm run docker:up
 
 # 3. Создать .env-файлы
-copy .env.example .env
-copy apps\api\.env.example apps\api\.env
-copy apps\web\.env.example apps\web\.env
+foreach ($file in @('.env', 'apps/api/.env', 'apps/web/.env')) {
+  if (-not (Test-Path -LiteralPath $file)) { Copy-Item -LiteralPath "$file.example" -Destination $file }
+}
+# Заменить JWT-секреты примера; для dev на этом ПК использовать API_HOST=127.0.0.1.
 # По умолчанию local: настроить LLM_BASE_URL и LLM_MODEL для отдельно установленного runtime.
 # Для облака выбрать LLM_PROVIDER=openrouter, облачные URL/model и OPENROUTER_API_KEY.
 
@@ -180,10 +218,58 @@ npm run start:worker   # отдельный worker из production build
 npm run preview:web    # локальный просмотр собранного web
 npm run tasks:summary  # обновить сводку выполнения всех фаз в TASKS.md
 npm run test:production:web        # assets и прямое открытие вложенных маршрутов
+npm run test:production:hosting    # раздача SPA самим API
+npm run test:production:compose    # Docker, readiness, сохранность данных, Socket.IO, backup/restore
 npm run test:integration:access    # два аккаунта, сессии, HTTP и Socket.IO
 npm run test:integration:migration # старая схема, backup/restore и новые миграции
 npm run storage:inspect           # план очистки; -- --apply применяет его
 ```
+
+`npm run check` включает также SQL-проверки миграций. Для production compose
+сначала соберите образ `reviewlens-app:local`. Браузерная проверка включается
+через `PLAYWRIGHT_MODULE`/`BROWSER_EXECUTABLE`; детали — в deployment.md.
+
+## Импорт, анализ и отчёт
+
+Создайте аккаунт и товар, откройте «Загрузка», выберите CSV или ручной ввод.
+CSV поддерживает UTF-8/BOM и сопоставление колонок; предпросмотр показывает ошибки
+до сохранения. Для первого показа используйте [4 демо-товара и CSV](docs/demo/README.md).
+Внешний ID сохраняет первоначальный импорт и защищает повторную загрузку от дублей.
+Отсутствующие даты и оценки остаются неизвестными.
+
+Запускайте анализ выбранного товара. Обновление страницы восстанавливает runId;
+новые отзывы не меняют сохранённую область. Ошибки/отмена видны отдельно от успеха.
+В «Проблемы» проверьте исходные цитаты и контекст оценок 4–5, затем сформируйте
+PDF/DOCX для того же запуска и периода. CSV выгружает всю отфильтрованную область.
+Подробный [сценарий показа](docs/demo-walkthrough.md) занимает путь от импорта до отчёта.
+
+## Backup и восстановление
+
+```powershell
+node scripts/production-storage.mjs backup --directory D:\ReviewLens-backups\before-update
+node scripts/production-storage.mjs restore --directory D:\ReviewLens-backups\before-update --env-file deploy/.env --project reviewlens-restored
+```
+
+Backup ненадолго останавливает API/worker и сохраняет БД с отчётами/контрольными
+суммами. Restore допускает только пустую БД и пустой каталог отчётов; не удаляйте
+исходную установку. Для проверки восстановления рядом выберите другой порт в
+отдельном env. Секреты и модели сохраняйте отдельно. Подробности и dev-команды:
+[operations.md](docs/operations.md), [deployment.md](docs/deployment.md).
+
+## Частые ошибки
+
+| Симптом | Действие |
+| --- | --- |
+| Start не готов / `/ready` отвечает 503 | Посмотрите Status/Logs; проверьте миграцию, PostgreSQL/Redis и heartbeat worker |
+| «Модель недоступна» | Проверьте модельный ID, runtime и URL из контейнера; облако автоматически не включается |
+| Нет файлов эмбеддингов | Перенесите полный каталог/manifest, сверяйте model+revision и выполните offline-проверку |
+| 403 при входе / CORS | `WEB_ORIGIN` должен точно совпадать с адресом браузера, включая localhost/IP и порт |
+| Миграция требует владельца/происхождения | Сначала backup и явное подтверждённое назначение; [переход данных](docs/data-migration.md) |
+| Wildberries недоступен | Используйте CSV; неофициальный источник не гарантирует доступность и полноту истории |
+| Нет npm / неподдерживаемая версия | Для разработки установите Node 24 и npm 10/11; готовый production-образ npm не требует |
+
+Свежие [программные проверки](docs/local-validation.md), [оценка качества модели](docs/model-evaluation.md)
+и [оставшиеся действия второго ПК](docs/second-pc.md) описаны отдельно.
 
 Подробности воспроизводимости, ограничения worker и результаты проверки:
 [docs/development.md](docs/development.md).
@@ -194,17 +280,6 @@ npm run storage:inspect           # план очистки; -- --apply прим
 
 Переходная модель данных, правила назначения владельцев старых записей и
 проверка миграции на отдельной БД: [docs/data-migration.md](docs/data-migration.md).
-
-## Workflow использования
-
-1. **Регистрация** на `/register`
-2. **Загрузка**: выбрать товар или создать новый, проверить CSV и сопоставить колонки,
-   затем импортировать корректные записи; либо ввести отзыв вручную / указать WB-ссылку
-3. На **Дашборде** выбрать продукт через `ProductSelector` — все данные фильтруются глобально
-4. На странице **Отзывы** нажать «Запустить анализ» — LLM проанализирует пачку, прогресс — real-time
-5. На **Аналитика** выбрать сохранённый запуск: доступны аспекты, доли жалоб и календарные окна UTC
-6. На **Скрытые проблемы** нажать «Пересчитать» — DBSCAN-кластеризация; проблемы можно отметить как resolved
-7. На **Отчёты** выбрать завершённый запуск и разделы, сформировать PDF или DOCX по снимку; CSV на странице отзывов выгружает всю отфильтрованную область
 
 ## Ключевые API эндпоинты
 
@@ -225,10 +300,14 @@ GET    /api/analysis/stats       сводка
 GET    /api/analysis/timeseries  динамика по дням
 GET    /api/analysis/summary     AI executive summary (LLM, ?productId)
 
-GET    /api/issues               список скрытых проблем (?productId, ?severity, ?search)
-POST   /api/issues/recompute     пересчитать кластеры
-GET    /api/issues/:id
-PATCH  /api/issues/:id/resolve   переключить статус resolved
+GET    /api/analysis/runs        история запусков владельца
+GET    /api/analysis/runs/:id    сохранённое состояние
+GET    /api/analysis/runs/:id/inputs  исходные снимки и результаты
+GET    /api/issues/groupings     группы выбранного товара/запуска
+GET    /api/issues/snapshots/:id/evidence  проверяемые цитаты
+PATCH  /api/issues/problems/:id/state   состояние устойчивой карточки
+POST   /api/issues/groupings/:id/edit   preview/commit merge, split, restore
+POST   /api/issues/recompute     пересчитать группировку указанного runId
 
 GET    /api/products             список продуктов
 PATCH  /api/products/:id         переименовать продукт
@@ -249,6 +328,7 @@ GET    /api/profile/stats
 
 ```
 client → server: 'job:subscribe' (jobId)
+server → client: 'analysis:state'  сохранённое авторизованное состояние запуска
 server → client: 'analysis:progress' { jobId, processed, total }
 server → client: 'analysis:complete' { jobId }
 server → client: 'analysis:error'    { jobId, message }
