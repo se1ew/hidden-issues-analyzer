@@ -1,9 +1,6 @@
-import { ownedProductScope } from './ownership.service.js';
 import { z } from 'zod';
 
-import { prisma } from '../lib/prisma.js';
-import { logger } from '../lib/logger.js';
-import { llm, waitForLlm, LlmError } from '../lib/llm.js';
+import { llm } from '../lib/llm.js';
 import { EXTRACTION_PROMPT, EXTRACTION_JSON_SCHEMA, ExtractionResultSchema, validateExtractionEvidence, type ExtractionResult } from './extraction.service.js';
 
 export const AnalysisResultSchema = z.object({
@@ -54,75 +51,3 @@ export async function analyzeReviewText(text: string, signal?: AbortSignal): Pro
   return validateExtractionEvidence(text, result);
 }
 
-export interface RunOptions {
-  userId: string;
-  productId?: string;
-  limit?: number;
-  concurrency?: number;
-  delayMs?: number;
-  signal?: AbortSignal;
-  onProgress?: (processed: number, total: number) => void;
-}
-
-/**
- * Запускает анализ всех непроанализированных отзывов.
- */
-export async function runPendingAnalysis(opts: RunOptions): Promise<{
-  processed: number;
-  failed: number;
-  total: number;
-}> {
-  const limit = opts.limit ?? 200;
-  const concurrency = Math.max(1, Math.min(llm.config.concurrency, opts.concurrency ?? llm.config.concurrency));
-  const delayMs = llm.config.provider === 'local' ? 0 : opts.delayMs ?? llm.config.cloudDelayMs;
-
-  const pending = await prisma.review.findMany({
-    where: { ...ownedProductScope(opts.userId, opts.productId), analyzedAt: null },
-    take: limit,
-    select: { id: true, text: true },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  const total = pending.length;
-  let processed = 0;
-  let failed = 0;
-
-  // Простой пул: запускаем concurrency воркеров поверх очереди
-  const queue = [...pending];
-
-  async function worker(): Promise<void> {
-    while (queue.length > 0) {
-      if (opts.signal?.aborted) break;
-      const item = queue.shift();
-      if (!item) break;
-      try {
-        const result = await analyzeReviewText(item.text, opts.signal);
-        if (opts.signal?.aborted) break;
-        await prisma.review.updateMany({
-          where: { id: item.id, ...ownedProductScope(opts.userId, opts.productId) },
-          data: {
-            sentiment: result.sentiment,
-            sentimentScore: result.sentiment_score,
-            aspects: result.aspects,
-            issues: result.complaints.map((complaint) => complaint.description),
-            analyzedAt: new Date(),
-            legacyAnalysis: true,
-          },
-        });
-      } catch (err) {
-        if (opts.signal?.aborted || (err instanceof LlmError && err.code === 'cancelled')) throw err;
-        failed++;
-        logger.error({ err, reviewId: item.id }, 'analyzeReview failed');
-      } finally {
-        processed++;
-        opts.onProgress?.(processed, total);
-      }
-      if (queue.length > 0 && delayMs > 0) await waitForLlm(delayMs, opts.signal);
-    }
-  }
-
-  await Promise.all(Array.from({ length: concurrency }, worker));
-
-  logger.info({ processed, failed, total }, 'Analysis batch complete');
-  return { processed, failed, total };
-}

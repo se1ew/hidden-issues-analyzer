@@ -1,3 +1,4 @@
+import { currentAnalysisIds } from './current-reviews.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type AnalysisRun } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
@@ -56,7 +57,7 @@ export async function createAnalysisRun(userId: string, request: CreateAnalysisR
         if (count !== input.selection.importIds.length) throw new HttpError(404, 'Импорт не найден');
       }
       const where: Prisma.ReviewWhereInput = { productId: input.productId, product: { userId } };
-      if (input.mode === 'new_only') where.analyzedAt = null;
+      if (input.mode === 'new_only') where.id = { notIn: await currentAnalysisIds(tx, input.productId) };
       if (input.selection.kind === 'imports') {
         where.OR = [{ uploadBatchId: { in: input.selection.importIds } },
           { importOccurrences: { some: { uploadBatchId: { in: input.selection.importIds } } } }];
@@ -254,21 +255,6 @@ export async function saveAnalysisInput(runId: string, token: string, inputId: s
   });
 }
 
-async function publishLegacyResults(tx: Prisma.TransactionClient, run: AnalysisRun) {
-  const successful = await tx.reviewAnalysis.findMany({ where: { runId: run.id, status: 'succeeded' },
-    include: { input: true, aspects: true } });
-  for (const analysis of successful) {
-    if (!analysis.input.reviewId) continue;
-    const issues = (analysis.diagnostics as Prisma.JsonObject | null)?.legacyIssues as string[] | undefined;
-    await tx.review.updateMany({ where: { id: analysis.input.reviewId, productId: run.productId,
-      product: { userId: run.userId }, inputVersion: analysis.input.inputVersion, text: analysis.input.text }, data: {
-      sentiment: analysis.sentiment, sentimentScore: analysis.sentimentScore, analyzedAt: analysis.finishedAt,
-      aspects: analysis.aspects.map((aspect) => ({ name: aspect.name, sentiment: aspect.sentiment })),
-      issues: issues ?? [], legacyAnalysis: true,
-    } });
-  }
-}
-
 export async function markGroupingStage(runId: string, token: string) {
   return prisma.$transaction(async tx => {
     const current = await lockRun(tx, runId);
@@ -300,7 +286,6 @@ export async function finishAnalysisRun(runId: string, token: string, errorCode?
         : hasComplaints ? 'grouping_pending' : status === 'completed' ? 'extraction_without_complaints' : 'review_errors');
     const publishable = (status === 'completed' || status === 'partial') && !errorCode;
     const publication = publishable && groupingReady && current.succeeded > 0 ? await publishGrouping(tx, current, groupingPlan!) : null;
-    if (publishable && (!hasComplaints || groupingReady)) await publishLegacyResults(tx, current);
     await tx.reviewAnalysis.updateMany({ where: { runId, status: 'running' }, data: { status: 'pending' } });
     const changed = await tx.analysisRun.updateMany({ where: { id: runId, status: 'running', leaseToken: token,
       leaseExpiresAt: { gt: new Date() } }, data: {

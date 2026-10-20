@@ -147,7 +147,7 @@ try {
   const stats = await request(app).get('/api/analysis/stats').set(headersA).expect(200);
   assert.equal(stats.body.total, 1);
   assert.equal(stats.body.avgRating, null); // No saved run: legacy review fields are not analytics.
-  await db.review.updateMany({ data: { sentiment: 'positive', analyzedAt: new Date() } });
+  // Legacy aggregate fields have been archived; only immutable runs contribute results.
   const series = await request(app).get('/api/analysis/timeseries').set(headersA).expect(200);
   assert.equal(series.body.buckets.length, 0);
   await request(app).post('/api/analysis/run').set(headersA).send({ productId: reviewB.productId }).expect(404);
@@ -307,7 +307,8 @@ try {
   const failedStart = await request(app).post('/api/analysis/run').set(headersA)
     .send({ productId: newReview.body.productId }).expect(503);
   assert.equal(failedStart.body.code, 'model_unavailable');
-  assert.equal((await db.review.findUniqueOrThrow({ where: { id: newReview.body.id } })).analyzedAt, null);
+  const { getReview } = await import('../apps/api/dist/services/reviews.service.js');
+  assert.equal((await getReview(newReview.body.id, 'a')).analyzedAt, null);
   fixtureAvailable = true;
   const modelReady = await request(app).post('/api/analysis/provider/check').set(headersA).expect(200);
   assert.equal(modelReady.body.available, true);
@@ -329,7 +330,7 @@ try {
   const ownRuns = await request(app).get('/api/analysis/runs').set(headersA).expect(200);
   assert.equal(ownRuns.body.items[0].runId, started.body.runId);
   for (let attempt = 0; attempt < 150; attempt++) {
-    const analyzed = await db.review.findUniqueOrThrow({ where: { id: newReview.body.id } });
+    const analyzed = await getReview(newReview.body.id, 'a');
     if (analyzed.analyzedAt) { assert.equal(analyzed.sentiment, 'positive'); break; }
     if (attempt === 149) assert.fail('Fixture analysis did not finish');
     await new Promise(resolve => setTimeout(resolve, 50));

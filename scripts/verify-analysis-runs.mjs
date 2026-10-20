@@ -121,7 +121,8 @@ try {
   assert.equal(partial.status, 'partial'); assert.equal(partial.succeeded, 1); assert.equal(partial.failed, 1);
   assert.equal((await runs.getAnalysisRun(created.id, 'a')).remaining, 0);
   assert.equal(await runs.finishAnalysisRun(created.id, token), null);
-  assert.equal((await db.review.findUniqueOrThrow({ where: { id: 'review-1' } })).analyzedAt, null);
+  const { getReview } = await import('../apps/api/dist/services/reviews.service.js');
+  assert.equal((await getReview('review-1', 'a')).analyzedAt, null);
 
   await assert.rejects(runs.retryFailedAnalysisRun(created.id, 'b'), error => error.status === 404);
   await db.review.update({ where: { id: 'review-2' }, data: { text: 'Редакция после ошибки', inputVersion: 2 } });
@@ -180,7 +181,7 @@ try {
   assert.equal(empty.total, 0);
   const emptyLease = await runs.claimAnalysisRun(empty.id);
   assert.equal((await runs.finishAnalysisRun(empty.id, emptyLease.leaseToken)).finishReason, 'empty_selection');
-  const previous = await db.review.findUniqueOrThrow({ where: { id: 'review-2' } });
+  const previous = await getReview('review-2', 'a');
   const cancelledReanalysis = await runs.createAnalysisRun('a', { ...input, mode: 'reanalyze' });
   const reanalysisLease = await runs.claimAnalysisRun(cancelledReanalysis.id);
   const reanalysisInput = await db.analysisRunReview.findFirstOrThrow({ where: { runId: cancelledReanalysis.id, sourceReviewId: previous.id } });
@@ -189,7 +190,7 @@ try {
     { result: { ...successful, sentiment: 'negative', sentiment_score: -0.5 }, durationMs: 1 });
   await runs.cancelAnalysisRun(cancelledReanalysis.id, 'a');
   await runs.finishAnalysisRun(cancelledReanalysis.id, reanalysisLease.leaseToken);
-  const unchanged = await db.review.findUniqueOrThrow({ where: { id: previous.id } });
+  const unchanged = await getReview(previous.id, 'a');
   assert.equal((await runs.getAnalysisRun(cancelledReanalysis.id, 'a')).resultsDisposition, 'retained_unpublished');
   assert.equal(await db.reviewAnalysis.count({ where: { runId: cancelledReanalysis.id, status: 'succeeded' } }), 1);
   assert.equal(unchanged.sentiment, previous.sentiment);

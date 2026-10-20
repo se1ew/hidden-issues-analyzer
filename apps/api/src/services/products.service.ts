@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import { REPORTS_DIR } from './reports.service.js';
 import { containedFile } from './retention.service.js';
 import { logger } from '../lib/logger.js';
+import { countCurrentAnalyses } from './current-reviews.js';
 
 export interface ProductWithStats {
   id: string;
@@ -26,16 +27,16 @@ export async function listProducts(userId: string): Promise<ProductWithStats[]> 
     include: {
       _count: { select: { reviews: true } },
       reviews: {
-        select: { rating: true, analyzedAt: true },
+        select: { rating: true },
       },
       analysisRuns: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1,
         select: { id: true, status: true, total: true, succeeded: true, failed: true, createdAt: true, finishedAt: true } },
     },
   });
 
-  return products.map((p) => {
+  return Promise.all(products.map(async (p) => {
     const ratings = p.reviews.map((r) => r.rating).filter((r): r is number => r !== null);
-    const analyzedCount = p.reviews.filter((r) => r.analyzedAt !== null).length;
+    const analyzedCount = await countCurrentAnalyses(userId, p.id);
     return {
       id: p.id,
       name: p.name,
@@ -48,7 +49,7 @@ export async function listProducts(userId: string): Promise<ProductWithStats[]> 
       createdAt: p.createdAt,
       latestRun: p.analysisRuns[0] ?? null,
     };
-  });
+  }));
 }
 
 /**

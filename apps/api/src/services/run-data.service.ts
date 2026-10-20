@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { HttpError } from '../middleware/error.js';
 import type { DataScope } from '../schemas/data-scope.schema.js';
 import { assertRunPeriod } from './data-scope.js';
+import { countCurrentAnalyses } from './current-reviews.js';
 
 export async function readRunData(userId: string, query: DataScope, db: Prisma.TransactionClient = prisma) {
   const run = await db.analysisRun.findFirst({ where: { id: query.runId, productId: query.productId, userId, product: { userId } } });
@@ -18,7 +19,8 @@ export async function readRunData(userId: string, query: DataScope, db: Prisma.T
       select: { cluster: { select: { id: true, title: true, publicationId: true, runId: true, productId: true } } },
     } } } } } } });
   const ownerScope = { productId: run.productId, product: { userId } };
-  const [loadedTotal, unprocessedCount] = await Promise.all([db.review.count({ where: ownerScope }), db.review.count({ where: { ...ownerScope, analyzedAt: null } })]);
+  const [loadedTotal, processedCount] = await Promise.all([db.review.count({ where: ownerScope }), countCurrentAnalyses(userId, run.productId, db)]);
+  const unprocessedCount = loadedTotal - processedCount;
   const successful = inputs.filter(item => item.analysis?.status === 'succeeded');
   const sentiment = { positive: 0, negative: 0, neutral: 0 };
   const aspects = new Map<string, { category: string; name: string; positive: number; negative: number; neutral: number }>();

@@ -85,7 +85,6 @@ model Review {
   id               String    @id @default(cuid())
   productId        String
   text             String    @db.Text
-  cleanedText      String?   @db.Text
   rating           Int?
   reviewDate       DateTime?
   source           String    @default("legacy")
@@ -94,30 +93,27 @@ model Review {
   uploadBatchId    String
   importedAt       DateTime  @default(now())
   inputVersion     Int       @default(1)
-  legacyAnalysis   Boolean   @default(false)
-
-  sentiment      Sentiment?
-  sentimentScore Float?
-  aspects        Json? // [{ name, sentiment }]
-  issues         Json? // string[]
-
-  hiddenIssueId String?
-  analyzedAt    DateTime?
   createdAt     DateTime  @default(now())
 
   product           Product                  @relation(fields: [productId], references: [id], onDelete: Restrict)
-  hiddenIssue       HiddenIssue?             @relation(fields: [hiddenIssueId], references: [id], onDelete: SetNull)
   uploadBatch       UploadBatch              @relation(fields: [uploadBatchId, productId], references: [id, productId], onDelete: Restrict)
   importOccurrences ReviewImportOccurrence[]
   runInputs         AnalysisRunReview[]
+  legacyResult      LegacyReviewResult?
 
   @@unique([productId, source, externalId])
   @@index([uploadBatchId])
   @@index([productId, reviewDate])
-  @@index([sentiment])
   @@index([productId])
-  @@index([hiddenIssueId])
   @@index([createdAt])
+}
+
+// Historical values are preserved for explicit reanalysis, never treated as evidence.
+model LegacyReviewResult {
+  reviewId String @id
+  payload Json
+  archivedAt DateTime @default(now())
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
 }
 
 model HiddenIssue {
@@ -136,7 +132,6 @@ model HiddenIssue {
   legacy      Boolean   @default(true)
 
   product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
-  reviews Review[]
 
   @@index([hiddenScore])
   @@index([productId])

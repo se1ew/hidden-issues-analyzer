@@ -1,3 +1,4 @@
+vi.mock('./current-reviews.js', async original => ({ ...await original<typeof import('./current-reviews.js')>(), countCurrentAnalyses: vi.fn(async () => 3) }));
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,7 +22,7 @@ beforeEach(() => {
   mocks.run.mockResolvedValue({ id: 'r', productId: 'p', status: 'partial', scope: { period }, finishedAt: new Date('2026-10-18'), createdAt: new Date('2026-10-12') });
   mocks.inputs.mockResolvedValue([input('a', 5, 'succeeded', 'negative'), input('b', null, 'succeeded', 'positive'), input('c', 1, 'failed', null)]);
   mocks.publication.mockResolvedValue({ id: 'pub', _count: { snapshots: 2 }, snapshots: [{ scope: 'product', metrics: { signal: false, hidden: true }, problem: { status: 'new' } }, { scope: 'delivery', metrics: { signal: true, hidden: false }, problem: null }] });
-  mocks.count.mockImplementation(({ where }) => Promise.resolve(where.analyzedAt === null ? 4 : 7));
+  mocks.count.mockImplementation(({ where }) => Promise.resolve(7));
   mocks.product.mockResolvedValue({ publishedGrouping: { runId: 'r' } });
 });
 const get = (path: string, query = {}) => request(app).get(path).auth(token, { type: 'bearer' }).query({ productId: 'p', runId: 'r', ...query });

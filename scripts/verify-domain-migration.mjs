@@ -96,6 +96,10 @@ try {
     run(process.execPath, [...link, '--apply'], { env: assignmentEnv });
   }
   for (const entry of domainDirs.filter(entry => entry > ownerMigration)) sql('restored', fs.readFileSync(path.join(migrations, entry, 'migration.sql'), 'utf8'));
+  const archived = await db.legacyReviewResult.findUniqueOrThrow({ where: { reviewId: 'r1' } });
+  assert.equal(archived.payload.hiddenIssueId, 'h1');
+  assert.equal(archived.payload.legacyAnalysis, true);
+  assert.equal((await db.$queryRawUnsafe(`SELECT count(*)::int AS count FROM information_schema.columns WHERE table_name='Review' AND column_name IN ('hiddenIssueId','sentiment','issues','aspects','analyzedAt')`))[0].count, 0);
   await assert.rejects(db.$executeRawUnsafe(`INSERT INTO "Review" (id,text) VALUES ('orphan','Rejected')`));
   assert.equal((await db.review.findUniqueOrThrow({ where: { id: 'r1' } })).uploadBatchId, 'b1');
   await db.product.create({ data: { id: 'other-product', name: 'Other', userId: 'u1' } });
@@ -150,9 +154,9 @@ try {
     sql('check', 'CREATE DATABASE actual_copy;');
     sql('actual_copy', realDump);
     const actual = client('actual_copy', port);
-    const rowsBefore = await actual.$queryRawUnsafe('SELECT id, text, "createdAt", "productId", "hiddenIssueId" FROM "Review" ORDER BY id');
+    const rowsBefore = await actual.$queryRawUnsafe('SELECT id, text, "createdAt", "productId", "uploadBatchId", rating, "reviewDate", "externalId" FROM "Review" ORDER BY id');
     deploy('actual_copy', port);
-    const rowsAfter = await actual.$queryRawUnsafe('SELECT id, text, "createdAt", "productId", "hiddenIssueId" FROM "Review" ORDER BY id');
+    const rowsAfter = await actual.$queryRawUnsafe('SELECT id, text, "createdAt", "productId", "uploadBatchId", rating, "reviewDate", "externalId" FROM "Review" ORDER BY id');
     assert.deepEqual(rowsAfter, rowsBefore);
     console.log(`Actual database copy: migrated and preserved ${rowsAfter.length} reviews; source database unchanged.`);
   }

@@ -1,4 +1,4 @@
-import { LIMITS } from '../lib/resource-limits.js';
+import { listCurrentReviews } from './current-reviews.js';
 import { Prisma } from '@prisma/client';
 
 import { prisma } from '../lib/prisma.js';
@@ -72,62 +72,13 @@ export async function listReviews(query: ListReviewsQuery, userId: string, db: P
       productId: data.run.productId, product: null,
     })), total: selected.length, page: query.page, pageSize: query.pageSize, scope: data.scope, offsetUnit: 'utf16' };
   }
-  const where: Prisma.ReviewWhereInput = ownedProductScope(userId, query.productId);
-  if (query.from) where.reviewDate = { gte: new Date(query.from), lt: new Date(query.to!) };
-  if (query.sentiment) where.sentiment = query.sentiment;
-  if (query.rating) where.rating = query.rating;
-  if (query.hasIssues !== undefined) {
-    if (query.hasIssues) where.AND = [{ issues: { not: Prisma.AnyNull } }, { NOT: { issues: { equals: [] } } }];
-    else where.OR = [{ issues: { equals: Prisma.AnyNull } }, { issues: { equals: [] } }];
-  }
-  if (query.search) {
-    where.text = { contains: query.search, mode: 'insensitive' };
-  }
-  if (query.productId) {
-    where.productId = query.productId;
-  }
-
-  if (exportAll && await db.review.count({ where }) > LIMITS.exportRows) throw new HttpError(413, 'Экспорт превышает 2000 отзывов. Уточните товар, запуск или фильтры; частичный файл не создаётся.');
-  const [items, total] = await Promise.all([
-    db.review.findMany({
-      where,
-      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-      ...(exportAll ? {} : { skip: (query.page - 1) * query.pageSize, take: query.pageSize }),
-      select: {
-        id: true,
-        text: true,
-        rating: true,
-        reviewDate: true,
-        importedAt: true,
-        source: true,
-        externalId: true,
-        sentiment: true,
-        sentimentScore: true,
-        issues: true,
-        aspects: true,
-        hiddenIssueId: true,
-        analyzedAt: true,
-        createdAt: true,
-        productId: true,
-        product: { select: { id: true, name: true } },
-      },
-    }),
-    db.review.count({ where }),
-  ]);
-
-  return { items, total, page: query.page, pageSize: query.pageSize };
+  return listCurrentReviews(query, userId, db, exportAll);
 }
 
 export async function getReview(id: string, userId: string) {
-  const review = await prisma.review.findFirst({
-    where: { id, ...ownedProductScope(userId) },
-    include: { hiddenIssue: true, product: true },
-  });
-  if (!review) throw new HttpError(404, 'Отзыв не найден');
-  if (review.hiddenIssue && review.hiddenIssue.productId !== review.productId) {
-    review.hiddenIssue = null;
-  }
-  return review;
+  const result = await listCurrentReviews({ page: 1, pageSize: 1 } as ListReviewsQuery, userId, prisma, false, id);
+  if (!result.items[0]) throw new HttpError(404, 'Отзыв не найден');
+  return result.items[0];
 }
 
 export async function deleteReview(id: string, userId: string): Promise<void> {

@@ -34,20 +34,13 @@ export async function toggleResolvedIssue(id: string, userId: string) {
 export async function getHiddenIssue(id: string, userId: string) {
   const issue = await prisma.hiddenIssue.findFirst({
     where: { id, ...ownedProductScope(userId) },
-    include: {
-      reviews: {
-        where: ownedProductScope(userId),
-        select: {
-          id: true,
-          text: true,
-          rating: true,
-          sentimentScore: true,
-          createdAt: true,
-        },
-        take: 50,
-        orderBy: { sentimentScore: 'asc' },
-      },
-    },
   });
-  return issue;
+  if (!issue) return null;
+  const reviews = await prisma.review.findMany({
+    where: { ...ownedProductScope(userId, issue.productId ?? undefined),
+      legacyResult: { is: { payload: { path: ['hiddenIssueId'], equals: issue.id } } } },
+    select: { id: true, text: true, rating: true, createdAt: true },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 50,
+  });
+  return { ...issue, requiresReanalysis: true, reviews };
 }

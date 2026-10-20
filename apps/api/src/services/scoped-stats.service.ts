@@ -3,6 +3,7 @@ import { HttpError } from '../middleware/error.js';
 import { ownedProductScope } from './ownership.service.js';
 import type { DataScope } from '../schemas/data-scope.schema.js';
 import { readRunData } from './run-data.service.js';
+import { countCurrentAnalyses } from './current-reviews.js';
 
 export async function resolveRunScope(userId: string, query: DataScope): Promise<DataScope> {
   if (query.runId || !query.productId) return query;
@@ -18,7 +19,8 @@ export async function scopedOverview(userId: string, query: DataScope) {
     return { ...data.overview, scope: data.scope, analytics: data.analytics };
   }
   const where = ownedProductScope(userId, scope.productId);
-  const [loadedTotal, unprocessedCount] = await Promise.all([prisma.review.count({ where }), prisma.review.count({ where: { ...where, analyzedAt: null } })]);
+  const [loadedTotal, processedCount] = await Promise.all([prisma.review.count({ where }), countCurrentAnalyses(userId, scope.productId)]);
+  const unprocessedCount = loadedTotal - processedCount;
   return { total: loadedTotal, analyzed: 0, pending: 0, loadedTotal, unprocessedCount, scopeTotal: null,
     succeededCount: 0, failedCount: 0, remainingCount: null, coverageRatio: null, hasRun: false, runStatus: null,
     problemCount: null, hiddenProblemCount: null, newProblemCount: null, signalCount: null,
