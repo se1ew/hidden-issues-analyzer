@@ -61,3 +61,38 @@ worker проверяет собственный heartbeat по имени ко�
 проверяется отдельно и не блокирует чтение сохранённых результатов.
 Повторный `up` проверен вместе с пересозданием контейнеров и повторным deploy:
 миграции не запускаются в режиме разработки и повторно не изменяют данные.
+
+## Одна команда управления Windows
+
+Из корня проекта (Windows PowerShell 5.1 или PowerShell 7):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Init
+# В deploy/.env вписать фактический LLM_MODEL и параметры runtime.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Build
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Start
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Status
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Stop
+```
+
+`Init` создаёт три независимых криптографически случайных секрета и отказывается
+перезаписывать существующий файл. `Start` ждёт Docker Desktop и готовность
+приложения. `Stop` сохраняет данные. `Logs` показывает последние события.
+Параметры `-EnvFile` и `-ProjectName` позволяют отдельное тестовое развёртывание.
+Проверены Init, Status, Start, Stop и повторный Start в Windows PowerShell 5.1
+на отдельном project. `ExecutionPolicy Bypass` применяется только к этому процессу.
+
+На целевом ПК после выбора runtime подготовьте собственный PowerShell-скрипт,
+который запускает runtime в фоне и возвращает управление. Установите задачу
+входа текущего пользователя:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action InstallAutostart -RuntimeScript D:\ReviewLens\start-runtime.ps1
+# Просмотр параметров без регистрации задачи: добавьте -WhatIf.
+# Удаление только своей задачи:
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action RemoveAutostart
+```
+
+Задача запускается через 30 секунд после входа; пароли в командной строке не
+передаются. На основном ПК автозапуск не установлен. Проверка реального входа,
+перезагрузки и GPU-runtime остаётся на втором ПК отдельным открытым пунктом.
