@@ -2,7 +2,7 @@ import { currentAnalysisIds } from './current-reviews.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type AnalysisRun } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
-import { llm } from '../lib/llm.js';
+import { resolveLlmSettings } from './llm-settings.service.js';
 import { HttpError } from '../middleware/error.js';
 import { EXTRACTION_PROMPT, EXTRACTION_PROMPT_VERSION, EXTRACTION_METHOD_VERSION, ExtractionResultSchema, prepareExtraction, type ExtractionResult } from './extraction.service.js';
 import { CreateAnalysisRunSchema, type CreateAnalysisRunInput, type ListAnalysisRunsInput, type ListAnalysisInputsInput } from '../schemas/analysis-runs.schema.js';
@@ -38,9 +38,11 @@ export function inputHash(review: { text: string; rating: number | null; reviewD
     reviewDate: review.reviewDate?.toISOString() ?? null, inputVersion: review.inputVersion })).digest('hex');
 }
 
-export async function createAnalysisRun(userId: string, request: CreateAnalysisRunInput) {
+export async function createAnalysisRun(userId: string, request: CreateAnalysisRunInput,
+  selected?: Awaited<ReturnType<typeof resolveLlmSettings>>) {
   const input = CreateAnalysisRunSchema.parse(request);
-  const { apiKey: _secret, ...configuration } = llm.config;
+  const resolved = selected ?? await resolveLlmSettings(userId);
+  const { apiKey: _secret, ...configuration } = resolved.config;
   const embedding = defaultEmbeddingConfiguration();
   const grouping = GroupingSettingsSchema.parse(input.grouping ?? {});
   try {
@@ -70,8 +72,8 @@ export async function createAnalysisRun(userId: string, request: CreateAnalysisR
       });
       const created = await tx.analysisRun.create({ data: {
         userId, productId: input.productId, scope: input as Prisma.InputJsonObject,
-        settings: { ...configuration, prompt: EXTRACTION_PROMPT, grouping, embedding },
-        provider: configuration.provider, model: configuration.model, modelVersion: env.LLM_MODEL_VERSION ?? 'unverified',
+        settings: { ...configuration, ...(resolved.credentialSource ? { credentialSource: resolved.credentialSource } : {}), prompt: EXTRACTION_PROMPT, grouping, embedding },
+        provider: configuration.provider, model: configuration.model, modelVersion: resolved.modelVersion,
         promptVersion: EXTRACTION_PROMPT_VERSION, embeddingVersion: embeddingVersion(embedding), methodVersion: EXTRACTION_METHOD_VERSION,
         total: reviews.length,
         events: { create: { toStatus: 'queued', initiator: 'owner', stateVersion: 0 } },

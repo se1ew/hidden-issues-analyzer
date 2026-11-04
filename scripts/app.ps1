@@ -46,7 +46,8 @@ if ($Action -eq 'Init') {
     # CreateNew prevents concurrent initialization from replacing existing secrets.
     $stream = [IO.File]::Open($envPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
     try { $bytes = [Text.UTF8Encoding]::new($false).GetBytes($content); $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
-    Write-Output "Created $envPath. Set the verified runtime model ID before analysis."
+    New-Item -ItemType Directory -Path (Join-Path $root 'models\llm') -Force | Out-Null
+    Write-Output "Created $envPath. Choose OpenRouter in Profile, or put one GGUF file in models/llm/model.gguf."
     exit 0
 }
 if (-not (Test-Path -LiteralPath $envPath)) { throw 'Run -Action Init first.' }
@@ -74,7 +75,7 @@ if ($Action -eq 'Local') {
     $Action = 'Start'
 }
 switch ($Action) {
-    'Build' { Invoke-Compose -Command @('build','api') }
+    'Build' { Invoke-Compose -Command @('build','api','local-llm') }
     'Start' {
         if ($RuntimeScript) { & $RuntimeScript }
         $ready = $false
@@ -88,11 +89,17 @@ switch ($Action) {
             Start-Sleep -Seconds 1
         }
         if (-not $ready) { throw 'Docker did not become ready within 120 seconds.' }
+        $embeddingSeed = Join-Path $root '.cache\portable-models'
+        $prepare = @('run','--rm','--no-deps')
+        if (Test-Path -LiteralPath (Join-Path $embeddingSeed 'embedding-assets.json')) {
+            $prepare += @('-v',"${embeddingSeed}:/prepared-embeddings:ro",'worker','node','/app/scripts/ensure-embeddings.mjs','--seed','/prepared-embeddings')
+        } else { $prepare += @('worker','node','/app/scripts/ensure-embeddings.mjs') }
+        Invoke-Compose -Command $prepare
         Invoke-Compose -Command @('up','-d','--no-build','--wait','--wait-timeout','120')
     }
     'Stop' { Invoke-Compose -Command @('stop') }
     'Status' { Invoke-Compose -Command @('ps','-a') }
-    'Logs' { Invoke-Compose -Command @('logs','--tail','100','api','worker') }
+    'Logs' { Invoke-Compose -Command @('logs','--tail','100','api','worker','local-llm') }
     'InstallAutostart' {
         $arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Action Start -EnvFile `"$envPath`" -ProjectName `"$ProjectName`""
         if ($RuntimeScript) { $arguments += " -RuntimeScript `"$RuntimeScript`"" }

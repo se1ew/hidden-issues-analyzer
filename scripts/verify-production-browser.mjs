@@ -31,6 +31,27 @@ export async function verifyProductionBrowser(base) {
     await page.getByText('Браузерная проверка production', { exact: true }).first().waitFor();
     const cookies = await context.cookies();
     assert(cookies.some(cookie => cookie.name === 'hia-refresh' && cookie.httpOnly && cookie.path === '/api/auth'));
+    await page.goto(base + '/profile');
+    await page.getByRole('radio', { name: 'Локально · CPU' }).waitFor();
+    assert(await page.getByText('models/llm/model.gguf', { exact: true }).isVisible());
+    await page.getByRole('radio', { name: 'OpenRouter', exact: true }).check();
+    await page.getByLabel('Модель OpenRouter', { exact: true }).fill('fixture/browser-model');
+    await page.getByLabel('API-ключ OpenRouter', { exact: true }).fill('fixture-browser-key');
+    const savedSettings = page.waitForResponse(response => response.url().endsWith('/api/analysis/provider') && response.request().method() === 'PUT');
+    await page.getByRole('button', { name: 'Сохранить режим анализа' }).click();
+    assert.equal((await savedSettings).status(), 200);
+    await page.getByText(/Настройки сохранены/).waitFor();
+    assert.equal(await page.getByLabel('API-ключ OpenRouter', { exact: true }).inputValue(), '');
+    await page.reload();
+    await page.getByRole('radio', { name: 'OpenRouter', exact: true }).waitFor();
+    assert(await page.getByRole('radio', { name: 'OpenRouter', exact: true }).isChecked());
+    assert.equal(await page.getByLabel('Модель OpenRouter', { exact: true }).inputValue(), 'fixture/browser-model');
+    await page.getByRole('radio', { name: 'Локально · CPU' }).check();
+    const savedLocal = page.waitForResponse(response => response.url().endsWith('/api/analysis/provider') && response.request().method() === 'PUT');
+    await page.getByRole('button', { name: 'Сохранить режим анализа' }).click();
+    assert.equal((await savedLocal).status(), 200);
+    await page.getByText(/Настройки сохранены/).waitFor();
+    await page.screenshot({ path: fileURLToPath(new URL('model-settings.png', output)), fullPage: true });
     for (const width of [1440, 768, 390]) {
       await page.setViewportSize({ width, height: 1000 });
       for (const dark of [false, true]) {
@@ -47,7 +68,7 @@ export async function verifyProductionBrowser(base) {
       }
     }
     assert.deepEqual(errors, []); assert.deepEqual(foreignRequests, []);
-    console.log('Production browser: real registration, product creation, HttpOnly cookie refresh and 48 page/theme/width combinations passed with one origin and no external requests.');
+    console.log('Production browser: registration, product creation, HttpOnly refresh, persisted cloud/local selection, cleared key field and 48 page/theme/width combinations passed with one origin and no external requests.');
   } catch (error) {
     await page.screenshot({ path: fileURLToPath(new URL('failure.png', output)), fullPage: true });
     await fs.writeFile(new URL('failure.json', output), JSON.stringify({ url: page.url(), errors, foreignRequests, httpErrors }, null, 2));

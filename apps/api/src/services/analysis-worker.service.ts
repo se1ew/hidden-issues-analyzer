@@ -11,6 +11,7 @@ import { EmbeddingConfigurationSchema } from '../schemas/embedding.schema.js';
 import { prepareRunGrouping, type GroupingPlan } from './clustering.service.js';
 import { extractReview, CHUNKING_VERSION } from './chunked-extraction.service.js';
 import type { TokenUsage } from '../lib/llm.js';
+import { runApiKey } from './llm-settings.service.js';
 
 const RunConfigurationSchema = z.object({
   provider: z.enum(['local', 'openrouter']), baseUrl: z.string().url(), model: z.string().min(1),
@@ -19,6 +20,7 @@ const RunConfigurationSchema = z.object({
   retries: z.number().int().min(0).max(3), retryDelayMs: z.number().int().nonnegative(),
   maxRetryDelayMs: z.number().int().positive(), responseFormat: z.enum(['none', 'json_object', 'json_schema']),
   cloudDelayMs: z.number().int().nonnegative(), webOrigin: z.string().optional(), prompt: z.string().min(1),
+  credentialSource: z.literal('account').optional(),
   grouping: GroupingSettingsSchema.optional(), embedding: EmbeddingConfigurationSchema.optional(),
 }).strict();
 
@@ -51,7 +53,7 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
     }
     const configuration = RunConfigurationSchema.parse(run.settings);
     const provider = createProvider({ ...configuration,
-      apiKey: configuration.provider === 'openrouter' ? env.OPENROUTER_API_KEY : undefined,
+      apiKey: configuration.provider === 'openrouter' ? await runApiKey(run.userId, configuration.credentialSource) : undefined,
     }, true);
     const inputs = await prisma.analysisRunReview.findMany({ where: { runId }, orderBy: { id: 'asc' },
       include: { analysis: { select: { status: true } } } });

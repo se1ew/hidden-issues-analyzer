@@ -29,6 +29,7 @@ vi.mock('./config/env.js', () => ({
 
 vi.mock('./lib/prisma.js', () => ({
   prisma: {
+    userLlmSettings: { findUnique: vi.fn(), upsert: vi.fn() },
     product: { findFirst: vi.fn(), create: vi.fn() },
     review: { create: vi.fn(), findMany: vi.fn(), count: vi.fn(), findUnique: vi.fn(), createMany: vi.fn(), update: vi.fn(), updateMany: vi.fn(), aggregate: vi.fn(), groupBy: vi.fn() },
     uploadBatch: { create: vi.fn() },

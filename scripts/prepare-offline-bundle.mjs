@@ -34,11 +34,15 @@ for (const file of assets.files) {
   await fs.mkdir(path.dirname(target), { recursive: true }); await fs.copyFile(source, target, 1);
 }
 await fs.copyFile(path.join(models, 'embedding-assets.json'), path.join(output, 'embeddings', 'embedding-assets.json'), 1);
-if (!values['skip-build']) run('docker', ['build', '--label', `org.opencontainers.image.revision=${commit}`, '-t', 'reviewlens-app:local', '.']);
-const images = ['reviewlens-app:local', 'postgres:16-alpine', 'redis:7-alpine'];
+if (!values['skip-build']) {
+  run('docker', ['build', '--label', `org.opencontainers.image.revision=${commit}`, '-t', 'reviewlens-app:local', '.']);
+  run('docker', ['build', '--label', `org.opencontainers.image.revision=${commit}`, '-f', 'deploy/local-llm.Dockerfile', '-t', 'reviewlens-llm:cpu', '.']);
+}
+const images = ['reviewlens-app:local', 'postgres:16-alpine', 'redis:7-alpine', 'reviewlens-llm:cpu'];
 const imageInfo = images.map(name => ({ name, id: run('docker', ['image', 'inspect', name, '--format', '{{.Id}}']) }));
 for (const name of images) assert.equal(run('docker', ['image', 'inspect', name, '--format', '{{.Os}}/{{.Architecture}}']), 'linux/amd64', 'The target bundle requires Linux amd64 images');
 assert.equal(run('docker', ['image', 'inspect', images[0], '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}']), commit, 'Application image must match the recorded source revision');
+assert.equal(run('docker', ['image', 'inspect', images[3], '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}']), commit, 'CPU runtime wrapper must match the recorded source revision');
 run('docker', ['image', 'save', '--output', path.join(output, 'images.tar'), ...images]);
 git('archive', '--format=zip', '--output', path.join(output, 'source.zip'), commit);
 assert.equal(git('rev-parse', 'HEAD'), commit, 'Repository changed during bundle preparation; prepare a new bundle');

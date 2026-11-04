@@ -1,7 +1,8 @@
 import { useCheckLlm, useLlmConfiguration } from '../lib/queries';
 import { ErrorState } from './QueryState';
+import { LlmSettingsForm } from './LlmSettingsForm';
 
-export function LlmStatus() {
+export function LlmStatus({ editable = false }: { editable?: boolean }) {
   const settings = useLlmConfiguration();
   const check = useCheckLlm();
   const error = check.error as { response?: { data?: { error?: string } } } | null;
@@ -19,6 +20,8 @@ export function LlmStatus() {
       </button>
     </div>
     <p className="text-xs text-neutral-500">Используется выбранный режим. При сбое локальной модели данные автоматически в облако не отправляются.</p>
+    {!editable && <a className="text-sm underline" href="/profile">Выбрать OpenRouter или локальную модель в профиле</a>}
+    {editable && settings.data && <LlmSettingsForm settings={settings.data} onSaved={() => check.reset()} />}
     {check.isSuccess && <p role="status" className="text-sm text-green-700 dark:text-green-300">Настроенная модель доступна на сервере.</p>}
     {check.isError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{error?.response?.data?.error ?? 'Не удалось связаться с сервером модели'}</p>}
   </div>;

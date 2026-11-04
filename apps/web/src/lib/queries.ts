@@ -302,6 +302,8 @@ export function useCreateManualReview() {
 export interface LlmConfiguration {
   provider: 'local' | 'openrouter'; model: string; contextTokens: number;
   concurrency: number; responseFormat: string;
+  cloudModel?: string; hasApiKey?: boolean; source?: 'account' | 'installation';
+  local?: { managed: boolean; file: string; state: 'missing' | 'invalid' | 'present' | 'external'; backend: string };
 }
 export function useLlmConfiguration() {
   return useQuery({
@@ -310,8 +312,20 @@ export function useLlmConfiguration() {
   });
 }
 export function useCheckLlm() {
+  const qc = useQueryClient(), ownerId = useOwnerId();
   return useMutation({
     mutationFn: async () => (await api.post<LlmConfiguration & { available: boolean }>('/api/analysis/provider/check')).data,
+    onSuccess: data => { qc.setQueryData(['llm-configuration', ownerId], data); },
+    onError: () => { void qc.invalidateQueries({ queryKey: ['llm-configuration', ownerId] }); },
+  });
+}
+
+export function useSaveLlmConfiguration() {
+  const qc = useQueryClient(), ownerId = useOwnerId();
+  return useMutation({
+    mutationFn: async (input: { provider: 'local' | 'openrouter'; cloudModel?: string; apiKey?: string; clearApiKey?: boolean }) =>
+      (await api.put<LlmConfiguration>('/api/analysis/provider', input, { timeout: 120_000 })).data,
+    onSuccess: data => { qc.setQueryData(['llm-configuration', ownerId], data); },
   });
 }
 
@@ -549,6 +563,7 @@ export function useAiSummary(productId?: string | null) {
     mutationFn: async () => {
       const { data } = await api.get<{ summary: string }>('/api/analysis/summary', {
         params: productId ? { productId } : {},
+        timeout: 360_000,
       });
       return data.summary;
     },

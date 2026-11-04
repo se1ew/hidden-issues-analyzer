@@ -17,12 +17,15 @@ const reserve = createServer().listen(0, '127.0.0.1'); await once(reserve, 'list
 const port = reserve.address().port; await new Promise(resolve => reserve.close(resolve));
 const base = `http://127.0.0.1:${port}`;
 const envFile = path.join(folder, '.env');
+const localModels = path.join(folder, 'llm'); await fs.mkdir(localModels);
 await fs.writeFile(envFile, [
   `POSTGRES_PASSWORD=${randomBytes(32).toString('hex')}`,
   `JWT_ACCESS_SECRET=${randomBytes(32).toString('hex')}`,
   `JWT_REFRESH_SECRET=${randomBytes(32).toString('hex')}`,
   `APP_PORT=${port}`, `WEB_ORIGIN=${base}`, 'LLM_PROVIDER=local',
   'LLM_BASE_URL=http://host.docker.internal:1/v1', 'LLM_MODEL=unavailable-check-model',
+  'LOCAL_LLM_BASE_URL=http://local-llm:8081/v1', 'LOCAL_LLM_MODEL_FILE=/app/local_models/model.gguf',
+  `LOCAL_LLM_DIRECTORY=${localModels.replaceAll('\\', '/')}`,
   'RATE_LIMIT_MAX=10000', // This isolated runner opens 48 pages faster than a human.
 ].join('\n'), { flag: 'wx' });
 const env = { ...process.env, APP_ENV_FILE: envFile };
@@ -36,7 +39,8 @@ function compose(...commands) {
 try {
   const config = JSON.parse(compose('config', '--format', 'json'));
   assert.equal(config.services.api.ports.length, 1);
-  for (const service of ['postgres', 'redis', 'worker', 'migrate']) assert(!config.services[service].ports);
+  for (const service of ['postgres', 'redis', 'worker', 'migrate', 'local-llm']) assert(!config.services[service].ports);
+  assert(config.services.api.volumes.some(volume => volume.target === '/app/local_models' && volume.read_only));
   assert(config.services.migrate.command.includes('deploy'));
   assert(!config.services.migrate.command.includes('dev'));
   assert.equal(config.services.api.depends_on.migrate.condition, 'service_completed_successfully');
@@ -55,6 +59,16 @@ try {
   }, body: JSON.stringify({ email: 'production@fixture.invalid', password: 'production-fixture-123' }) });
   assert.equal(registered.status, 201);
   const { accessToken, user } = await registered.json();
+  const modelHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
+  const missingModel = await httpFetch(base + '/api/analysis/provider', { headers: modelHeaders });
+  assert.equal(missingModel.status, 200); assert.equal((await missingModel.json()).local.state, 'missing');
+  const localChoice = await httpFetch(base + '/api/analysis/provider', { method: 'PUT', headers: modelHeaders, body: JSON.stringify({ provider: 'local' }) });
+  assert.equal(localChoice.status, 200);
+  const unavailable = await httpFetch(base + '/api/analysis/provider/check', { method: 'POST', headers: modelHeaders });
+  assert.equal(unavailable.status, 503); assert.equal((await unavailable.json()).code, 'model_unavailable');
+  const cloudChoice = await httpFetch(base + '/api/analysis/provider', { method: 'PUT', headers: modelHeaders,
+    body: JSON.stringify({ provider: 'openrouter', cloudModel: 'fixture/not-contacted', apiKey: 'fixture-key-for-storage' }) });
+  assert.equal(cloudChoice.status, 200); assert(!(await cloudChoice.text()).includes('fixture-key-for-storage'));
   const { io } = await import('socket.io-client');
   const socket = io(base, { auth: { token: accessToken }, transports: ['websocket'], extraHeaders: { Origin: base } });
   try {
@@ -105,6 +119,9 @@ try {
   compose('down', '--volumes'); // Discard only this runner's synthetic fixtures before restoration.
   await restoreProduction(storageOptions);
   assert.equal((await httpFetch(base + `/api/products/${product.id}`, { headers: { Authorization: `Bearer ${accessToken}` } })).status, 200);
+  const restoredSettings = await httpFetch(base + '/api/analysis/provider', { headers: modelHeaders });
+  const restoredConfiguration = await restoredSettings.json();
+  assert.equal(restoredConfiguration.provider, 'openrouter'); assert.equal(restoredConfiguration.hasApiKey, true);
   compose('exec', '-T', 'api', 'node', '-e', `require('node:assert/strict').equal(require('node:fs').readFileSync('${paths[0]}','utf8'),'${project}')`);
   await assert.rejects(restoreProduction(storageOptions), /empty database/);
   console.log('Production backup/restore: quiesced DB + report copy, checksums, empty-target restoration, retained user/product/artifact and refusal to overwrite passed.');

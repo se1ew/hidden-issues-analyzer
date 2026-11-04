@@ -15,6 +15,7 @@ x-app: &app
     - reports:/app/apps/api/reports_output
     - uploads:/app/apps/api/uploads
     - models:/app/models_cache
+    - ${LOCAL_LLM_DIRECTORY:-./models/llm}:/app/local_models:ro
   extra_hosts:
     - host.docker.internal:host-gateway
   init: true
@@ -22,6 +23,23 @@ x-app: &app
   stop_grace_period: 30s
 
 services:
+  local-llm:
+    platform: linux/amd64
+    image: reviewlens-llm:cpu
+    build:
+      context: .
+      dockerfile: deploy/local-llm.Dockerfile
+    environment:
+      LOCAL_LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-4096}
+      LOCAL_LLM_THREADS: ${LOCAL_LLM_THREADS:-4}
+    volumes:
+      - ${LOCAL_LLM_DIRECTORY:-./models/llm}:/models:ro
+    # Missing model is a normal idle state, and never blocks API readiness.
+    healthcheck:
+      disable: true
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
   postgres:
     image: postgres:16-alpine
     environment:

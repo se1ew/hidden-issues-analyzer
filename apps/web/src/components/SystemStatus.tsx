@@ -7,5 +7,5 @@ export function SystemStatus() {
     {query.isError ? <ErrorState error={query.error} retry={query.refetch} /> : query.isPending ? <p role="status">Проверка служб…</p> : <>
       <ul className="text-sm space-y-2"><li>База данных: {query.data.database ? 'доступна' : 'недоступна — проверьте PostgreSQL'}</li><li>Очередь: {query.data.queue ? 'доступна' : 'недоступна — проверьте Redis; задания сохранены в БД'}</li><li>Обработчик: {query.data.worker ? 'работает' : 'нет свежего сигнала — запустите worker'}</li></ul>
       <p className="text-xs text-neutral-500">{query.data.model.action}</p></>}
-  </div><LlmStatus /></section>;
+  </div><LlmStatus editable /></section>;
 }

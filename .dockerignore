@@ -8,4 +8,5 @@
 **/uploads
 **/models_cache
 img
+models/llm
 *.log

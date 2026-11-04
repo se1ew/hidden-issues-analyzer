@@ -31,6 +31,7 @@
     "test:sql": "node scripts/verify-evidence-migration.mjs && node scripts/verify-grouping-migration.mjs",
     "test:integration:runs": "npm run build:api && node scripts/verify-analysis-runs.mjs",
     "test:integration:access": "npm run build:api && node scripts/verify-access-boundaries.mjs",
+    "test:integration:llm": "npm run build:api && node scripts/verify-llm-settings.mjs",
     "test:integration:migration": "node scripts/verify-domain-migration.mjs",
     "test:production:web": "node scripts/verify-web-production.mjs",
     "test:production:hosting": "node scripts/verify-production-hosting.mjs",

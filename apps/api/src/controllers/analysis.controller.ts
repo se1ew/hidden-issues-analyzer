@@ -7,21 +7,27 @@ import { CreateAnalysisRunSchema, ListAnalysisRunsSchema, ListAnalysisInputsSche
 import { createAnalysisRun, getAnalysisRun, listAnalysisRuns, listAnalysisInputs, cancelAnalysisRun, retryFailedAnalysisRun } from '../services/analysis-runs.service.js';
 import { enqueueAnalysisRun, notifyAnalysisRun } from '../lib/analysis-queue.js';
 import { logger } from '../lib/logger.js';
-import { llm, publicProviderConfiguration } from '../lib/llm.js';
+import { createProvider } from '../lib/llm.js';
+import { publicLlmSettings, resolveLlmSettings, updateLlmSettings, userLlmProvider } from '../services/llm-settings.service.js';
 import { z } from 'zod';
 import { DataScopeSchema, scopeShape, validPeriod, entityId } from '../schemas/data-scope.schema.js';
 import { readRunData, runTimeseries } from '../services/run-data.service.js';
 import { scopedOverview, resolveRunScope } from '../services/stats.service.js';
 
-export async function provider(_req: Request, res: Response): Promise<void> {
-  res.json(publicProviderConfiguration());
+export async function provider(req: Request, res: Response): Promise<void> {
+  res.json(await publicLlmSettings(requestUserId(req)));
 }
 
-export async function checkProvider(_req: Request, res: Response): Promise<void> {
+export async function saveProvider(req: Request, res: Response): Promise<void> {
+  res.json(await updateLlmSettings(requestUserId(req), req.body));
+}
+
+export async function checkProvider(req: Request, res: Response): Promise<void> {
   const controller = new AbortController();
   res.once('close', () => { if (!res.writableEnded) controller.abort(); });
-  await llm.check(AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
-  res.json({ ...publicProviderConfiguration(), available: true });
+  const provider = await userLlmProvider(requestUserId(req));
+  await provider.check(AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
+  res.json({ ...await publicLlmSettings(requestUserId(req)), available: true });
 }
 
 export async function run(req: Request, res: Response): Promise<void> {
@@ -30,8 +36,9 @@ export async function run(req: Request, res: Response): Promise<void> {
   await requireOwnedProduct(userId, input.productId);
   const preflight = new AbortController();
   res.once('close', () => { if (!res.writableEnded) preflight.abort(); });
-  await llm.check(preflight.signal);
-  const created = await createAnalysisRun(userId, input);
+  const settings = await resolveLlmSettings(userId);
+  await createProvider(settings.config, true).check(AbortSignal.any([preflight.signal, AbortSignal.timeout(5000)]));
+  const created = await createAnalysisRun(userId, input, settings);
   let dispatchPending = false;
   try { await enqueueAnalysisRun(created.id); }
   catch { dispatchPending = true; logger.warn({ runId: created.id }, 'Run committed; queue delivery awaits dispatcher'); }

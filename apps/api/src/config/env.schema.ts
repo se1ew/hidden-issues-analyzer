@@ -27,6 +27,8 @@ export const EnvSchema = z.object({
   OPENROUTER_MODEL: z.string().trim().min(1).default('nvidia/nemotron-3-super-120b-a12b:free'),
   OPENROUTER_BASE_URL: serviceUrl(['http:', 'https:']).default('https://openrouter.ai/api/v1'),
   LLM_PROVIDER: z.enum(['local', 'openrouter']).default('local'),
+  LOCAL_LLM_BASE_URL: serviceUrl(['http:', 'https:']).optional(),
+  LOCAL_LLM_MODEL_FILE: z.string().trim().min(1).optional(),
   LLM_BASE_URL: serviceUrl(['http:', 'https:']).optional(),
   LLM_MODEL: z.string().trim().min(1).max(200).optional(),
   LLM_MODEL_VERSION: z.string().trim().min(1).max(200).default('unverified'),
@@ -61,9 +63,11 @@ export const EnvSchema = z.object({
   if (env.LLM_MAX_OUTPUT_TOKENS >= env.LLM_CONTEXT_TOKENS) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['LLM_MAX_OUTPUT_TOKENS'], message: 'Выход должен быть меньше контекста' });
   }
-  if (env.LLM_BASE_URL && (new URL(env.LLM_BASE_URL).username || new URL(env.LLM_BASE_URL).password
-    || new URL(env.LLM_BASE_URL).search || new URL(env.LLM_BASE_URL).hash)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['LLM_BASE_URL'], message: 'URL модели не должен содержать credentials, query или fragment' });
+  for (const key of ['LLM_BASE_URL', 'LOCAL_LLM_BASE_URL'] as const) {
+    const url = env[key];
+    if (url && (new URL(url).username || new URL(url).password || new URL(url).search || new URL(url).hash)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: 'URL модели не должен содержать credentials, query или fragment' });
+    }
   }
   if (env.JWT_ACCESS_SECRET === env.JWT_REFRESH_SECRET) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['JWT_REFRESH_SECRET'], message: 'Access и refresh требуют разных секретов' });

@@ -52,6 +52,8 @@ uploads/
 .parcel-cache/
 .turbo/
 models_cache/
+models/llm/*
+!models/llm/README.md
 
 # Docker
 postgres-data/

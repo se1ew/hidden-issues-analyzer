@@ -19,32 +19,48 @@ WEB_DIST_DIR=../web/dist
 
 ## Контейнеры
 
-Скопируйте `deploy/.env.example` в `deploy/.env`, задайте независимые случайные
-секреты и параметры локального runtime. Из корня:
+Создайте `deploy/.env` через `scripts/app.ps1 -Action Init` (независимые секреты)
+или скопируйте пример и замените секреты самостоятельно. Из корня:
 
 ```powershell
-docker compose --env-file deploy/.env -f compose.production.yaml up -d --build
+docker compose --env-file deploy/.env -f compose.production.yaml build api local-llm
+docker compose --env-file deploy/.env -f compose.production.yaml run --rm --no-deps worker node /app/scripts/ensure-embeddings.mjs
+docker compose --env-file deploy/.env -f compose.production.yaml up -d --no-build
 docker compose --env-file deploy/.env -f compose.production.yaml ps
 docker compose --env-file deploy/.env -f compose.production.yaml stop
 ```
 
-Приложение: `http://localhost:8080`. Локальная модель запускается отдельно
-на Windows; `host.docker.internal` разрешается внутри контейнеров. Оба процесса
-используют один собранный образ. БД и Redis доступны только внутри Docker-сети.
+Приложение: `http://localhost:8080`. Основной вариант с 4 ноября: CPU-runtime
+`local-llm` с официальным CPU-пакетом llama.cpp b12098 запускается автоматически
+и ждёт `models/llm/model.gguf`. Он доступен только внутри Docker-сети, на
+хост порт не публикуется. Файл подключается к runtime, API и worker только для
+чтения. Без файла приложение готово к работе; новый локальный анализ требует
+файл и доступный runtime. Проверка готовности приложения не требует модели.
+CPU-пакет Linux x86-64 закреплён версией и SHA-256 в
+`deploy/local-llm.Dockerfile`; он не включает GPU-библиотеки. На ARM требуется
+эмуляция Docker либо отдельный совместимый runtime.
+Выбор режима и ключ OpenRouter сохраняются в профиле аккаунта;
+инструкция и ссылки на файлы — в [README](../README.md#выбор-модели-анализа).
+Для внешнего runtime остаётся вариант `host.docker.internal` с явными
+`LOCAL_LLM_BASE_URL` и без `LOCAL_LLM_MODEL_FILE`.
+API и worker используют один собранный образ. БД и Redis доступны только внутри Docker-сети.
 Docker build не получает `.env`, пользовательские загрузки, отчёты и кэши.
 
 20 октября образ собран с Linux-зависимостями; на отдельном случайном Compose
 project проверены миграции, readiness БД/Redis/worker, страницы SPA, регистрация
-и создание товара. Повтор: `npm run test:production:compose` после `docker build
--t reviewlens-app:local .`. Проверка удаляет только собственный временный project.
+и создание товара. Повтор: `npm run test:production:compose` после сборки обоих
+образов через `scripts/app.ps1 -Action Build`. Проверка удаляет только
+собственный временный project.
 
 ## Данные и модели
 
 Именованные volumes `postgres`, `redis`, `reports`, `uploads`, `models` хранят
 БД, AOF очереди, отчёты, временные загрузки и модели эмбеддингов. API и worker
 видят одни и те же каталоги. `EMBEDDING_CACHE_DIR=/app/models_cache` передаётся
-загрузчику модели явно. GGUF и runtime Windows храните вне контейнера,
-например в `D:\ReviewLens\models`; выбранный путь запишите в `docs/local-model.md`.
+загрузчику модели явно. GGUF хранится отдельно на хосте в `models/llm/model.gguf`;
+CPU-runtime входит в образ `reviewlens-llm:cpu`. Внешний GPU-runtime Windows
+остаётся необязательным вариантом. Для отдельного каталога GGUF можно задать
+`LOCAL_LLM_DIRECTORY` в env Compose; это каталог хоста, а не путь внутри API.
 
 `stop`, `down` и пересоздание контейнеров сохраняют volumes. **`down --volumes`
 удаляет данные**; используйте его только в одноразовых тестах. Не меняйте имя
@@ -68,7 +84,7 @@ worker проверяет собственный heartbeat по имени ко�
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Init
-# В deploy/.env вписать фактический LLM_MODEL и параметры runtime.
+# Модель и режим анализа выбираются в профиле после запуска.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Build
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Start
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Status
@@ -77,17 +93,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Stop
 
 `Init` создаёт три независимых криптографически случайных секрета и отказывается
 перезаписывать существующий файл. `Start` ждёт Docker Desktop и готовность
-приложения. `Stop` сохраняет данные. `Logs` показывает последние события.
+приложения. Перед запуском он подготавливает эмбеддинги в volume `models`:
+копирует готовый кэш `.cache/portable-models`, если он есть, либо один раз
+скачивает закреплённую модель. При следующих запусках проверка выполняется
+без сети. Для первой установки офлайн перенесите готовый кэш по инструкции
+ниже. `Stop` сохраняет данные. `Logs` показывает последние события.
 Параметры `-EnvFile` и `-ProjectName` позволяют отдельное тестовое развёртывание.
 Проверены Init, Status, Start, Stop и повторный Start в Windows PowerShell 5.1
 на отдельном project. `ExecutionPolicy Bypass` применяется только к этому процессу.
 
-На целевом ПК после выбора runtime подготовьте собственный PowerShell-скрипт,
-который запускает runtime в фоне и возвращает управление. Установите задачу
-входа текущего пользователя:
+Для необязательного автозапуска CPU-варианта установите задачу входа текущего
+пользователя; runtime запускается вместе с остальными контейнерами:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action InstallAutostart -RuntimeScript D:\ReviewLens\start-runtime.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action InstallAutostart
 # Просмотр параметров без регистрации задачи: добавьте -WhatIf.
 # Удаление только своей задачи:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action RemoveAutostart
@@ -95,7 +114,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 -Action Remo
 
 Задача запускается через 30 секунд после входа; пароли в командной строке не
 передаются. На основном ПК автозапуск не установлен. Проверка реального входа,
-перезагрузки и GPU-runtime остаётся на втором ПК отдельным открытым пунктом.
+перезагрузки и внешнего GPU-runtime выполняется отдельно. Для внешнего runtime
+можно дополнительно передать `-RuntimeScript ABSOLUTE_PATH`.
 
 ## Ресурсы интерфейса без интернета
 
@@ -207,12 +227,12 @@ node scripts/prepare-offline-bundle.mjs --output .cache/offline-bundle
 powershell -NoProfile -ExecutionPolicy Bypass -File .cache/offline-bundle/verify.ps1
 ```
 
-Команда требует чистую рабочую папку, собирает образ, сохраняет приложение,
-PostgreSQL/Redis в `images.tar`, создаёт `source.zip` из Git HEAD и копирует
+Команда требует чистую рабочую папку, собирает оба образа, сохраняет приложение,
+CPU-runtime и PostgreSQL/Redis в `images.tar`, создаёт `source.zip` из Git HEAD и копирует
 проверенные файлы эмбеддингов. Manifest содержит commit, image IDs и SHA-256
 всех файлов. Существующий каталог не перезаписывается. Пароли, пользовательская
-БД и отчёты не входят в комплект. GPU-runtime и выбранный instruct GGUF
-добавляются после проверки целевого ПК; подготовленный bundle их не заменяет.
+БД и отчёты не входят в комплект. Выбранный instruct GGUF добавляется отдельно
+в `models/llm/model.gguf`. GPU-runtime нужен только для дополнительного GPU-варианта.
 
 На втором ПК проверьте bundle скриптом `verify.ps1`, загрузите `docker load
 --input images.tar`, распакуйте `source.zip`, выполните Init и Start без Build.

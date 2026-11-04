@@ -63,11 +63,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       console.log('Evaluation harness: validated quote, provider failure, invented quote, disabled cache, unknown semantic metrics and secret omission passed. No real model was evaluated.');
     } else {
       assert.equal(env.LLM_PROVIDER, 'local', 'Evaluation requires an explicitly configured local provider; cloud calls are refused');
-      const provider = createProvider(providerConfig(env)); // Dedicated process, no API/worker semaphore or database writes.
+      const { resolveLocalLlmSettings } = await import('../apps/api/dist/services/llm-settings.service.js');
+      const selected = await resolveLocalLlmSettings();
+      const provider = createProvider(selected.config); // Dedicated process, no API/worker semaphore or database writes.
       await provider.check(AbortSignal.timeout(10000));
       const dataset = JSON.parse(await fs.readFile(values.dataset, 'utf8'));
       assert(Array.isArray(dataset.cases) && dataset.cases.length > 0);
-      const report = await evaluateCases(dataset.cases, provider, env.LLM_MODEL_VERSION);
+      const report = await evaluateCases(dataset.cases, provider, selected.modelVersion);
       const output = path.resolve(values.output); await fs.mkdir(path.dirname(output), { recursive: true });
       await fs.writeFile(output, JSON.stringify(report, null, 2), { flag: 'wx' });
       console.log(JSON.stringify({ output, totals: report.totals, requiresHumanAdjudication: true }));

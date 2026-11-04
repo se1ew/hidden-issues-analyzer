@@ -10,4 +10,4 @@ foreach ($entry in $manifest.files) {
     if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Expected a regular bundle file.' }
     if ($item.Length -ne $entry.bytes -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.sha256) { throw "Bundle checksum failed: $($entry.path)" }
 }
-Write-Output "Verified $($manifest.files.Count) files; source commit $($manifest.sourceCommit). GPU runtime and instruct model are prepared separately."
+Write-Output "Verified $($manifest.files.Count) files; source commit $($manifest.sourceCommit). CPU runtime is included; the GGUF model file is transferred separately."

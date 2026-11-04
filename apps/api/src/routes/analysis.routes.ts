@@ -7,6 +7,7 @@ export const analysisRouter = Router();
 
 analysisRouter.use(requireAuth);
 analysisRouter.get('/provider', ctrl.provider);
+analysisRouter.put('/provider', ctrl.saveProvider);
 analysisRouter.post('/provider/check', ctrl.checkProvider);
 analysisRouter.get('/runs', ctrl.listRuns);
 analysisRouter.get('/runs/:runId', ctrl.getRun);
