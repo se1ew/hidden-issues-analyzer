@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-export async function verifyProductionBrowser(base) {
+export async function verifyProductionBrowser(base, { openRouterFixture = false } = {}) {
   const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
   const browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
   const context = await browser.newContext();
@@ -34,18 +34,37 @@ export async function verifyProductionBrowser(base) {
     await page.goto(base + '/profile');
     await page.getByRole('radio', { name: 'Локально · CPU' }).waitFor();
     assert(await page.getByText('models/llm/model.gguf', { exact: true }).isVisible());
-    await page.getByRole('radio', { name: 'OpenRouter', exact: true }).check();
-    await page.getByLabel('Модель OpenRouter', { exact: true }).fill('fixture/browser-model');
-    await page.getByLabel('API-ключ OpenRouter', { exact: true }).fill('fixture-browser-key');
-    const savedSettings = page.waitForResponse(response => response.url().endsWith('/api/analysis/provider') && response.request().method() === 'PUT');
-    await page.getByRole('button', { name: 'Сохранить режим анализа' }).click();
-    assert.equal((await savedSettings).status(), 200);
-    await page.getByText(/Настройки сохранены/).waitFor();
-    assert.equal(await page.getByLabel('API-ключ OpenRouter', { exact: true }).inputValue(), '');
-    await page.reload();
-    await page.getByRole('radio', { name: 'OpenRouter', exact: true }).waitFor();
-    assert(await page.getByRole('radio', { name: 'OpenRouter', exact: true }).isChecked());
-    assert.equal(await page.getByLabel('Модель OpenRouter', { exact: true }).inputValue(), 'fixture/browser-model');
+    if (openRouterFixture) {
+      await page.getByRole('radio', { name: 'OpenRouter', exact: true }).check();
+      await page.getByRole('option', { name: /openrouter\/free.*Бесплатно/ }).waitFor({ state: 'attached' });
+      await page.getByLabel('Стоимость', { exact: true }).selectOption('paid');
+      await page.getByLabel('Модель OpenRouter', { exact: true }).selectOption('vendor/b');
+      await page.locator('p').filter({ hasText: /Платно · \$1 вход/ }).first().waitFor();
+      await page.getByLabel('Стоимость', { exact: true }).selectOption('free');
+      // Changing the filter must never change a paid/free selection on its own.
+      assert.equal(await page.getByLabel('Модель OpenRouter', { exact: true }).inputValue(), 'vendor/b');
+      await page.getByLabel('Модель OpenRouter', { exact: true }).selectOption('openrouter/free');
+      await page.getByLabel('API-ключ OpenRouter', { exact: true }).fill('fixture-browser-key');
+      const savedSettings = page.waitForResponse(response => response.url().endsWith('/api/analysis/provider') && response.request().method() === 'PUT');
+      await page.getByRole('button', { name: 'Сохранить режим анализа' }).click();
+      assert.equal((await savedSettings).status(), 200);
+      await page.getByText(/Настройки сохранены/).waitFor();
+      assert.equal(await page.getByLabel('API-ключ OpenRouter', { exact: true }).inputValue(), '');
+      await page.reload();
+      await page.getByRole('radio', { name: 'OpenRouter', exact: true }).waitFor();
+      assert(await page.getByRole('radio', { name: 'OpenRouter', exact: true }).isChecked());
+      assert.equal(await page.getByLabel('Модель OpenRouter', { exact: true }).inputValue(), 'openrouter/free');
+      await page.getByText('41 из 50', { exact: true }).waitFor();
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 1000 });
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Model form overflow at ${width}`);
+        await page.screenshot({ path: fileURLToPath(new URL(`openrouter-${width}.png`, output)), fullPage: true });
+      }
+      await page.goto(base + '/upload');
+      await page.getByText('41 из 50', { exact: true }).waitFor();
+      await page.goto(base + '/profile');
+      await page.getByRole('radio', { name: 'Локально · CPU' }).waitFor();
+    }
     await page.getByRole('radio', { name: 'Локально · CPU' }).check();
     const savedLocal = page.waitForResponse(response => response.url().endsWith('/api/analysis/provider') && response.request().method() === 'PUT');
     await page.getByRole('button', { name: 'Сохранить режим анализа' }).click();
@@ -68,7 +87,7 @@ export async function verifyProductionBrowser(base) {
       }
     }
     assert.deepEqual(errors, []); assert.deepEqual(foreignRequests, []);
-    console.log('Production browser: registration, product creation, HttpOnly refresh, persisted cloud/local selection, cleared key field and 48 page/theme/width combinations passed with one origin and no external requests.');
+    console.log(`Production browser: registration, product creation, HttpOnly refresh, ${openRouterFixture ? 'paid/free selection, prices, persisted model, cleared key field, own quota and ' : ''}48 page/theme/width combinations passed with one origin and no external requests.`);
   } catch (error) {
     await page.screenshot({ path: fileURLToPath(new URL('failure.png', output)), fullPage: true });
     await fs.writeFile(new URL('failure.json', output), JSON.stringify({ url: page.url(), errors, foreignRequests, httpErrors }, null, 2));

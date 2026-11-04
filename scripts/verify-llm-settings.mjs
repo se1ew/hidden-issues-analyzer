@@ -34,7 +34,18 @@ try {
   server = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk;
     res.setHeader('Content-Type', 'application/json');
-    if (req.url === '/v1/models') return res.end(JSON.stringify({ data: [{ id: 'openrouter/free' }, { id: 'vendor/b' }] }));
+    if (req.url === '/v1/models') return res.end(JSON.stringify({ data: ['openrouter/free', 'vendor/b'].map(id => ({
+      id, name: id, context_length: 32000, architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+      supported_parameters: ['response_format'], pricing: { prompt: id === 'openrouter/free' ? '0' : '0.000001', completion: id === 'openrouter/free' ? '0' : '0.000003' },
+    })) }));
+    if (req.url === '/v1/key') {
+      const owner = req.headers.authorization === 'Bearer fixture-private-a' ? 'a'
+        : req.headers.authorization === 'Bearer fixture-private-b' ? 'b'
+          : req.headers.authorization === 'Bearer fixture-browser-key' ? 'a' : null;
+      if (!owner) { res.statusCode = 401; return res.end(JSON.stringify({ error: 'no key' })); }
+      return res.end(JSON.stringify({ data: { label: `private-label-${owner}`, limit: null, limit_remaining: null,
+        free_model_daily_requests: { used: owner === 'a' ? 9 : 20, remaining: owner === 'a' ? 41 : 30, limit: 50 } } }));
+    }
     const parsed = JSON.parse(body);
     if (parsed.model === 'openrouter/free') {
       assert.equal(parsed.response_format?.type, 'json_schema');
@@ -64,6 +75,8 @@ try {
   const authenticated = (method, endpoint, owner = 'a') => request(app)[method](`/api/${endpoint}`)
     .auth(signAccessToken({ sub: owner, email: `${owner}@settings.test` }), { type: 'bearer' });
   assert.equal((await request(app).put('/api/analysis/provider').send({ provider: 'local' })).status, 401);
+  assert.equal((await request(app).get('/api/analysis/provider/models')).status, 401);
+  assert.equal((await request(app).get('/api/analysis/provider/limits')).status, 401);
   const runIds = [], products = [];
   for (const owner of ['a', 'b']) {
     await db.user.create({ data: { id: owner, email: `${owner}@settings.test`, passwordHash: 'unused' } });
@@ -76,6 +89,14 @@ try {
     assert(!JSON.stringify(settings.body).includes('fixture-private'));
     const saved = await db.userLlmSettings.findUniqueOrThrow({ where: { userId: owner } });
     assert(!saved.encryptedKey.includes('fixture-private'));
+    const catalog = await authenticated('get', 'analysis/provider/models', owner);
+    assert.equal(catalog.status, 200);
+    assert.equal(catalog.body.items.find(model => model.id === 'openrouter/free').isFree, true);
+    assert.equal(catalog.body.items.find(model => model.id === 'vendor/b').pricing.completionPerMillion, 3);
+    const limits = await authenticated('get', 'analysis/provider/limits', owner);
+    assert.equal(limits.status, 200); assert.equal(limits.headers['cache-control'], 'no-store');
+    assert.equal(limits.body.freeRequests.remaining, owner === 'a' ? 41 : 30);
+    assert(!JSON.stringify(limits.body).includes('private'));
     assert.equal((await authenticated('post', 'analysis/provider/check', owner)).status, 200);
     const created = await authenticated('post', 'analysis/runs', owner).send({ productId: product.id });
     assert.equal(created.status, 202); runIds.push(created.body.id);
@@ -115,6 +136,7 @@ try {
   assert.equal((await authenticated('post', 'analysis/runs').send({ productId: products[0].id, mode: 'reanalyze' })).status, 503);
   assert.equal(await db.analysisRun.count(), beforeMissing);
   assert.equal((await authenticated('put', 'analysis/provider').send({ provider: 'local', clearApiKey: true })).status, 200);
+  assert.equal((await authenticated('get', 'analysis/provider/limits')).status, 409);
   assert.equal((await authenticated('put', 'analysis/provider').send({ provider: 'openrouter' })).status, 422);
   console.log('LLM settings: two accounts, encrypted keys, separate worker, saved provider/model, summary, missing GGUF and no cloud fallback passed.');
   if (process.env.PLAYWRIGHT_MODULE) {
@@ -122,7 +144,7 @@ try {
     const base = `http://127.0.0.1:${browserServer.address().port}`;
     const { env } = await import('../apps/api/dist/config/env.js'); env.WEB_ORIGIN = base;
     const { verifyProductionBrowser } = await import('./verify-production-browser.mjs');
-    await verifyProductionBrowser(base);
+    await verifyProductionBrowser(base, { openRouterFixture: true });
   }
 } finally {
   if (browserServer) { browserServer.closeAllConnections(); await new Promise(resolve => browserServer.close(resolve)); }

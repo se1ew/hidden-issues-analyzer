@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LlmSettingsForm } from './LlmSettingsForm';
 
 const mocks = vi.hoisted(() => ({ save: vi.fn(), reset: vi.fn() }));
-vi.mock('../lib/queries', () => ({ useSaveLlmConfiguration: () => ({ mutateAsync: mocks.save, reset: mocks.reset }) }));
+vi.mock('../lib/queries', () => ({ useSaveLlmConfiguration: () => ({ mutateAsync: mocks.save, reset: mocks.reset }),
+  useOpenRouterModels: () => ({ data: { items: [{ id: 'other/model', name: 'Other', contextTokens: 4096, isFree: true, pricing: null }] } }) }));
 const settings = { provider: 'local' as const, model: 'model.gguf', cloudModel: 'vendor/model',
   contextTokens: 4096, concurrency: 1, responseFormat: 'json_schema', source: 'account' as const,
   local: { managed: true, file: 'models/llm/model.gguf', state: 'missing' as const, backend: 'cpu' } };

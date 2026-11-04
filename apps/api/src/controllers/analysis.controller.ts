@@ -13,6 +13,16 @@ import { z } from 'zod';
 import { DataScopeSchema, scopeShape, validPeriod, entityId } from '../schemas/data-scope.schema.js';
 import { readRunData, runTimeseries } from '../services/run-data.service.js';
 import { scopedOverview, resolveRunScope } from '../services/stats.service.js';
+import { openRouterLimits, openRouterModels } from '../services/openrouter-catalog.service.js';
+
+export async function modelCatalog(_req: Request, res: Response): Promise<void> {
+  res.json(await openRouterModels());
+}
+
+export async function modelLimits(req: Request, res: Response): Promise<void> {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await openRouterLimits(requestUserId(req)));
+}
 
 export async function provider(req: Request, res: Response): Promise<void> {
   res.json(await publicLlmSettings(requestUserId(req)));

@@ -326,8 +326,30 @@ export function useSaveLlmConfiguration() {
   return useMutation({
     mutationFn: async (input: { provider: 'local' | 'openrouter'; cloudModel?: string; apiKey?: string; clearApiKey?: boolean }) =>
       (await api.put<LlmConfiguration>('/api/analysis/provider', input, { timeout: 120_000 })).data,
-    onSuccess: data => { qc.setQueryData(['llm-configuration', ownerId], data); },
+    onSuccess: data => {
+      qc.setQueryData(['llm-configuration', ownerId], data);
+      void qc.resetQueries({ queryKey: ['openrouter-limits', ownerId] });
+    },
   });
+}
+
+export interface OpenRouterModel {
+  id: string; name: string; contextTokens: number | null; isFree: boolean | null;
+  pricing: { promptPerMillion: number; completionPerMillion: number; request: number } | null;
+}
+export interface OpenRouterLimits {
+  checkedAt: string; scope: 'account';
+  freeRequests: { used: number; limit: number; remaining: number; resetAt: string; resetBasis: 'utc_day' } | null;
+  keyCredits: { limit: number | null; remaining: number | null; reset: string | null } | null;
+}
+export function useOpenRouterModels(enabled = true) {
+  return useQuery({ queryKey: ['openrouter-models', useOwnerId()], enabled, staleTime: 300_000, retry: 1,
+    queryFn: async () => (await api.get<{ items: OpenRouterModel[]; fetchedAt: string }>('/api/analysis/provider/models')).data });
+}
+export function useOpenRouterLimits(enabled = true) {
+  return useQuery({ queryKey: ['openrouter-limits', useOwnerId()], enabled, retry: false, staleTime: 15_000,
+    refetchInterval: enabled ? 30_000 : false,
+    queryFn: async () => (await api.get<OpenRouterLimits>('/api/analysis/provider/limits')).data });
 }
 
 export function useStats(productId?: string | null) {

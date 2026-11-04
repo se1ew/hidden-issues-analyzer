@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { apiErrorMessage } from '../lib/api';
 import { useSaveLlmConfiguration, type LlmConfiguration } from '../lib/queries';
+import { OpenRouterModelPicker } from './OpenRouterModelPicker';
 
 export function LlmSettingsForm({ settings, onSaved }: { settings: LlmConfiguration; onSaved: () => void }) {
   const [provider, setProvider] = useState(settings.provider);
@@ -36,9 +37,7 @@ export function LlmSettingsForm({ settings, onSaved }: { settings: LlmConfigurat
         <p>Отзывы остаются на компьютере с приложением. Облачный режим автоматически не включается. CPU обрабатывает отзывы последовательно; большие партии могут занять несколько часов.</p>
       </div> : <div className="space-y-3 text-sm">
         <p>Тексты отзывов и запросы к сводке будут отправляться выбранной модели через OpenRouter. Нужны интернет и ваш API-ключ; стоимость зависит от модели.</p>
-        <label className="block">Модель OpenRouter
-          <input className="input w-full mt-1" value={cloudModel} onChange={event => { setCloudModel(event.target.value); save.reset(); }} required maxLength={200} placeholder="провайдер/имя-модели" autoComplete="off" />
-        </label>
+        <OpenRouterModelPicker value={cloudModel} onChange={value => { setCloudModel(value); save.reset(); }} />
         <label className="block">API-ключ OpenRouter
           <input className="input w-full mt-1" type="password" value={apiKey} onChange={event => { setApiKey(event.target.value); setClearApiKey(false); save.reset(); }} required={!keySaved} maxLength={512} autoComplete="new-password" spellCheck={false} placeholder={keySaved ? 'Ключ сохранён · введите новый для замены' : 'sk-or-v1-…'} />
         </label>

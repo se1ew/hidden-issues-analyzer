@@ -1,6 +1,7 @@
 import { useCheckLlm, useLlmConfiguration } from '../lib/queries';
 import { ErrorState } from './QueryState';
 import { LlmSettingsForm } from './LlmSettingsForm';
+import { OpenRouterQuota } from './OpenRouterQuota';
 
 export function LlmStatus({ editable = false }: { editable?: boolean }) {
   const settings = useLlmConfiguration();
@@ -21,6 +22,7 @@ export function LlmStatus({ editable = false }: { editable?: boolean }) {
     </div>
     <p className="text-xs text-neutral-500">Используется выбранный режим. При сбое локальной модели данные автоматически в облако не отправляются.</p>
     {!editable && <a className="text-sm underline" href="/profile">Выбрать OpenRouter или локальную модель в профиле</a>}
+    {settings.data?.provider === 'openrouter' && <OpenRouterQuota hasApiKey={!!settings.data.hasApiKey} />}
     {editable && settings.data && <LlmSettingsForm settings={settings.data} onSaved={() => check.reset()} />}
     {check.isSuccess && <p role="status" className="text-sm text-green-700 dark:text-green-300">Настроенная модель доступна на сервере.</p>}
     {check.isError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{error?.response?.data?.error ?? 'Не удалось связаться с сервером модели'}</p>}

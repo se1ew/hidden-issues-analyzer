@@ -9,6 +9,8 @@ analysisRouter.use(requireAuth);
 analysisRouter.get('/provider', ctrl.provider);
 analysisRouter.put('/provider', ctrl.saveProvider);
 analysisRouter.post('/provider/check', ctrl.checkProvider);
+analysisRouter.get('/provider/models', ctrl.modelCatalog);
+analysisRouter.get('/provider/limits', ctrl.modelLimits);
 analysisRouter.get('/runs', ctrl.listRuns);
 analysisRouter.get('/runs/:runId', ctrl.getRun);
 analysisRouter.get('/runs/:runId/inputs', ctrl.listInputs);

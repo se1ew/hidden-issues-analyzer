@@ -4,6 +4,7 @@ import { LlmStatus } from './LlmStatus';
 
 const mocks = vi.hoisted(() => ({ settings: vi.fn(), check: vi.fn(), mutate: vi.fn() }));
 vi.mock('../lib/queries', () => ({ useLlmConfiguration: mocks.settings, useCheckLlm: mocks.check }));
+vi.mock('./OpenRouterQuota', () => ({ OpenRouterQuota: () => <div>Лимиты OpenRouter</div> }));
 beforeEach(() => {
   mocks.settings.mockReturnValue({ data: { provider: 'local', model: 'local-model' }, isError: false });
   mocks.check.mockReturnValue({ mutate: mocks.mutate, isPending: false, isSuccess: false, isError: false });
