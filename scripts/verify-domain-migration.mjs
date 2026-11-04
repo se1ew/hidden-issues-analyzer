@@ -82,7 +82,9 @@ try {
   run(process.execPath, ['scripts/assign-legacy-product.mjs', '--product', 'p1', '--user', 'u1'], { env: assignmentEnv });
   assert.equal((await db.$queryRawUnsafe(`SELECT "userId" FROM "Product" WHERE id = 'p1'`))[0].userId, null);
   run(process.execPath, ['scripts/assign-legacy-product.mjs', '--product', 'p1', '--user', 'u1', '--apply'], { env: assignmentEnv });
-  assert.equal((await db.product.findUniqueOrThrow({ where: { id: 'p1' } })).userId, 'u1');
+  // This intermediate schema predates later optional product metadata. Select
+  // only the ownership field being verified instead of every final Client field.
+  assert.equal((await db.product.findUniqueOrThrow({ where: { id: 'p1' }, select: { userId: true } })).userId, 'u1');
   const reassignment = spawnSync(process.execPath, ['scripts/assign-legacy-product.mjs', '--product', 'p1', '--user', 'u2', '--apply'], { cwd: root, encoding: 'utf8', env: assignmentEnv });
   assert.notEqual(reassignment.status, 0);
   sql('restored', fs.readFileSync(path.join(migrations, ownerMigration, 'migration.sql'), 'utf8'));
@@ -96,6 +98,8 @@ try {
     run(process.execPath, [...link, '--apply'], { env: assignmentEnv });
   }
   for (const entry of domainDirs.filter(entry => entry > ownerMigration)) sql('restored', fs.readFileSync(path.join(migrations, entry, 'migration.sql'), 'utf8'));
+  assert.equal((await db.product.findUniqueOrThrow({ where: { id: 'p1' } })).imageUrl, null,
+    'Later metadata migration must preserve legacy products with no image');
   const archived = await db.legacyReviewResult.findUniqueOrThrow({ where: { reviewId: 'r1' } });
   assert.equal(archived.payload.hiddenIssueId, 'h1');
   assert.equal(archived.payload.legacyAnalysis, true);
