@@ -1,6 +1,7 @@
 export const analysisStatusNames: Record<string, string> = { pending: 'Ожидает обработки', running: 'Обрабатывается', succeeded: 'Обработан', failed: 'Ошибка обработки' };
 export const stageNames: Record<string, string> = { selection: 'Подбор отзывов', extraction: 'Извлечение аспектов и жалоб', grouping: 'Группировка', persistence: 'Сохранение результата', queued: 'В очереди' };
 export function runErrorHint(code?: string | null) {
+  if (code === 'database_error') return 'Ошибка работы с базой данных. Уже сохранённые результаты доступны; проверьте службы и повторите необработанные отзывы новым запуском.';
   if (code === 'invalid_evidence') return 'Цитата или последствия не подтверждены исходным текстом. Повторите ошибки запуска.';
   if (code?.includes('grouping')) return 'Извлечение сохранено, но группировка недоступна. Проверьте модель эмбеддингов и повторите группировку.';
   if (code === 'resource_exhausted') return 'Модели не хватает памяти. Уменьшите контекст или выберите меньшую модель, затем повторите ошибочные отзывы.';

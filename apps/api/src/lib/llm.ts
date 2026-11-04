@@ -28,16 +28,24 @@ export interface LlmProvider {
   check(signal?: AbortSignal): Promise<void>;
 }
 
+export function openRouterResponseFormat(model: string, format: ProviderConfig['responseFormat']) {
+  // The free router may choose different models. Pass the actual schema so it
+  // selects a backend that can enforce our enums and required result fields.
+  return model === 'openrouter/free' && format === 'json_object' ? 'json_schema' : format;
+}
+
 export function providerConfig(settings: Env): ProviderConfig {
+  const model = settings.LLM_MODEL ?? (settings.LLM_PROVIDER === 'local' ? 'local-model' : settings.OPENROUTER_MODEL);
   return {
     provider: settings.LLM_PROVIDER,
     baseUrl: settings.LLM_BASE_URL ?? (settings.LLM_PROVIDER === 'local' ? 'http://127.0.0.1:8080/v1' : settings.OPENROUTER_BASE_URL),
-    model: settings.LLM_MODEL ?? (settings.LLM_PROVIDER === 'local' ? 'local-model' : settings.OPENROUTER_MODEL),
+    model,
     apiKey: settings.LLM_PROVIDER === 'openrouter' ? settings.OPENROUTER_API_KEY : undefined,
     timeoutMs: settings.LLM_TIMEOUT_MS, contextTokens: settings.LLM_CONTEXT_TOKENS,
     maxOutputTokens: settings.LLM_MAX_OUTPUT_TOKENS, concurrency: settings.LLM_CONCURRENCY,
     retries: settings.LLM_RETRIES, retryDelayMs: settings.LLM_RETRY_DELAY_MS,
-    maxRetryDelayMs: settings.LLM_MAX_RETRY_DELAY_MS, responseFormat: settings.LLM_RESPONSE_FORMAT,
+    maxRetryDelayMs: settings.LLM_MAX_RETRY_DELAY_MS, responseFormat: settings.LLM_PROVIDER === 'openrouter'
+      ? openRouterResponseFormat(model, settings.LLM_RESPONSE_FORMAT) : settings.LLM_RESPONSE_FORMAT,
     cloudDelayMs: settings.LLM_CLOUD_DELAY_MS, webOrigin: settings.WEB_ORIGIN,
   };
 }
@@ -81,7 +89,8 @@ const completionEnvelope = z.object({
 });
 
 export function createProvider(input: ProviderConfig, sharedCapacity = false): LlmProvider {
-  const config = Object.freeze({ ...input });
+  const config = Object.freeze({ ...input, responseFormat: input.provider === 'openrouter'
+    ? openRouterResponseFormat(input.model, input.responseFormat) : input.responseFormat });
   const gate = new Gate(config.concurrency);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (config.provider === 'openrouter') {
@@ -107,7 +116,15 @@ export function createProvider(input: ProviderConfig, sharedCapacity = false): L
         const reset = response.headers.get('X-RateLimit-Reset');
         const waitMs = retryAfter ? (/^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now())
           : reset ? Number(reset) - Date.now() : undefined;
-        const error = new LlmError('http', `Модель вернула HTTP ${response.status}`, response.status);
+        const cloudMessages: Record<number, string> = {
+          401: 'OpenRouter отклонил API-ключ. Проверьте ключ в профиле.',
+          402: 'Недостаточно средств OpenRouter для выбранной модели. Проверьте баланс или выберите бесплатную модель в профиле.',
+          403: 'OpenRouter запретил доступ. Проверьте ограничения ключа и настройки аккаунта.',
+          404: 'Выбранная модель OpenRouter недоступна. Проверьте её ID или выберите другую модель в профиле.',
+          429: 'Достигнут лимит запросов OpenRouter. Повторите позже или выберите другую модель в профиле.',
+        };
+        const message = config.provider === 'openrouter' ? cloudMessages[response.status] : undefined;
+        const error = new LlmError('http', message ?? `Модель вернула HTTP ${response.status}`, response.status);
         Object.assign(error, { retryAfterMs: waitMs });
         throw error;
       }
@@ -171,6 +188,7 @@ export function createProvider(input: ProviderConfig, sharedCapacity = false): L
     }
     const raw = await fetchJson('chat/completions', { model: config.model, messages: request.messages,
       temperature: request.temperature ?? 0.2, max_tokens: maxTokens, stream: false,
+      ...(config.provider === 'openrouter' && config.model === 'openrouter/free' ? { reasoning: { enabled: false } } : {}),
       ...(responseFormat ? { response_format: responseFormat } : {}),
     }, signal);
     const parsed = completionEnvelope.safeParse(raw);
@@ -200,7 +218,14 @@ export function createProvider(input: ProviderConfig, sharedCapacity = false): L
     check: (signal) => execute(async (current) => {
       const models = z.object({ data: z.array(z.object({ id: z.string() })) }).safeParse(await fetchJson('models', undefined, current));
       if (!models.success) throw new LlmError('invalid_response', 'Некорректный список моделей');
-      if (!models.data.data.some((model) => model.id === config.model)) throw new LlmError('model_unavailable', 'Настроенная модель отсутствует на сервере');
+      if (!models.data.data.some((model) => model.id === config.model)) {
+        const freeRouterAvailable = models.data.data.some(model => model.id === 'openrouter/free');
+        const hint = freeRouterAvailable && config.model.endsWith(':free')
+          ? ' Для бесплатного режима можно указать openrouter/free.' : '';
+        throw new LlmError('model_unavailable', config.provider === 'openrouter'
+          ? `Модель «${config.model}» не найдена в текущем каталоге OpenRouter. Укажите доступный ID модели в профиле.${hint}`
+          : 'Настроенная модель отсутствует на сервере');
+      }
     }, signal),
   };
 }

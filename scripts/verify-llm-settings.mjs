@@ -34,8 +34,12 @@ try {
   server = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk;
     res.setHeader('Content-Type', 'application/json');
-    if (req.url === '/v1/models') return res.end(JSON.stringify({ data: [{ id: 'vendor/a' }, { id: 'vendor/b' }] }));
+    if (req.url === '/v1/models') return res.end(JSON.stringify({ data: [{ id: 'openrouter/free' }, { id: 'vendor/b' }] }));
     const parsed = JSON.parse(body);
+    if (parsed.model === 'openrouter/free') {
+      assert.equal(parsed.response_format?.type, 'json_schema');
+      assert.equal(parsed.reasoning?.enabled, false);
+    }
     observations.push({ model: parsed.model, authorization: req.headers.authorization });
     const summary = parsed.messages[0].content.startsWith('Составь краткую сводку');
     res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: summary ? 'Сводка контрольного запуска.'
@@ -67,7 +71,7 @@ try {
     const batch = await db.uploadBatch.create({ data: { userId: owner, productId: product.id, source: 'manual', status: 'completed' } });
     await db.review.create({ data: { productId: product.id, uploadBatchId: batch.id, text: 'Хороший товар, всё работает.', rating: 5 } });
     const settings = await authenticated('put', 'analysis/provider', owner)
-      .send({ provider: 'openrouter', cloudModel: `vendor/${owner}`, apiKey: `fixture-private-${owner}` });
+      .send({ provider: 'openrouter', cloudModel: owner === 'a' ? 'openrouter/free' : 'vendor/b', apiKey: `fixture-private-${owner}` });
     assert.equal(settings.status, 200); assert.equal(settings.body.hasApiKey, true);
     assert(!JSON.stringify(settings.body).includes('fixture-private'));
     const saved = await db.userLlmSettings.findUniqueOrThrow({ where: { userId: owner } });
@@ -101,7 +105,7 @@ try {
   finally { clearTimeout(timer); }
   for (const id of runIds) assert.equal((await db.analysisRun.findUniqueOrThrow({ where: { id } })).status, 'completed');
   assert.deepEqual(observations, [
-    { model: 'vendor/a', authorization: 'Bearer fixture-private-a' },
+    { model: 'openrouter/free', authorization: 'Bearer fixture-private-a' },
     { model: 'vendor/b', authorization: 'Bearer fixture-private-b' },
   ]);
   const summary = await authenticated('get', 'analysis/summary', 'b').query({ productId: products[1].id });

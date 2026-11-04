@@ -27,6 +27,8 @@ jobs:
       - run: npm run test:integration:migration
       - run: npm run test:integration:access
       - run: npm run test:integration:llm
+      - run: npm run test:integration:database
+      - run: node scripts/verify-product-metadata.mjs
       - run: npm run test:integration:runs
       - run: docker build -t reviewlens-app:local .
       - run: docker build -f deploy/local-llm.Dockerfile -t reviewlens-llm:cpu .

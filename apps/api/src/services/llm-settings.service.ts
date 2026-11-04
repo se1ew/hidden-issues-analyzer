@@ -4,7 +4,7 @@ import { open, stat } from 'node:fs/promises';
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
-import { createProvider, llm, LlmError, providerConfig, type ProviderConfig } from '../lib/llm.js';
+import { createProvider, llm, LlmError, openRouterResponseFormat, providerConfig, type ProviderConfig } from '../lib/llm.js';
 import { HttpError } from '../middleware/error.js';
 
 export const UpdateLlmSettingsSchema = z.object({
@@ -91,8 +91,9 @@ export async function resolveLlmSettings(userId: string): Promise<{ config: Prov
   const base = providerConfig(env);
   if (saved?.provider === 'openrouter') {
     if (!saved.encryptedKey) throw new HttpError(422, 'Сохраните API-ключ OpenRouter в профиле.');
+    const model = saved.cloudModel ?? env.OPENROUTER_MODEL;
     return { config: { ...base, provider: 'openrouter', baseUrl: env.OPENROUTER_BASE_URL,
-      model: saved.cloudModel ?? env.OPENROUTER_MODEL, apiKey: decryptApiKey(saved.encryptedKey, userId) },
+      model, responseFormat: openRouterResponseFormat(model, base.responseFormat), apiKey: decryptApiKey(saved.encryptedKey, userId) },
     modelVersion: 'unverified', credentialSource: 'account' };
   }
   return resolveLocalLlmSettings();
@@ -127,15 +128,17 @@ export async function publicLlmSettings(userId: string) {
   const saved = await savedLlmSettings(userId);
   const file = await localModelFile();
   const provider = saved?.provider ?? llm.config.provider;
+  const model = saved ? provider === 'openrouter' ? saved.cloudModel ?? env.OPENROUTER_MODEL
+    : file ? 'model.gguf' : env.LLM_PROVIDER === 'local' ? llm.config.model : 'local-model'
+    : provider === 'local' && file ? 'model.gguf' : llm.config.model;
   return {
     provider,
-    model: saved ? provider === 'openrouter' ? saved.cloudModel ?? env.OPENROUTER_MODEL
-      : file ? 'model.gguf' : env.LLM_PROVIDER === 'local' ? llm.config.model : 'local-model'
-      : provider === 'local' && file ? 'model.gguf' : llm.config.model,
+    model,
     cloudModel: saved?.cloudModel ?? env.OPENROUTER_MODEL,
     hasApiKey: saved ? !!saved.encryptedKey : !!env.OPENROUTER_API_KEY,
     source: saved ? 'account' : 'installation',
-    contextTokens: llm.config.contextTokens, concurrency: llm.config.concurrency, responseFormat: llm.config.responseFormat,
+    contextTokens: llm.config.contextTokens, concurrency: llm.config.concurrency, responseFormat: provider === 'openrouter'
+      ? openRouterResponseFormat(model, llm.config.responseFormat) : llm.config.responseFormat,
     local: { managed: !!file, file: 'models/llm/model.gguf', state: file?.state ?? 'external', backend: 'cpu' },
   };
 }

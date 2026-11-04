@@ -8,7 +8,7 @@ import { env } from '../config/env.js';
 import { signAccessToken } from '../middleware/auth.js';
 import { errorHandler } from '../middleware/error.js';
 import { analysisRouter } from '../routes/analysis.routes.js';
-import { decryptApiKey, encryptApiKey, localModelFile, resolveLlmSettings, runApiKey, updateLlmSettings } from './llm-settings.service.js';
+import { decryptApiKey, encryptApiKey, localModelFile, publicLlmSettings, resolveLlmSettings, runApiKey, updateLlmSettings } from './llm-settings.service.js';
 
 const mocks = vi.hoisted(() => ({ find: vi.fn(), upsert: vi.fn() }));
 vi.mock('../lib/prisma.js', () => ({ prisma: { userLlmSettings: { findUnique: mocks.find, upsert: mocks.upsert } } }));
@@ -61,6 +61,11 @@ describe('account model settings', () => {
     expect(await runApiKey('owner', 'account')).toBe('owner-key');
     await updateLlmSettings('owner', { provider: 'local', clearApiKey: true });
     await expect(updateLlmSettings('owner', { provider: 'openrouter' })).rejects.toMatchObject({ status: 422 });
+  });
+  it('exposes the same strict output mode that a free-router run will save', async () => {
+    await updateLlmSettings('owner', { provider: 'openrouter', cloudModel: 'openrouter/free', apiKey: 'owner-key' });
+    expect((await resolveLlmSettings('owner')).config).toMatchObject({ model: 'openrouter/free', responseFormat: 'json_schema' });
+    expect(await publicLlmSettings('owner')).toMatchObject({ model: 'openrouter/free', responseFormat: 'json_schema' });
   });
   it('rejects injected owner, URL and conflicting key changes', async () => {
     for (const extra of [{ userId: 'other' }, { baseUrl: 'http://foreign' }, { apiKey: 'new', clearApiKey: true }]) {

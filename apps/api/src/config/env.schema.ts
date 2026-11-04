@@ -24,7 +24,7 @@ export const EnvSchema = z.object({
   JWT_ACCESS_TTL: tokenTtl.default('15m'),
   JWT_REFRESH_TTL: tokenTtl.default('7d'),
   OPENROUTER_API_KEY: z.string().trim().optional(),
-  OPENROUTER_MODEL: z.string().trim().min(1).default('nvidia/nemotron-3-super-120b-a12b:free'),
+  OPENROUTER_MODEL: z.string().trim().min(1).default('openrouter/free'),
   OPENROUTER_BASE_URL: serviceUrl(['http:', 'https:']).default('https://openrouter.ai/api/v1'),
   LLM_PROVIDER: z.enum(['local', 'openrouter']).default('local'),
   LOCAL_LLM_BASE_URL: serviceUrl(['http:', 'https:']).optional(),

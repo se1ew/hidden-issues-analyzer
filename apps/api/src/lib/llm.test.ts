@@ -80,6 +80,48 @@ describe('local and OpenRouter HTTP adapters', () => {
     expect(calls).toBe(1);
   });
 
+  it('explains a removed free model and never substitutes its paid counterpart', async () => {
+    const paths: string[] = [];
+    const base = await fixture((req, res) => {
+      paths.push(req.url!);
+      json(res, { data: [{ id: 'vendor/retired-model' }, { id: 'openrouter/free' }] });
+    });
+    const provider = createProvider(config(base, { provider: 'openrouter', apiKey: 'test-only-key', model: 'vendor/retired-model:free' }));
+    await expect(provider.check()).rejects.toMatchObject({ code: 'model_unavailable',
+      message: expect.stringContaining('vendor/retired-model:free') });
+    await expect(provider.check()).rejects.toMatchObject({ message: expect.stringContaining('openrouter/free') });
+    expect(provider.config.model).toBe('vendor/retired-model:free');
+    expect(paths).toEqual(['/v1/models', '/v1/models']);
+  });
+
+  it('accepts the explicit free router and sends that exact model ID', async () => {
+    const base = await fixture((req, res, body) => {
+      if (req.url === '/v1/models') return json(res, { data: [{ id: 'openrouter/free' }] });
+      expect(body.model).toBe('openrouter/free');
+      expect(body.response_format).toEqual({ type: 'json_schema', json_schema: {
+        name: 'review_analysis', strict: true, schema: ANALYSIS_JSON_SCHEMA,
+      } });
+      expect(body.reasoning).toEqual({ enabled: false });
+      json(res, envelope());
+    });
+    const provider = createProvider(config(base, { provider: 'openrouter', apiKey: 'test-only-key', model: 'openrouter/free' }));
+    await provider.check();
+    expect(await provider.completeJson(request, AnalysisResultSchema)).toEqual(result);
+  });
+
+  it.each([
+    [401, 'API-ключ'], [402, 'Недостаточно средств'], [403, 'запретил доступ'],
+    [404, 'модель OpenRouter недоступна'], [429, 'лимит запросов'],
+  ] as const)('explains OpenRouter HTTP %s without exposing its response', async (status, message) => {
+    const base = await fixture((_req, res) => json(res, { error: { message: 'RAW_PROVIDER_SECRET' } }, status));
+    const provider = createProvider(config(base, { provider: 'openrouter', apiKey: 'test-only-key', retries: 0 }));
+    try { await provider.check(); throw new Error('expected failure'); }
+    catch (error) {
+      expect(error).toMatchObject({ code: 'http', status, message: expect.stringContaining(message) });
+      expect(String(error)).not.toContain('RAW_PROVIDER_SECRET');
+    }
+  });
+
   it('retries a temporary HTTP failure within its limit', async () => {
     let calls = 0;
     const base = await fixture((_req, res) => { calls++; json(res, calls === 1 ? {} : envelope(), calls === 1 ? 503 : 200); });
