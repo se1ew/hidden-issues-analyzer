@@ -11,6 +11,7 @@ export interface ProductWithStats {
   id: string;
   name: string;
   sourceUrl: string | null;
+  imageUrl: string | null;
   source: string | null;
   externalId: string | null;
   reviewsCount: number;
@@ -41,6 +42,7 @@ export async function listProducts(userId: string): Promise<ProductWithStats[]> 
       id: p.id,
       name: p.name,
       sourceUrl: p.sourceUrl,
+      imageUrl: p.imageUrl,
       source: p.source,
       externalId: p.externalId,
       reviewsCount: p._count.reviews,
@@ -59,12 +61,12 @@ export const UNASSIGNED_PRODUCT_ID = '__unassigned__';
 
 export async function createProduct(name: string, userId: string) {
   return prisma.product.create({ data: { name, userId, source: 'local' },
-    select: { id: true, name: true, source: true, externalId: true, sourceUrl: true, createdAt: true } });
+    select: { id: true, name: true, source: true, externalId: true, sourceUrl: true, imageUrl: true, createdAt: true } });
 }
 
 export async function getProduct(id: string, userId: string) {
   const product = await prisma.product.findFirst({ where: { id, userId },
-    select: { id: true, name: true, source: true, externalId: true, sourceUrl: true, createdAt: true,
+    select: { id: true, name: true, source: true, externalId: true, sourceUrl: true, imageUrl: true, createdAt: true,
       _count: { select: { reviews: true } } } });
   if (!product) throw new HttpError(404, 'Товар не найден');
   return product;

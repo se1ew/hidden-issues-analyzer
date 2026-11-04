@@ -72,6 +72,7 @@ export interface Product {
   id: string;
   name: string;
   sourceUrl: string | null;
+  imageUrl?: string | null;
   source?: string | null;
   externalId?: string | null;
   reviewsCount: number;

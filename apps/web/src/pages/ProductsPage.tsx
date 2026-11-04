@@ -6,6 +6,7 @@ import { useProductStore } from '../store/product.store';
 import { ErrorState } from '../components/QueryState';
 import { apiErrorMessage } from '../lib/api';
 import { runStatusNames } from '../components/DataScopePanel';
+import { ProductImage } from '../components/ProductImage';
 
 export function ProductsPage() {
   const { data, isLoading, isError, error, refetch } = useProducts();
@@ -96,9 +97,7 @@ export function ProductsPage() {
         <div className="space-y-3">
           {realProducts.map((product) => (
             <div key={product.id} className="card flex flex-wrap items-center gap-4">
-              <div className="h-10 w-10 rounded-xl bg-primary-100 flex items-center justify-center shrink-0">
-                <Package className="h-5 w-5 text-primary-700" />
-              </div>
+              <ProductImage url={product.imageUrl} name={product.name} />
 
               <div className="flex-1 min-w-[min(100%,12rem)]">
                 {editingId === product.id ? (
@@ -116,7 +115,7 @@ export function ProductsPage() {
                   />
                 ) : (
                   <>
-                    <div className="font-semibold text-neutral-800 dark:text-neutral-100 truncate">
+                    <div className="font-semibold text-neutral-800 dark:text-neutral-100 break-words">
                       {product.name}
                     </div>
                     <div className="text-xs text-neutral-400 mt-0.5">

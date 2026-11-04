@@ -50,6 +50,7 @@ export async function persistImport(input: {
   externalSource?: string;
   productExternalId?: string;
   sourceUrl?: string;
+  imageUrl?: string;
   filename?: string;
   rows: ImportRow[];
   createNewProduct?: boolean;
@@ -73,9 +74,17 @@ export async function persistImport(input: {
         if (!product && input.productId) throw new HttpError(404, 'Товар не найден');
         product ??= await tx.product.create({ data: {
           name: input.productName, userId: input.userId, source: productSource,
-          externalId: input.productExternalId, sourceUrl: input.sourceUrl,
+          externalId: input.productExternalId, sourceUrl: input.sourceUrl, imageUrl: input.imageUrl,
         } });
         await tx.$queryRaw`SELECT id FROM "Product" WHERE id = ${product.id} FOR UPDATE`;
+        if (input.externalSource === 'wildberries') {
+          // Preserve manual names, including a rename concurrent with the import.
+          await tx.product.updateMany({ where: { id: product.id, userId: input.userId,
+            source: 'wildberries', externalId: input.productExternalId, name: `WB ${input.productExternalId}` },
+          data: { name: input.productName } });
+          await tx.product.updateMany({ where: { id: product.id, userId: input.userId, source: 'wildberries',
+            externalId: input.productExternalId }, data: { imageUrl: input.imageUrl, sourceUrl: input.sourceUrl } });
+        }
         if (input.batchId) await tx.$queryRaw`SELECT id FROM "UploadBatch" WHERE id = ${input.batchId} FOR UPDATE`;
         const startedAt = new Date();
         if (input.batchId && !await tx.uploadBatch.findFirst({ where: { id: input.batchId, userId: input.userId,

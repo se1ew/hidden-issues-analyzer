@@ -7,6 +7,28 @@ import { parseWildberries } from './parsing.service.js';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('parseWildberries', () => {
+  it('saves the card name and uses the basket that actually returned the card for its image', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('card.json')) return url.includes('basket-03.')
+        ? Response.json({ imt_id: 77, nm_id: 123, imt_name: '  Наушники беспроводные  ' })
+        : new Response('', { status: 404 });
+      return Response.json({ feedbacks: [{ id: '1', nmId: 123, text: 'Отзыв' }] });
+    }));
+    vi.mocked(persistImport).mockResolvedValue({ count: 1, productId: 'p', batchId: 'b', skippedCount: 0,
+      totalCount: 1, validCount: 1, errorCount: 0, status: 'completed', reviewIds: [] });
+    await parseWildberries('123', 'owner');
+    expect(persistImport).toHaveBeenCalledWith(expect.objectContaining({ productName: 'Наушники беспроводные',
+      imageUrl: 'https://basket-03.wbbasket.ru/vol0/part0/123/images/c246x328/1.webp' }));
+  });
+
+  it('imports reviews even if the optional card title has changed format', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('card.json')
+      ? { imt_id: 77, imt_name: { unexpected: true } } : { feedbacks: [{ id: '1', nmId: 123, text: 'Отзыв' }] })));
+    vi.mocked(persistImport).mockResolvedValue({ count: 1, productId: 'p', batchId: 'b', skippedCount: 0,
+      totalCount: 1, validCount: 1, errorCount: 0, status: 'completed', reviewIds: [] });
+    await parseWildberries('123', 'owner');
+    expect(persistImport).toHaveBeenCalledWith(expect.objectContaining({ productName: 'WB 123' }));
+  });
   it.each(['https://ozon.ru/product/12345', 'https://wildberries.ru/brand/nike', '', 'https://wildberries.ru/catalog/0/'])('отклоняет адрес без корректного артикула: %s', async (url) => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

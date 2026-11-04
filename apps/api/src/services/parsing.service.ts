@@ -47,18 +47,23 @@ async function requestSource(url: string, maxBytes: number, signal?: AbortSignal
 }
 
 /** Three in-flight probes maximum; abort probes as soon as a card is found. */
-async function fetchWbImtId(nmId: number, signal?: AbortSignal) {
+async function fetchWbCard(nmId: number, signal?: AbortSignal) {
   const stopping = new AbortController();
   const combined = signal ? AbortSignal.any([signal, stopping.signal]) : stopping.signal;
-  let next = 1; let found: number | undefined; let lastError: unknown;
+  let next = 1; let found: { imtId: number; name?: string; imageUrl: string } | undefined; let lastError: unknown;
   async function probe() {
     while (!combined.aborted && next <= 25 && !found) {
       const basket = next++;
       const url = `https://basket-${String(basket).padStart(2, '0')}.wbbasket.ru/vol${Math.floor(nmId / 1e5)}/part${Math.floor(nmId / 1e3)}/${nmId}/info/ru/card.json`;
       try {
-        const result = z.object({ imt_id: z.number().int().positive().safe(), nm_id: z.number().optional() }).safeParse(await requestSource(url, 65536, combined));
+        const result = z.object({ imt_id: z.number().int().positive().safe(), nm_id: z.number().optional(),
+          imt_name: z.string().trim().min(1).max(200).optional().catch(undefined) }).safeParse(await requestSource(url, 65536, combined));
         if (!result.success || (result.data.nm_id !== undefined && result.data.nm_id !== nmId)) throw new HttpError(503, 'Карточка товара изменила формат. Загрузите CSV.', undefined, 'source_format_changed');
-        if (!found) { found = result.data.imt_id; stopping.abort(); } return;
+        if (!found) {
+          found = { imtId: result.data.imt_id, name: result.data.imt_name,
+            imageUrl: url.replace('/info/ru/card.json', '/images/c246x328/1.webp') };
+          stopping.abort();
+        } return;
       } catch (error) { if (!combined.aborted) lastError = error; }
     }
   }
@@ -108,20 +113,20 @@ async function fetchFeedbacks(imtId: number, nmId: number, signal?: AbortSignal)
 
 export async function inspectWildberriesSource(value: string, signal?: AbortSignal) {
   const productId = extractWbId(value);
-  const imtId = await fetchWbImtId(productId, signal);
+  const { imtId, name, imageUrl } = await fetchWbCard(productId, signal);
   const result = await fetchFeedbacks(imtId, productId, signal);
-  return { productId, imtId, ...result };
+  return { productId, imtId, name, imageUrl, ...result };
 }
 
 export async function parseWildberries(url: string, userId: string, options: { signal?: AbortSignal; batchId?: string; internalProductId?: string } = {}) {
   const productId = extractWbId(url); const canonicalUrl = `https://www.wildberries.ru/catalog/${productId}/detail.aspx`;
   logger.info({ productId }, 'WB parse started');
-  const { rows, received, ignored } = await inspectWildberriesSource(url, options.signal);
+  const { rows, received, ignored, name, imageUrl } = await inspectWildberriesSource(url, options.signal);
   cancelled(options.signal);
   const base = { source: 'wildberries' as const, productId, receivedCount: received, ignoredCount: ignored,
     historyComplete: false, limitation: 'Источник возвращает доступный фрагмент отзывов; полнота истории не гарантируется.' };
   if (!rows.length && !options.batchId) return { ...base, reviewsAdded: 0 };
-  const result = await persistImport({ userId, productName: `WB ${productId}`, productId: options.internalProductId,
+  const result = await persistImport({ userId, productName: name ?? `WB ${productId}`, imageUrl, productId: options.internalProductId,
     source: 'parsing', externalSource: 'wildberries', productExternalId: String(productId),
     sourceUrl: canonicalUrl, filename: canonicalUrl, rows, batchId: options.batchId,
     diagnostics: { receivedCount: received, ignoredCount: ignored, historyComplete: false } });

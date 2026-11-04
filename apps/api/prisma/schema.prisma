@@ -69,6 +69,7 @@ model Product {
   id                   String                @id @default(cuid())
   name                 String
   sourceUrl            String?
+  imageUrl             String?
   createdAt            DateTime              @default(now())
   userId               String
   source               String                @default("legacy")
