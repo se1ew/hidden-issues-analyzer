@@ -5,16 +5,14 @@ import {
   LayoutDashboard,
   LogOut,
   MessageSquare,
-  Moon,
+  ScanLine,
   Package,
-  Sun,
   Upload,
   User,
 } from 'lucide-react';
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth.store';
-import { useThemeStore } from '../store/theme.store';
 import clsx from 'clsx';
 import { logoutSession } from '../lib/api';
 import toast from 'react-hot-toast';
@@ -24,34 +22,40 @@ import { useProducts } from '../lib/queries';
 const navGroups = [
   [
     { to: '/dashboard', label: 'Обзор', icon: LayoutDashboard },
-    { to: '/issues', label: 'Проблемы', icon: AlertTriangle },
-    { to: '/reviews', label: 'Отзывы', icon: MessageSquare },
+    { to: '/issues', label: 'Скрытые проблемы', icon: AlertTriangle },
+    { to: '/reviews', label: 'Все отзывы', icon: MessageSquare },
     { to: '/analytics', label: 'Аналитика', icon: BarChart3 },
   ],
   [
     { to: '/products', label: 'Товары', icon: Package },
-    { to: '/upload', label: 'Загрузка', icon: Upload },
+    { to: '/upload', label: 'Импорт отзывов', icon: Upload },
     { to: '/reports', label: 'Отчёты', icon: FileText },
   ],
-  [
-    { to: '/profile', label: 'Профиль', icon: User },
-  ],
+  [{ to: '/profile', label: 'Настройки', icon: User }],
 ];
 
 function SidebarRoot({ children }: { children: React.ReactNode }) {
   return (
-    <aside className="sidebar flex w-60 max-w-[85vw] h-full shrink-0 flex-col overflow-y-auto">
+    <aside className="sidebar flex max-w-[85vw] h-full shrink-0 flex-col overflow-y-auto">
       {children}
     </aside>
   );
 }
 
-function SidebarSection({ children, border }: { children: React.ReactNode; border: 'top' | 'bottom' }) {
+function SidebarSection({
+  children,
+  border,
+}: {
+  children: React.ReactNode;
+  border: 'top' | 'bottom';
+}) {
   return (
-    <div className={clsx(
-      'flex items-center gap-3 px-5 py-4',
-      border === 'bottom' ? 'sidebar-border-bottom' : 'sidebar-border-top flex-col items-start',
-    )}>
+    <div
+      className={clsx(
+        'flex items-center gap-3 px-5 py-4',
+        border === 'bottom' ? 'sidebar-border-bottom' : 'sidebar-border-top flex-col items-start',
+      )}
+    >
       {children}
     </div>
   );
@@ -61,10 +65,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [loggingOut, setLoggingOut] = React.useState(false);
-  const { isDark, toggle: toggleTheme } = useThemeStore();
+
   const { selectedProductId, selectedRunId } = useProductStore();
   const products = useProducts();
-  const product = products.data?.items.find(item => item.id === selectedProductId);
+  const product = products.data?.items.find((item) => item.id === selectedProductId);
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -82,19 +86,27 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     <SidebarRoot>
       {/* Logo */}
       <SidebarSection border="bottom">
-        <div className="h-9 w-9 rounded-xl flex items-center justify-center shadow-sm flex-shrink-0" style={{ background: '#1E3248' }}>
-          <AlertTriangle className="h-5 w-5 text-white" />
+        <div className="brand-mark">
+          <ScanLine className="h-5 w-5" />
         </div>
         <div>
-          <div className="text-sm font-bold tracking-wide sidebar-title">ReviewLens</div>
-          <div className="text-xs sidebar-subtitle">Анализ отзывов</div>
+          <div className="text-lg font-bold tracking-tight sidebar-title">ReviewLens</div>
+          <div className="text-xs sidebar-subtitle">Аналитика отзывов</div>
         </div>
       </SidebarSection>
 
-      <div className="px-5 py-3 text-xs sidebar-subtitle break-words"><span className="block font-medium line-clamp-3" title={product?.name}>{product?.name ?? 'Все товары'}</span><span>{selectedRunId ? 'Выбран сохранённый запуск' : 'Все загруженные отзывы'}</span></div>
-      <nav aria-label="Основная навигация" className="flex-1 px-3 py-4 space-y-4">
+      <div className="sidebar-context mt-5 sidebar-subtitle break-words">
+        <span className="block font-medium line-clamp-3" title={product?.name}>
+          {product?.name ?? 'Все товары'}
+        </span>
+        <span>{selectedRunId ? 'Выбран сохранённый запуск' : 'Все загруженные отзывы'}</span>
+      </div>
+      <nav aria-label="Основная навигация" className="flex-1 px-3 py-5 space-y-5">
         {navGroups.map((group, gi) => (
-          <div key={gi} className={clsx('space-y-0.5', gi > 0 && 'border-t border-white/10 pt-3')}>
+          <div key={gi} className={clsx('space-y-1')}>
+            <p className="sidebar-section-label mb-2">
+              {['Аналитика', 'Управление', 'Аккаунт'][gi]}
+            </p>
             {group.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
@@ -130,14 +142,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           >
             <LogOut className="h-4 w-4" />
             Выйти
-          </button>
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-xl transition-all duration-200 sidebar-nav-item sidebar-nav-inactive"
-            title={isDark ? 'Светлая тема' : 'Тёмная тема'}
-            aria-label={isDark ? 'Включить светлую тему' : 'Включить тёмную тему'}
-          >
-            {isDark ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4" />}
           </button>
         </div>
       </SidebarSection>

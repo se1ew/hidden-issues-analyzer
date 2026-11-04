@@ -1,9 +1,16 @@
+import { PageHeader, Tabs, StatusBadge } from '../components/ui';
 import { CheckCircle, Clock, Globe, Loader2, FileText, Type } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import clsx from 'clsx';
+
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useCreateManualReview, useParsingHistory, useProducts, useRunAnalysis, useStartParsing } from '../lib/queries';
+import {
+  useCreateManualReview,
+  useParsingHistory,
+  useProducts,
+  useRunAnalysis,
+  useStartParsing,
+} from '../lib/queries';
 import { useProductStore } from '../store/product.store';
 import { CsvImportWizard } from '../components/CsvImportWizard';
 import { LlmStatus } from '../components/LlmStatus';
@@ -13,13 +20,20 @@ import { api } from '../lib/api';
 type Tab = 'csv' | 'manual' | 'parsing';
 
 export function UploadPage() {
-  const [params] = useSearchParams();
-  const [tab, setTab] = useState<Tab>(params.get('source') === 'parsing' ? 'parsing' : params.get('source') === 'manual' ? 'manual' : 'csv');
+  const [params, setParams] = useSearchParams();
+  const tab: Tab =
+    params.get('source') === 'parsing'
+      ? 'parsing'
+      : params.get('source') === 'manual'
+        ? 'manual'
+        : 'csv';
   const [csvBusy, setCsvBusy] = useState(false);
   const [text, setText] = useState('');
   const [rating, setRating] = useState<number | ''>('');
   const [productName, setProductName] = useState('');
-  const [productChoice, setProductChoice] = useState(useProductStore.getState().selectedProductId ?? '');
+  const [productChoice, setProductChoice] = useState(
+    useProductStore.getState().selectedProductId ?? '',
+  );
   const productId = productChoice && productChoice !== '__new__' ? productChoice : undefined;
   const newProductName = productChoice === '__new__' ? productName.trim() : undefined;
   const productReady = Boolean(productId || newProductName);
@@ -33,7 +47,9 @@ export function UploadPage() {
   const busy = csvBusy || createManual.isPending || startParsing.isPending;
   const [uploadedCount, setUploadedCount] = useState<number | null>(null);
   const [parseUrl, setParseUrl] = useState('');
-  const [parseResult, setParseResult] = useState<{ source: string; reviewsAdded: number } | null>(null);
+  const [parseResult, setParseResult] = useState<{ source: string; reviewsAdded: number } | null>(
+    null,
+  );
   const handleManualSubmit = async () => {
     if (!text.trim() || !productReady) return;
     try {
@@ -58,7 +74,9 @@ export function UploadPage() {
   const handleAnalyzeNow = async () => {
     try {
       await runAnalysis.mutateAsync(undefined);
-      setUploadedCount(null); toast.success('Анализ запущен'); navigate('/reviews');
+      setUploadedCount(null);
+      toast.success('Анализ запущен');
+      navigate('/reviews');
     } catch {
       toast.error('Не удалось запустить анализ');
     }
@@ -71,77 +89,125 @@ export function UploadPage() {
 
   return (
     <div className="space-y-6">
-      <LlmStatus />
+      <PageHeader
+        title="Импорт отзывов"
+        description="Соберите отзывы из разных источников в одном товаре"
+      />
+      <Tabs
+        label="Источники отзывов"
+        value={tab}
+        onChange={(value) => {
+          setParams({ source: value });
+          setUploadedCount(null);
+        }}
+        disabled={busy}
+        items={[
+          { value: 'csv', label: 'CSV-файл', icon: FileText },
+          { value: 'parsing', label: 'Wildberries', icon: Globe },
+          { value: 'manual', label: 'Ручной ввод', icon: Type },
+        ]}
+      />
       {products.isError && <ErrorState error={products.error} retry={products.refetch} />}
-      {parsingHistory.isError && <ErrorState error={parsingHistory.error} retry={parsingHistory.refetch} />}
+      {parsingHistory.isError && (
+        <ErrorState error={parsingHistory.error} retry={parsingHistory.refetch} />
+      )}
       {uploadedCount !== null && (
         <div className="card space-y-3">
           <p>Добавлено отзывов: {uploadedCount}. Можно запустить анализ выбранного товара.</p>
           <div className="flex flex-wrap gap-2">
-            <button className="btn-primary" disabled={runAnalysis.isPending || busy} onClick={handleAnalyzeNow}>Запустить анализ</button>
-            <button className="btn-secondary" disabled={busy} onClick={handleAnalyzeLater}>Перейти к отзывам</button>
+            <button
+              className="btn-primary"
+              disabled={runAnalysis.isPending || busy}
+              onClick={handleAnalyzeNow}
+            >
+              Запустить анализ
+            </button>
+            <button className="btn-secondary" disabled={busy} onClick={handleAnalyzeLater}>
+              Перейти к отзывам
+            </button>
           </div>
         </div>
       )}
-      <div>
-        <h1>Загрузка отзывов</h1>
-        <p className="text-sm text-neutral-400 mt-1">
-          Выберите источник: CSV-файл, ручной ввод или Wildberries
-        </p>
-      </div>
-
-      {tab !== 'parsing' && <div className="card bg-primary-100 border-primary-300">
-        <label htmlFor="import-product" className="block text-sm font-medium text-neutral-700 mb-1">Товар *</label>
-        <select id="import-product" className="input" disabled={busy} value={productChoice} onChange={(event) => { setProductChoice(event.target.value); setUploadedCount(null); }}>
-          <option value="">Выберите товар</option><option value="__new__">Создать новый товар</option>
-          {(products.data?.items ?? []).filter((product) => product.id !== '__unassigned__').map((product) =>
-            <option key={product.id} value={product.id}>{product.name}{product.sourceUrl ? ' · ' + product.sourceUrl : ''}</option>)}
-        </select>
-        {productChoice === '__new__' && <label className="block text-sm mt-3">Название нового товара
-          <input type="text" disabled={busy} value={productName} onChange={(event) => setProductName(event.target.value)}
-            placeholder="Например: Кроссовки Nike Pegasus 40" className="input" maxLength={200} />
-        </label>}
-        <p className="text-xs text-neutral-500 mt-1.5">Отзывы добавляются в выбранный товар. Новый товар создаётся при успешном импорте.</p>
-      </div>}
-
-      <div className="flex gap-1 border-b border-primary-300/50 dark:border-primary-700/40">
-        {[
-          { key: 'csv' as const, label: 'CSV-файл', icon: FileText },
-          { key: 'manual' as const, label: 'Ручной ввод', icon: Type },
-          { key: 'parsing' as const, label: 'Wildberries', icon: Globe },
-        ].map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            disabled={busy}
-            aria-pressed={tab === key}
-            onClick={() => setTab(key)}
-            className={clsx(
-              'flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-all duration-200',
-              tab === key
-                ? 'border-primary-600 text-primary-800 dark:text-primary-300'
-                : 'border-transparent text-primary-500 dark:text-primary-500 hover:text-primary-700 dark:hover:text-primary-300',
-            )}
+      {tab !== 'parsing' && (
+        <div className="card">
+          <label
+            htmlFor="import-product"
+            className="block text-sm font-medium text-neutral-700 mb-1"
           >
-            <Icon className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
-      </div>
+            Товар *
+          </label>
+          <select
+            id="import-product"
+            className="input"
+            disabled={busy}
+            value={productChoice}
+            onChange={(event) => {
+              setProductChoice(event.target.value);
+              setUploadedCount(null);
+            }}
+          >
+            <option value="">Выберите товар</option>
+            <option value="__new__">Создать новый товар</option>
+            {(products.data?.items ?? [])
+              .filter((product) => product.id !== '__unassigned__')
+              .map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
+                  {product.sourceUrl ? ' · ' + product.sourceUrl : ''}
+                </option>
+              ))}
+          </select>
+          {productChoice === '__new__' && (
+            <label className="block text-sm mt-3">
+              Название нового товара
+              <input
+                type="text"
+                disabled={busy}
+                value={productName}
+                onChange={(event) => setProductName(event.target.value)}
+                placeholder="Например: Кроссовки Nike Pegasus 40"
+                className="input"
+                maxLength={200}
+              />
+            </label>
+          )}
+          <p className="text-xs text-neutral-500 mt-1.5">
+            Отзывы добавляются в выбранный товар. Новый товар создаётся при успешном импорте.
+          </p>
+        </div>
+      )}
 
-      {tab === 'csv' && <CsvImportWizard onBusyChange={setCsvBusy} productId={productId} productName={newProductName} onImported={(result) => {
-        useProductStore.getState().setSelectedProductId(result.productId);
-        setProductChoice(result.productId);
-        if (result.count > 0) setUploadedCount(result.count);
-      }} />}
+      {tab === 'csv' && (
+        <CsvImportWizard
+          onBusyChange={setCsvBusy}
+          productId={productId}
+          productName={newProductName}
+          onImported={(result) => {
+            useProductStore.getState().setSelectedProductId(result.productId);
+            setProductChoice(result.productId);
+            if (result.count > 0) setUploadedCount(result.count);
+          }}
+        />
+      )}
 
       {tab === 'parsing' && (
         <div className="space-y-4">
           <div className="card">
+            <div className="flex items-center gap-3 mb-5">
+              <span className="metric-icon tone-brand">
+                <Globe className="h-4 w-4" />
+              </span>
+              <div>
+                <h2 className="text-base">Отзывы Wildberries</h2>
+                <p className="text-xs text-neutral-500 mt-1">Укажите ссылку на карточку товара</p>
+              </div>
+            </div>
             <label className="block text-sm font-medium text-neutral-600 mb-2">URL товара</label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-3">
               <input
                 type="text"
-                aria-label="Ссылка Wildberries" value={parseUrl}
+                aria-label="Ссылка Wildberries"
+                value={parseUrl}
                 onChange={(e) => setParseUrl(e.target.value)}
                 placeholder="https://www.wildberries.ru/catalog/12345678/detail.aspx"
                 className="input flex-1"
@@ -154,12 +220,21 @@ export function UploadPage() {
                   try {
                     const result = await startParsing.mutateAsync(parseUrl.trim());
                     setParseResult(result);
-                    if (result.internalProductId) { useProductStore.getState().setSelectedProductId(result.internalProductId); setProductChoice(result.internalProductId); setUploadedCount(result.reviewsAdded); }
-                    if (result.reviewsAdded > 0) toast.success(`Загружено ${result.reviewsAdded} отзывов`);
-                    else toast('Источник не вернул отзывы. Попробуйте загрузку CSV.', { icon: 'ℹ️' });
+                    if (result.internalProductId) {
+                      useProductStore.getState().setSelectedProductId(result.internalProductId);
+                      setProductChoice(result.internalProductId);
+                      setUploadedCount(result.reviewsAdded);
+                    }
+                    if (result.reviewsAdded > 0)
+                      toast.success(`Загружено ${result.reviewsAdded} отзывов`);
+                    else
+                      toast('Источник не вернул отзывы. Попробуйте загрузку CSV.', { icon: 'ℹ️' });
                   } catch (err: unknown) {
                     const e = err as { response?: { data?: { error?: string } } };
-                    toast.error(e.response?.data?.error ?? (err instanceof Error ? err.message : 'Ошибка парсинга'));
+                    toast.error(
+                      e.response?.data?.error ??
+                        (err instanceof Error ? err.message : 'Ошибка парсинга'),
+                    );
                   }
                 }}
                 disabled={startParsing.isPending || !parseUrl.trim()}
@@ -169,14 +244,27 @@ export function UploadPage() {
                 Начать парсинг
               </button>
             </div>
-            <p className="text-xs text-neutral-400 mt-2">Wildberries может быть недоступен или вернуть неполные данные. Если загрузка не удалась, выберите CSV; остальные источники продолжают работать.</p>
+            <p className="text-xs text-neutral-400 mt-2">
+              Wildberries может быть недоступен или вернуть неполные данные. Если загрузка не
+              удалась, выберите CSV; остальные источники продолжают работать.
+            </p>
+            {startParsing.isPending && (
+              <div className="mt-4 flex gap-3 items-center text-sm" role="status">
+                <Loader2 className="h-4 w-4 animate-spin text-primary-600" />
+                Получаем отзывы. Состояние задания сохраняется в истории ниже.
+              </div>
+            )}
             {parseResult && (
               <div className="mt-4 flex items-start gap-3 rounded-lg bg-primary-50 border border-primary-200 p-3">
                 <CheckCircle className="h-5 w-5 text-primary-700 shrink-0 mt-0.5" />
                 <div className="text-sm text-neutral-700 flex-1">
-                  Источник: <strong>{parseResult.source}</strong>, загружено: <strong>{parseResult.reviewsAdded}</strong>
+                  Источник: <strong>{parseResult.source}</strong>, загружено:{' '}
+                  <strong>{parseResult.reviewsAdded}</strong>
                   {parseResult.reviewsAdded > 0 && (
-                    <button onClick={() => navigate('/reviews')} className="ml-3 text-primary-700 hover:text-primary-800 font-medium">
+                    <button
+                      onClick={() => navigate('/reviews')}
+                      className="ml-3 text-primary-700 hover:text-primary-800 font-medium"
+                    >
                       → к отзывам
                     </button>
                   )}
@@ -205,17 +293,54 @@ export function UploadPage() {
             ) : (
               <div className="card divide-y divide-neutral-100">
                 {parsingHistory.data.items.map((item) => (
-                  <div key={item.id} className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                  <div
+                    key={item.id}
+                    className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                  >
                     <div className="min-w-0 flex-1">
-                      <div className="break-all text-sm font-medium text-neutral-700 dark:text-neutral-300">{item.filename ?? 'URL'}</div>
-                      <div className="text-xs text-neutral-400 mt-0.5">{new Date(item.createdAt).toLocaleString('ru-RU')}</div>
+                      <div className="break-all text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                        {item.filename ?? 'URL'}
+                      </div>
+                      <div className="text-xs text-neutral-400 mt-0.5">
+                        {new Date(item.createdAt).toLocaleString('ru-RU')}
+                      </div>
                     </div>
-                    <div className="w-36 shrink-0 text-sm text-right space-y-1"><span className="font-semibold text-primary-700">Добавлено: {item.addedCount ?? item.count}</span>
-                      <p>{({ pending: 'В очереди', running: 'Получение отзывов…', completed: 'Завершено', partial: 'Частично', failed: 'Ошибка источника — используйте CSV', interrupted: 'Прервано' } as Record<string, string>)[item.status ?? 'completed']}</p>
-                      {['pending', 'running'].includes(item.status ?? '') && <button className="btn-soft" aria-label="Отменить загрузку" onClick={async () => {
-                        try { await api.post(`/api/parsing/status/${item.id}/cancel`); await parsingHistory.refetch(); }
-                        catch { toast.error('Не удалось отменить загрузку'); }
-                      }}>Отменить</button>}
+                    <div className="max-w-44 text-xs text-right space-y-1">
+                      <span className="font-semibold text-primary-700">
+                        Добавлено: {item.addedCount ?? item.count}
+                      </span>
+                      <p>
+                        <StatusBadge>
+                          {
+                            (
+                              {
+                                pending: 'В очереди',
+                                running: 'Получение отзывов…',
+                                completed: 'Завершено',
+                                partial: 'Частично',
+                                failed: 'Ошибка источника — используйте CSV',
+                                interrupted: 'Прервано',
+                              } as Record<string, string>
+                            )[item.status ?? 'completed']
+                          }
+                        </StatusBadge>
+                      </p>
+                      {['pending', 'running'].includes(item.status ?? '') && (
+                        <button
+                          className="btn-soft"
+                          aria-label="Отменить загрузку"
+                          onClick={async () => {
+                            try {
+                              await api.post(`/api/parsing/status/${item.id}/cancel`);
+                              await parsingHistory.refetch();
+                            } catch {
+                              toast.error('Не удалось отменить загрузку');
+                            }
+                          }}
+                        >
+                          Отменить
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -227,7 +352,14 @@ export function UploadPage() {
 
       {tab === 'manual' && (
         <div className="card space-y-4">
-          <textarea aria-label="Текст отзыва"
+          <div className="flex justify-between gap-3 text-sm">
+            <h2 className="text-base">Новый отзыв</h2>
+            <span className="text-xs text-neutral-500">
+              {text.length.toLocaleString('ru-RU')} / 10 000
+            </span>
+          </div>
+          <textarea
+            aria-label="Текст отзыва"
             disabled={createManual.isPending}
             maxLength={10_000}
             value={text}
@@ -242,7 +374,8 @@ export function UploadPage() {
               </label>
               <select
                 disabled={createManual.isPending}
-                aria-label="Оценка отзыва" value={rating}
+                aria-label="Оценка отзыва"
+                value={rating}
                 onChange={(e) => setRating(e.target.value === '' ? '' : Number(e.target.value))}
                 className="input w-32"
               >
@@ -266,6 +399,10 @@ export function UploadPage() {
         </div>
       )}
 
+      <details className="card">
+        <summary>Настройки модели перед анализом</summary>
+        <LlmStatus />
+      </details>
       <div className="card-brand text-sm text-primary-800 dark:text-primary-300">
         <strong>Совет:</strong> после загрузки перейдите в «Отзывы» и нажмите «Запустить анализ» —
         каждый отзыв будет проанализирован LLM на тональность, аспекты и проблемы.

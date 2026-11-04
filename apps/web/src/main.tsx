@@ -43,7 +43,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <App />
-        <Toaster position="top-right" />
+        <Toaster
+          position="top-right"
+          toastOptions={{ className: 'toast-surface', duration: 5000 }}
+        />
       </BrowserRouter>
     </QueryClientProvider>
   </React.StrictMode>,

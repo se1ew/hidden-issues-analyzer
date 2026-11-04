@@ -35,6 +35,7 @@
     "test:integration:database": "npm run build:api && node scripts/verify-database-contention.mjs",
     "test:integration:migration": "node scripts/verify-domain-migration.mjs",
     "test:production:web": "node scripts/verify-web-production.mjs",
+    "test:ui:redesign": "node scripts/verify-redesign-ui.mjs",
     "test:production:hosting": "node scripts/verify-production-hosting.mjs",
     "test:production:compose": "node scripts/verify-production-compose.mjs",
     "benchmark:grouping": "tsx scripts/benchmark-grouping.mjs",

@@ -1,13 +1,26 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore, type Session } from '../store/auth.store';
 
-export interface ApiError { code: string; message: string; error: string; details?: unknown }
+export interface ApiError {
+  code: string;
+  message: string;
+  error: string;
+  details?: unknown;
+}
 export function apiErrorMessage(error: unknown, fallback = 'Не удалось выполнить запрос') {
   const data = (error as { response?: { data?: Partial<ApiError> } })?.response?.data;
+  if (data?.message || data?.error) return data.message ?? data.error!;
+  const code = (error as { code?: string })?.code;
+  if (code === 'ERR_NETWORK' || (error instanceof Error && error.message === 'Network Error'))
+    return 'Не удалось связаться с сервером. Проверьте подключение и повторите запрос.';
+  if (code === 'ECONNABORTED' || code === 'ETIMEDOUT')
+    return 'Сервер не ответил вовремя. Повторите запрос.';
   return data?.message ?? data?.error ?? (error instanceof Error ? error.message : fallback);
 }
 
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? window.location.origin : 'http://localhost:4000');
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD ? window.location.origin : 'http://localhost:4000');
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -52,12 +65,19 @@ async function refreshAccessToken(): Promise<string> {
 
 function refreshSession(): Promise<string> {
   if (loggingOut) return Promise.reject(new Error('Logout in progress'));
-  if (!refreshPromise) refreshPromise = refreshAccessToken().finally(() => { refreshPromise = null; });
+  if (!refreshPromise)
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
   return refreshPromise;
 }
 
 export async function restoreSession(): Promise<void> {
-  try { await refreshSession(); } catch { /* Anonymous session or unavailable API. */ }
+  try {
+    await refreshSession();
+  } catch {
+    /* Anonymous session or unavailable API. */
+  }
 }
 
 export async function logoutSession(): Promise<void> {
@@ -75,15 +95,16 @@ export async function logoutSession(): Promise<void> {
 api.interceptors.response.use(
   (res) => {
     const config = res.config as SessionRequest;
-    if (!config.url?.includes('/auth/') && config._sessionRevision !== useAuthStore.getState().revision) {
+    if (
+      !config.url?.includes('/auth/') &&
+      config._sessionRevision !== useAuthStore.getState().revision
+    ) {
       return Promise.reject(new Error('Session changed'));
     }
     return res;
   },
   async (error: AxiosError) => {
-    const originalRequest = error.config as
-      | SessionRequest
-      | undefined;
+    const originalRequest = error.config as SessionRequest | undefined;
     if (
       error.response?.status === 401 &&
       originalRequest &&
@@ -95,8 +116,10 @@ api.interceptors.response.use(
       originalRequest._retry = true;
       try {
         const current = useAuthStore.getState().accessToken;
-        const newToken = originalRequest.headers.Authorization !== `Bearer ${current}` && current
-          ? current : await refreshSession();
+        const newToken =
+          originalRequest.headers.Authorization !== `Bearer ${current}` && current
+            ? current
+            : await refreshSession();
         if (originalRequest._sessionRevision !== useAuthStore.getState().revision) throw error;
         if (originalRequest.headers) {
           originalRequest.headers.Authorization = `Bearer ${newToken}`;

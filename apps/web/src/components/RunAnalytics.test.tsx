@@ -8,7 +8,7 @@ describe('analytics denominators and change meaning', () => {
       aspects: [{ category: 'quality', name: 'Крышка', reviews: 2, positive: 1, negative: 2, neutral: 0 }] }} />);
     expect(screen.getByText(/Среди успешно обработанных: 3\/6 · 50.0%/)).toBeInTheDocument();
     expect(screen.getByText(/оценкой 4–5: 1\/2 · 50.0%/)).toBeInTheDocument();
-    expect(screen.getByText('2/6')).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '2/6' })).toBeInTheDocument();
   });
   it('uses red and an explicit label for worsening instead of coloring all increases green', () => {
     const { rerender } = render(<Change change={{ delta: .2, meaning: 'worsening' }} rate />);

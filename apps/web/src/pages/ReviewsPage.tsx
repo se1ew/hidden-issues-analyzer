@@ -1,11 +1,7 @@
-import { downloadFile } from '../lib/download';
-import { useDataScope } from '../lib/data-scope';
-import { apiErrorMessage } from '../lib/api';
-import { Download, Filter, Loader2, Package, Play, Trash2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Download, Play, Trash2, X, Search, Loader2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import clsx from 'clsx';
 import {
   useReviews,
   useRunAnalysis,
@@ -14,6 +10,9 @@ import {
   useDeleteReviewsBulk,
   type ReviewListItem,
 } from '../lib/queries';
+import { downloadFile } from '../lib/download';
+import { useDataScope } from '../lib/data-scope';
+import { apiErrorMessage } from '../lib/api';
 import { AnalysisBanner } from '../components/AnalysisBanner';
 import { LlmStatus } from '../components/LlmStatus';
 import { AnalysisRunHistory } from '../components/AnalysisRunHistory';
@@ -22,51 +21,45 @@ import { useAnalysisStore } from '../store/analysis.store';
 import { Modal } from '../components/Modal';
 import { ReviewDetails, sourceNames } from '../components/ReviewDetails';
 import { analysisStatusNames } from '../lib/run-labels';
-import { ErrorState } from '../components/QueryState';
-
-const SENTIMENT_LABEL: Record<string, { label: string; cls: string }> = {
-  positive: { label: 'позитив', cls: 'badge-positive' },
-  negative: { label: 'негатив', cls: 'badge-negative' },
-  neutral: { label: 'нейтрал', cls: 'badge-neutral' },
-};
+import { ErrorState, EmptyState, LoadingState } from '../components/QueryState';
+import {
+  ConfirmDialog,
+  DataTable,
+  FilterBar,
+  PageHeader,
+  Rating,
+  StatusBadge,
+} from '../components/ui';
 
 export function ReviewsPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  const page = Number(searchParams.get('page') ?? '1');
-  const sentiment = searchParams.get('sentiment') ?? '';
-  const rating = searchParams.get('rating') ?? '';
-  const hasIssues = searchParams.get('hasIssues') ?? '';
-  const search = searchParams.get('search') ?? '';
+  const [params, setParams] = useSearchParams();
+  const page = Math.max(1, Math.floor(Number(params.get('page')) || 1));
+  const sentiment = params.get('sentiment') ?? '',
+    rating = params.get('rating') ?? '',
+    hasIssues = params.get('hasIssues') ?? '',
+    search = params.get('search') ?? '';
   const [searchInput, setSearchInput] = useState(search);
-
-  const setParam = (key: string, value: string) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (value) next.set(key, value); else next.delete(key);
+  const setParam = (key: string, value: string) =>
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (value) next.set(key, value);
+      else next.delete(key);
       if (key !== 'page') next.delete('page');
       return next;
     });
-  };
-  const setPage = (p: number) => setParam('page', p > 1 ? String(p) : '');
-  const setSentiment = (v: string) => setParam('sentiment', v);
-  const setRating = (v: string) => setParam('rating', v);
-  const setHasIssues = (v: string) => setParam('hasIssues', v);
-  const setSearch = (v: string) => setParam('search', v);
-
   const [selected, setSelected] = useState<ReviewListItem | null>(null);
-  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ReviewListItem | 'all' | null>(null);
   const [exporting, setExporting] = useState(false);
   const [analysisMode, setAnalysisMode] = useState<'new_only' | 'reanalyze'>('new_only');
-
   const { selectedProductId, selectedRunId } = useProductStore();
+  const previousScope = useRef({ productId: selectedProductId, runId: selectedRunId });
   const scope = useDataScope(selectedProductId);
   const { jobId, progress, lastError, clearError } = useAnalysisStore();
-  const cancelAnalysis = useCancelAnalysis();
-  const deleteReview = useDeleteReview();
-  const deleteReviewsBulk = useDeleteReviewsBulk();
-
-  const { data, isLoading, isError, error, refetch } = useReviews({
+  const cancel = useCancelAnalysis(),
+    remove = useDeleteReview(),
+    removeBulk = useDeleteReviewsBulk(),
+    launch = useRunAnalysis();
+  const query = useReviews({
     page,
     pageSize: 25,
     sentiment: sentiment || undefined,
@@ -75,388 +68,395 @@ export function ReviewsPage() {
     search: search || undefined,
     productId: selectedProductId ?? undefined,
   });
-
-  const runAnalysis = useRunAnalysis();
-
-  const handleRunAnalysis = async () => {
-    try {
-      const res = await runAnalysis.mutateAsync({ limit: 200, mode: analysisMode });
-
-      toast(`Анализ запущен (job ${res.jobId.slice(-8)})`);
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: string } } };
-      toast.error(e.response?.data?.error ?? 'Не удалось запустить анализ');
-    }
-  };
-
   useEffect(() => {
     setSearchInput(search);
   }, [search]);
-
-  // Сбрасываем страницу при смене товара
   useEffect(() => {
-    setPage(1); setSelected(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProductId, selectedRunId]);
-
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
-
-  const handleDeleteReview = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+    if (
+      previousScope.current.productId === selectedProductId &&
+      previousScope.current.runId === selectedRunId
+    )
+      return;
+    previousScope.current = { productId: selectedProductId, runId: selectedRunId };
+    setSelected(null);
+    setDeleteTarget(null);
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.delete('page');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [selectedProductId, selectedRunId, setParams]);
+  const totalPages = Math.max(1, Math.ceil((query.data?.total ?? 0) / 25));
+  const start = async () => {
     try {
-      await deleteReview.mutateAsync(id);
-      toast.success('Отзыв удалён');
-    } catch {
-      toast.error('Не удалось удалить отзыв');
+      await launch.mutateAsync({ limit: 200, mode: analysisMode });
+      toast.success('Анализ запущен');
+    } catch (error) {
+      toast.error(apiErrorMessage(error));
     }
   };
-
-  const handleDeleteAll = async () => {
-    try {
-      const res = await deleteReviewsBulk.mutateAsync(selectedProductId);
-      toast.success(`Удалено ${res.deleted} отзывов`);
-      setPage(1);
-    } catch {
-      toast.error('Не удалось удалить');
-    } finally {
-      setConfirmDeleteAll(false);
-    }
-  };
-
-  const handleExportCsv = async () => {
+  const exportCsv = async () => {
     setExporting(true);
     try {
-      await downloadFile('/api/reviews/export/csv', 'reviews.csv', { ...scope,
-        sentiment: sentiment || undefined, rating: rating || undefined, hasIssues: hasIssues || undefined, search: search || undefined });
+      await downloadFile('/api/reviews/export/csv', 'reviews.csv', {
+        ...scope,
+        sentiment: sentiment || undefined,
+        rating: rating || undefined,
+        hasIssues: hasIssues || undefined,
+        search: search || undefined,
+      });
       toast.success('Экспортирована вся отфильтрованная выборка');
-    } catch (error) { toast.error(apiErrorMessage(error)); }
-    finally { setExporting(false); }
+    } catch (error) {
+      toast.error(apiErrorMessage(error));
+    } finally {
+      setExporting(false);
+    }
   };
-
+  const confirmDelete = async () => {
+    if (!deleteTarget || selectedRunId) return;
+    try {
+      if (deleteTarget === 'all') {
+        const result = await removeBulk.mutateAsync(selectedProductId);
+        toast.success(`Удалено ${result.deleted} отзывов`);
+        setParam('page', '');
+      } else {
+        await remove.mutateAsync(deleteTarget.id);
+        toast.success('Отзыв удалён');
+      }
+      setDeleteTarget(null);
+    } catch (error) {
+      toast.error(apiErrorMessage(error));
+    }
+  };
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-4 justify-between items-start">
-        <div>
-          <h1>Отзывы</h1>
-          <p className="text-sm text-neutral-400 mt-1">
-            Исходные отзывы, происхождение и доказательства выбранного запуска
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <label className="text-sm">Режим анализа<select className="input mt-1" value={analysisMode} disabled={!!progress} onChange={event => setAnalysisMode(event.target.value as 'new_only' | 'reanalyze')}><option value="new_only">Только новые отзывы</option><option value="reanalyze">Повторно всю выбранную область</option></select></label>
-          <div className="flex gap-2">
+      <PageHeader
+        title="Все отзывы"
+        description="Исходные тексты, оценки покупателей и результаты анализа"
+        actions={
+          <>
             <button
-              onClick={handleExportCsv}
-              disabled={exporting || !data || data.total === 0}
               className="btn-outline"
-              title="Экспорт всей отфильтрованной выборки в CSV"
+              onClick={() => void exportCsv()}
+              disabled={exporting || !query.data?.total}
             >
-              <Download className="h-4 w-4" />
-              CSV
-            </button>
-            {confirmDeleteAll ? (
-              <>
-                <span className="text-xs text-neutral-500">Удалить все?</span>
-                <button
-                  onClick={handleDeleteAll}
-                  disabled={deleteReviewsBulk.isPending || !!selectedRunId}
-                  className="btn px-3 py-2 text-xs bg-red-600 text-white hover:bg-red-700"
-                >
-                  {deleteReviewsBulk.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Да'}
-                </button>
-                <button
-                  onClick={() => setConfirmDeleteAll(false)}
-                  className="btn-outline px-3 py-2 text-xs"
-                >
-                  Нет
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setConfirmDeleteAll(true)}
-                disabled={!!selectedRunId || !data || data.total === 0}
-                className="btn-outline text-red-600 border-red-200 hover:bg-red-50"
-                title="Удалить все отзывы"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            )}
-            <button
-              onClick={handleRunAnalysis}
-              disabled={runAnalysis.isPending || progress !== null || !selectedProductId}
-              className="btn-primary"
-            >
-              {progress !== null ? (
+              {exporting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Play className="h-4 w-4" />
+                <Download className="h-4 w-4" />
               )}
-              {progress !== null ? 'Анализ...' : 'Запустить анализ'}
+              Экспорт CSV
             </button>
-            {progress !== null && jobId && (
-              <button
-                onClick={() => cancelAnalysis.mutate(jobId, { onError: () => toast.error('Не удалось отправить отмену. Повторите запрос.') })}
-                disabled={cancelAnalysis.isPending}
-                className="btn-outline text-red-600 border-red-200 hover:bg-red-50 px-3"
-                title="Остановить анализ"
+            <button
+              className="btn-primary"
+              disabled={launch.isPending || progress !== null || !selectedProductId}
+              onClick={() => void start()}
+            >
+              <Play className="h-4 w-4" />
+              {progress ? 'Анализ выполняется' : 'Запустить анализ'}
+            </button>
+          </>
+        }
+      />
+      <AnalysisBanner />
+      {lastError && (
+        <div role="alert" className="card flex items-start gap-3 text-sm">
+          <span className="flex-1">{lastError}</span>
+          <button aria-label="Скрыть сообщение об анализе" onClick={clearError}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      <details className="card">
+        <summary>Параметры и история анализа</summary>
+        <div className="space-y-4 mt-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-xs">
+              Режим анализа
+              <select
+                className="input mt-1"
+                value={analysisMode}
+                disabled={!!progress}
+                onChange={(event) =>
+                  setAnalysisMode(event.target.value as 'new_only' | 'reanalyze')
+                }
               >
-                {cancelAnalysis.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                <option value="new_only">Только новые отзывы</option>
+                <option value="reanalyze">Повторно всю выбранную область</option>
+              </select>
+            </label>
+            {progress && jobId && (
+              <button
+                className="btn-outline"
+                disabled={cancel.isPending}
+                onClick={() =>
+                  cancel.mutate(jobId, { onError: (error) => toast.error(apiErrorMessage(error)) })
+                }
+              >
+                Остановить анализ
               </button>
             )}
           </div>
-          {lastError && (
-            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-3 py-2 text-xs text-red-700 dark:text-red-300 max-w-sm">
-              <span className="flex-1 leading-relaxed">{lastError}</span>
-              <button onClick={clearError} className="shrink-0 text-red-400 hover:text-red-600 mt-0.5">✕</button>
-            </div>
-          )}
-          {progress !== null && (() => {
-            const pct = progress.total > 0 ? Math.round((progress.processed / progress.total) * 100) : 0;
-            const remaining = progress.total - progress.processed;
-            const etaSec = progress.total > 0 && progress.processed > 0 && progress.step !== 'done' ? remaining * 4 : null;
-            const eta = etaSec === null ? null : etaSec < 60 ? `~${etaSec} сек` : `~${Math.ceil(etaSec / 60)} мин`;
-            return (
-              <div className="w-72">
-                <div className="flex justify-between text-xs text-neutral-500 mb-1">
-                  <span className="font-medium truncate max-w-[180px]">{progress.label ?? 'Анализ...'}</span>
-                  <span className="shrink-0 ml-2">
-                    {progress.total > 0 ? `${pct}% · ${progress.processed}/${progress.total}` : '...'}
-                  </span>
-                </div>
-                <div className="h-2 w-full bg-neutral-200 rounded-full overflow-hidden">
-                  {progress.total > 0 ? (
-                    <div
-                      className="h-full bg-primary-500 rounded-full transition-all duration-500"
-                      style={{ width: `${pct}%` }}
-                    />
-                  ) : (
-                    <div className="h-full bg-primary-400 rounded-full animate-pulse w-1/3" />
-                  )}
-                </div>
-                <div className="flex justify-between items-center mt-1.5">
-                  <div className="flex gap-1.5">
-                    {[
-                      { label: 'Начало', active: true },
-                      { label: 'Анализ', active: (progress.total > 0 && progress.processed > 0) || progress.step === 'done' },
-                      { label: 'Готово', active: progress.step === 'done' },
-                    ].map(({ label, active }) => (
-                      <div
-                        key={label}
-                        title={label}
-                        className={`h-1 w-16 rounded-full transition-all duration-500 ${active ? 'bg-primary-500' : 'bg-neutral-200'}`}
-                      />
-                    ))}
-                  </div>
-                  {eta && <span className="text-xs text-neutral-400">{eta}</span>}
-                </div>
-              </div>
-            );
-          })()}
+          <LlmStatus />
+          <AnalysisRunHistory />
         </div>
-      </div>
-
-
-      <AnalysisBanner />
-      <LlmStatus />
-      <AnalysisRunHistory />
-
-      <div className="card sticky top-4 z-10 shadow-md">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-neutral-400" />
-            <span className="text-sm font-medium text-neutral-600">Фильтры</span>
-            {(sentiment || rating || hasIssues || search) && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary-600 text-white">
-                {[sentiment, rating, hasIssues, search].filter(Boolean).length}
-              </span>
-            )}
+      </details>
+      <FilterBar
+        active={!!(sentiment || rating || hasIssues || search)}
+        onReset={() => setParams(new URLSearchParams())}
+      >
+        <label className="!flex-[2]">
+          Поиск по тексту
+          <div className="relative mt-1">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-neutral-400" />
+            <input
+              type="search"
+              aria-label="Поиск по тексту отзывов"
+              maxLength={200}
+              className="input !pl-9"
+              placeholder="Слово или фраза…"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') setParam('search', searchInput.trim());
+              }}
+            />
           </div>
-          {(sentiment || rating || hasIssues || search) && (
-            <button
-              onClick={() => setSearchParams(new URLSearchParams())}
-              className="text-xs text-neutral-400 hover:text-red-500 transition flex items-center gap-1"
-            >
-              <X className="h-3 w-3" /> Сбросить фильтры
-            </button>
-          )}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <select aria-label="Тональность отзывов"
+        </label>
+        <label>
+          Тональность
+          <select
+            className="input mt-1"
+            aria-label="Тональность отзывов"
             value={sentiment}
-            onChange={(e) => {
-              setSentiment(e.target.value);
-              setPage(1);
-            }}
-            className="input"
+            onChange={(event) => setParam('sentiment', event.target.value)}
           >
             <option value="">Все тональности</option>
-            <option value="positive">Позитивные</option>
-            <option value="negative">Негативные</option>
-            <option value="neutral">Нейтральные</option>
+            <option value="positive">Положительная</option>
+            <option value="negative">Отрицательная</option>
+            <option value="neutral">Нейтральная</option>
           </select>
-          <select aria-label="Наличие проблем"
+        </label>
+        <label>
+          Оценка
+          <select
+            className="input mt-1"
+            aria-label="Рейтинг отзывов"
+            value={rating}
+            onChange={(event) => setParam('rating', event.target.value)}
+          >
+            <option value="">Любая оценка</option>
+            {[5, 4, 3, 2, 1].map((value) => (
+              <option key={value} value={value}>
+                {value} ★
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Жалобы
+          <select
+            className="input mt-1"
+            aria-label="Наличие проблем"
             value={hasIssues}
-            onChange={(e) => {
-              setHasIssues(e.target.value);
-              setPage(1);
-            }}
-            className="input"
+            onChange={(event) => setParam('hasIssues', event.target.value)}
           >
             <option value="">Все отзывы</option>
             <option value="true">С проблемами</option>
             <option value="false">Без проблем</option>
           </select>
-          <select aria-label="Рейтинг отзывов"
-            value={rating}
-            onChange={(e) => {
-              setRating(e.target.value);
-              setPage(1);
-            }}
-            className="input"
-          >
-            <option value="">Любой рейтинг</option>
-            {[1, 2, 3, 4, 5].map((r) => (
-              <option key={r} value={r}>
-                {r} ★
-              </option>
-            ))}
-          </select>
-          <input
-            type="search" aria-label="Поиск по тексту отзывов"
-            placeholder="Поиск по тексту..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                setSearch(searchInput);
-                setPage(1);
-              }
-            }}
-            className="input"
-          />
-          <button
-            onClick={() => {
-              setSearch(searchInput);
-              setPage(1);
-            }}
-            className="btn-outline"
-          >
-            Применить
-          </button>
-        </div>
-      </div>
-
-      {isError && <ErrorState error={error} retry={refetch} />}
-      {!isError && <div className="card overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
-          <thead>
-            <tr className="text-left text-xs text-neutral-400 border-b border-neutral-100">
-              <th className="pb-3 pr-3">Текст</th>
-              <th className="pb-3 pr-3">Товар</th>
-              <th className="pb-3 pr-3">Рейтинг</th>
-              <th className="pb-3 pr-3">Тональность</th>
-              <th className="pb-3 pr-3">Проблем</th>
-              <th className="pb-3 pr-3">Дата</th>
-              <th className="pb-3 w-8" />
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              Array.from({ length: 8 }).map((_, i) => (
-                <tr key={i} className="border-b border-neutral-50 animate-pulse">
-                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-200 rounded w-full" /></td>
-                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-100 rounded w-20" /></td>
-                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-100 rounded w-8" /></td>
-                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-100 rounded w-16" /></td>
-                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-100 rounded w-6" /></td>
-                  <td className="py-3 pr-3"><div className="h-3 bg-neutral-100 rounded w-16" /></td>
-                  <td className="py-3" />
-                </tr>
-              ))
-            ) : !data || data.items.length === 0 ? (
+        </label>
+        <button className="btn-outline" onClick={() => setParam('search', searchInput.trim())}>
+          Найти
+        </button>
+      </FilterBar>
+      {query.isError ? (
+        <ErrorState error={query.error} retry={query.refetch} />
+      ) : query.isPending ? (
+        <LoadingState>Загрузка отзывов…</LoadingState>
+      ) : !query.data.items.length ? (
+        <EmptyState
+          title={
+            search || sentiment || rating || hasIssues ? 'Ничего не найдено' : 'Отзывов пока нет'
+          }
+        >
+          Измените фильтры или добавьте отзывы в разделе «Импорт отзывов».
+        </EmptyState>
+      ) : (
+        <section className="card !p-0 overflow-hidden">
+          <DataTable label="Отзывы покупателей с горизонтальной прокруткой" minWidth="60rem">
+            <thead>
               <tr>
-                <td colSpan={7} className="text-center py-12 text-neutral-400">
-                  Нет отзывов. Загрузите данные на странице «Загрузка».
-                </td>
+                <th>Оценка</th>
+                <th className="w-[34%]">Отзыв</th>
+                <th>Аспекты</th>
+                <th>Тональность</th>
+                <th>Дата отзыва</th>
+                <th>
+                  <span className="sr-only">Действия</span>
+                </th>
               </tr>
-            ) : (
-              data.items.map((r) => {
-                const s = r.sentiment ? SENTIMENT_LABEL[r.sentiment] : null;
-                return (
-                  <tr
-                    key={r.id}
-                    className="border-b border-neutral-50 hover:bg-primary-50 dark:hover:bg-neutral-800 cursor-pointer transition group"
-                    onClick={() => setSelected(r)}
-                  >
-                    <td className="py-3 pr-3 max-w-md"><button className="text-left max-w-full truncate" onClick={() => setSelected(r)} aria-label={`Открыть отзыв: ${r.text.slice(0, 80)}`}>{r.text}</button><p className="text-xs text-neutral-500 mt-1">{sourceNames[r.source ?? ''] ?? r.source ?? 'Источник не указан'} · {r.analysisStatus ? analysisStatusNames[r.analysisStatus] : 'Результат зависит от выбранного запуска'}</p></td>
-                    <td className="py-3 pr-3">
-                      {r.product ? (
-                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-primary-100 text-primary-800 dark:bg-primary-900 dark:text-primary-100 max-w-[14rem] truncate">
-                          <Package className="h-3 w-3 shrink-0" />
-                          <span className="truncate">{r.product.name}</span>
-                        </span>
+            </thead>
+            <tbody>
+              {query.data.items.map((review) => (
+                <tr key={review.id}>
+                  <td>
+                    <Rating value={review.rating} />
+                  </td>
+                  <td>
+                    <button
+                      className="text-left leading-relaxed line-clamp-3 hover:text-primary-700"
+                      aria-label={`Открыть отзыв: ${review.text.slice(0, 80)}`}
+                      onClick={() => setSelected(review)}
+                    >
+                      {review.text}
+                    </button>
+                    <p className="text-[11px] text-neutral-500 mt-2 break-words">
+                      {review.product?.name ?? 'Товар не указан'} ·{' '}
+                      {sourceNames[review.source ?? ''] ?? review.source ?? 'Источник не указан'}
+                    </p>
+                    <p className="text-[11px] text-neutral-500 mt-1">
+                      {review.analysisStatus
+                        ? analysisStatusNames[review.analysisStatus]
+                        : 'Результат зависит от выбранного запуска'}
+                      {' · Жалоб: '}
+                      {review.issues?.length ?? '—'}
+                    </p>
+                  </td>
+                  <td>
+                    <div className="flex flex-wrap gap-1 max-w-48">
+                      {review.aspects?.length ? (
+                        review.aspects.slice(0, 3).map((aspect, i) => (
+                          <span
+                            key={i}
+                            className={
+                              aspect.sentiment === 'negative'
+                                ? 'badge-negative'
+                                : aspect.sentiment === 'positive'
+                                  ? 'badge-positive'
+                                  : 'badge-neutral'
+                            }
+                          >
+                            {aspect.name}
+                          </span>
+                        ))
                       ) : (
-                        <span className="text-xs text-neutral-400">—</span>
+                        <span className="text-neutral-500">—</span>
                       )}
-                    </td>
-                    <td className="py-3 pr-3">{r.rating ?? '—'}</td>
-                    <td className="py-3 pr-3">
-                      {s ? <span className={s.cls}>{s.label}</span> : '—'}
-                    </td>
-                    <td className="py-3 pr-3">{r.issues?.length ?? '—'}</td>
-                    <td className="py-3 pr-3 text-xs text-neutral-400">
-                      {r.reviewDate ? new Date(r.reviewDate).toLocaleDateString('ru-RU') : 'Не указана'}
-                    </td>
-                    <td className="py-3 pl-1">
-                      <button
-                          disabled={deleteReview.isPending || !!selectedRunId}
-                        onClick={(e) => handleDeleteReview(r.id, e)}
-                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-neutral-500 hover:text-red-600 transition disabled:opacity-50"
-                        title="Удалить отзыв"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-
-        {data && data.total > 0 && (
-          <div className="flex items-center justify-between mt-4 pt-4 border-t border-neutral-100 text-sm">
-            <span className="text-neutral-400">
-              Показано {data.items.length} из {data.total}
+                      {(review.aspects?.length ?? 0) > 3 && (
+                        <button
+                          className="text-xs text-primary-700"
+                          onClick={() => setSelected(review)}
+                        >
+                          +{review.aspects!.length - 3}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <StatusBadge
+                      tone={
+                        review.sentiment === 'positive'
+                          ? 'positive'
+                          : review.sentiment === 'negative'
+                            ? 'negative'
+                            : 'neutral'
+                      }
+                    >
+                      {review.sentiment
+                        ? {
+                            positive: 'Положительная',
+                            negative: 'Отрицательная',
+                            neutral: 'Нейтральная',
+                          }[review.sentiment]
+                        : 'Не определена'}
+                    </StatusBadge>
+                  </td>
+                  <td className="text-xs text-neutral-500 whitespace-nowrap">
+                    {review.reviewDate
+                      ? new Date(review.reviewDate).toLocaleDateString('ru-RU')
+                      : 'Не указана'}
+                  </td>
+                  <td>
+                    <button
+                      className="btn-ghost !px-2 hover:!text-red-600"
+                      disabled={!!selectedRunId || remove.isPending}
+                      aria-label="Удалить отзыв"
+                      title={
+                        selectedRunId
+                          ? 'Снимок запуска доступен только для чтения'
+                          : 'Удалить отзыв'
+                      }
+                      onClick={() => setDeleteTarget(review)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
+          <footer className="flex flex-wrap justify-between items-center gap-3 p-4 text-xs text-neutral-500">
+            <span>
+              Показано {query.data.items.length} из {query.data.total.toLocaleString('ru-RU')}
             </span>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setPage(Math.max(1, page - 1))}
+                className="btn-outline !px-3"
                 disabled={page === 1}
-                className={clsx('btn-outline px-3 py-1', page === 1 && 'opacity-50')}
+                onClick={() => setParam('page', String(page - 1))}
               >
                 Назад
               </button>
-              <span className="px-2 text-neutral-500">
+              <span className="tabular-nums">
                 {page} / {totalPages}
               </span>
               <button
-                onClick={() => setPage(Math.min(totalPages, page + 1))}
+                className="btn-outline !px-3"
                 disabled={page >= totalPages}
-                className={clsx('btn-outline px-3 py-1', page >= totalPages && 'opacity-50')}
+                onClick={() => setParam('page', String(page + 1))}
               >
                 Вперёд
               </button>
             </div>
-          </div>
-        )}
-      </div>}
-
-      {selected && <ReviewModal review={selected} onClose={() => setSelected(null)} />}
+          </footer>
+        </section>
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-neutral-500">
+          {selectedRunId
+            ? 'Сохранённый снимок запуска. Удаление исходных отзывов здесь недоступно.'
+            : 'Показаны исходные отзывы выбранной области.'}
+        </p>
+        <button
+          className="btn-ghost !text-red-600"
+          disabled={!!selectedRunId || !query.data?.total}
+          onClick={() => setDeleteTarget('all')}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Удалить все отзывы
+        </button>
+      </div>
+      {selected && (
+        <Modal title="Детали отзыва" onClose={() => setSelected(null)}>
+          <ReviewDetails review={selected} />
+        </Modal>
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          title={deleteTarget === 'all' ? 'Удалить все отзывы?' : 'Удалить отзыв?'}
+          busy={remove.isPending || removeBulk.isPending}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={() => void confirmDelete()}
+        >
+          {deleteTarget === 'all'
+            ? `Будут удалены все исходные отзывы ${selectedProductId ? 'выбранного товара' : 'вашего аккаунта'}, включая отзывы вне текущих фильтров.`
+            : 'Исходный отзыв будет удалён. Это действие нельзя отменить.'}
+        </ConfirmDialog>
+      )}
     </div>
   );
-}
-
-function ReviewModal({ review, onClose }: { review: ReviewListItem; onClose: () => void }) {
-  return <Modal title="Детали отзыва" onClose={onClose}><ReviewDetails review={review} /></Modal>;
 }

@@ -1,6 +1,6 @@
 import axios, { AxiosError, AxiosHeaders, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, logoutSession, restoreSession } from './api';
+import { api, apiErrorMessage, logoutSession, restoreSession } from './api';
 import { useAuthStore } from '../store/auth.store';
 
 const session = { user: { id: 'a', email: 'a@test.invalid' }, accessToken: 'access-new' };
@@ -14,6 +14,11 @@ beforeEach(() => {
 });
 
 describe('in-memory cookie session client', () => {
+  it('localizes network failures while preserving server validation messages', () => {
+    expect(apiErrorMessage(new AxiosError('Network Error', 'ERR_NETWORK'))).toContain('Не удалось связаться с сервером');
+    expect(apiErrorMessage(new AxiosError('timeout of 30000ms exceeded', 'ECONNABORTED'))).toContain('Сервер не ответил вовремя');
+    expect(apiErrorMessage({ response: { data: { message: 'Неверный пароль' } } })).toBe('Неверный пароль');
+  });
   it('restores the user with a credentialed refresh request without a body token', async () => {
     const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: session });
     await restoreSession();

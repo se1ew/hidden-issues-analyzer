@@ -22,7 +22,8 @@ export async function verifyProductionBrowser(base, { openRouterFixture = false 
     await page.getByRole('button', { name: 'Создать аккаунт', exact: true }).click();
     await page.waitForURL(base + '/upload');
     await page.goto(base + '/products');
-    await page.getByLabel('Название нового товара').fill('Браузерная проверка production');
+    await page.getByRole('button', { name: 'Добавить товар', exact: true }).click();
+    await page.getByLabel('Название товара', { exact: true }).fill('Браузерная проверка production');
     const created = page.waitForResponse(response => response.url() === base + '/api/products' && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Создать товар', exact: true }).click();
     assert.equal((await created).status(), 201);
@@ -61,6 +62,7 @@ export async function verifyProductionBrowser(base, { openRouterFixture = false 
         await page.screenshot({ path: fileURLToPath(new URL(`openrouter-${width}.png`, output)), fullPage: true });
       }
       await page.goto(base + '/upload');
+      await page.getByText('Настройки модели перед анализом', { exact: true }).click();
       await page.getByText('41 из 50', { exact: true }).waitFor();
       await page.goto(base + '/profile');
       await page.getByRole('radio', { name: 'Локально · CPU' }).waitFor();
