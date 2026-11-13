@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "npm-run-all --parallel dev:api dev:web dev:worker",
     "tasks:summary": "node scripts/update-task-summary.mjs",
+    "test:tasks": "node --test scripts/update-task-summary.test.mjs",
     "dev:api": "npm run dev --workspace=@hia/api",
     "dev:web": "npm run dev --workspace=@hia/web",
     "dev:worker": "npm run dev:worker --workspace=@hia/api",
@@ -24,7 +25,7 @@
     "typecheck": "npm-run-all --parallel typecheck:api typecheck:web",
     "typecheck:api": "npm run typecheck --workspace=@hia/api",
     "typecheck:web": "npm run typecheck --workspace=@hia/web",
-    "check": "npm-run-all typecheck lint test test:sql build",
+    "check": "npm-run-all typecheck lint test test:tasks test:sql build",
     "storage:backup": "node scripts/storage-backup.mjs backup",
     "storage:restore": "node scripts/storage-backup.mjs restore",
     "storage:inspect": "node apps/api/dist/maintenance.js",

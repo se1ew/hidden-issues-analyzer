@@ -1,10 +1,17 @@
 import fs from 'node:fs/promises';
+
 const file = new URL('../TASKS.md', import.meta.url);
 const text = await fs.readFile(file, 'utf8');
-const body = text.slice(text.indexOf('## Фаза 0:'));
-if (!body.startsWith('## Фаза 0:')) throw new Error('Cannot find phase checklist');
+const checklistStart = text.indexOf('## Фаза 0:');
+const summaryStart = text.indexOf('## Все фазы — одним взглядом');
+if (checklistStart < 0) throw new Error('Cannot find phase checklist');
+if (summaryStart < 0 || summaryStart >= checklistStart) throw new Error('Cannot find phase summary');
+
+const body = text.slice(checklistStart);
 const phases = [...body.matchAll(/^## Фаза (\d+): (.+)\r?\n([\s\S]*?)(?=^## |$(?![\s\S]))/gm)];
-if (phases.length !== 20) throw new Error('Expected exactly 20 phases');
+if (phases.length !== 20 || phases.some((match, index) => Number(match[1]) !== index)) {
+  throw new Error('Expected exactly 20 ordered phases');
+}
 let completed = 0; let open = 0;
 const rows = phases.map(match => {
   const done = (match[3].match(/^- \[x\]/gm) ?? []).length;
@@ -12,28 +19,14 @@ const rows = phases.map(match => {
   completed += done; open += left;
   return `| ${match[1]} | ${match[2].trim()} | ${done}/${done + left} | ${left ? `Осталось: ${left}` : '**Всё выполнено**'} |`;
 });
-const intro = `# Задачи проекта
 
-## Все фазы — одним взглядом
-
-Сверено с кодом и проверками 20 октября 2026. Выполнено ${completed} из ${completed + open} задач;
-открыто ${open}. Подробные чек-листы сохранены ниже.
-
-| Фаза | Название | Выполнено | Статус |
-| --- | --- | ---: | --- |
-${rows.join('\n')}
-
-Готовые программные проверки: [отчёт основного ПК](docs/local-validation.md).
-Открытые пункты оставлены для целевого ПК, его GPU/runtime, сети, перезагрузки
-и итоговой приёмки: [порядок действий](docs/second-pc.md). Живой Wildberries
-недоступен из текущей сети; его формат не считается подтверждённым.
-
-Составные пункты разделены на подготовку здесь и аппаратную проверку там;
-поэтому число задач отличается от исходных 262. Управляемые ответы модели
-не закрывают оценку качества настоящей LLM. Подробности: [аудит](docs/backlog-audit.md).
-Отчёты от 11–18 октября в конце файла — история работ; актуальна эта сводка
-и отметки в чек-листах. Обновить счётчики: \`npm run tasks:summary\`.
-
-`;
-await fs.writeFile(file, intro + body);
+const summary = text.slice(summaryStart, checklistStart);
+const counts = /Выполнено \d+ из \d+ задач;\r?\nоткрыто \d+\./;
+const table = /^(\| Фаза \| Название \| Выполнено \| Статус \|\r?\n\| --- \| --- \| ---: \| --- \|\r?\n)(?:\| \d+ \|[^\r\n]*(?:\r?\n|$))+/m;
+if (!counts.test(summary) || !table.test(summary)) throw new Error('Cannot find summary counts and table');
+const newline = text.includes('\r\n') ? '\r\n' : '\n';
+const updated = summary
+  .replace(counts, `Выполнено ${completed} из ${completed + open} задач;${newline}открыто ${open}.`)
+  .replace(table, (_, header) => header + rows.join(newline) + newline);
+await fs.writeFile(file, text.slice(0, summaryStart) + updated + body);
 console.log(rows.join('\n'));
