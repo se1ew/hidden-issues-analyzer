@@ -32,9 +32,13 @@ function show(runId?: string) {
 }
 describe('rating distribution scope and complete counts', () => {
   it('uses server totals, preserves the run and period, and keeps the product cache scope', async () => {
-    vi.mocked(api.get).mockImplementation(async (_url, config) => ({
-      data: { items: [], total: Number(config?.params.rating) * 10 },
-    }));
+    vi.mocked(api.get).mockImplementation(async (_url, config) => {
+      const params = config?.params;
+      if (!params || typeof params !== 'object' || !('rating' in params)) {
+        throw new Error('Expected a rating filter');
+      }
+      return { data: { items: [], total: Number(params.rating) * 10 } };
+    });
     const client = show('run');
     expect(await screen.findByText(/150 оценок/)).toBeInTheDocument();
     expect(screen.getByText('33%')).toBeInTheDocument();
