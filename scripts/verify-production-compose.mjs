@@ -18,28 +18,41 @@ const port = reserve.address().port; await new Promise(resolve => reserve.close(
 const base = `http://127.0.0.1:${port}`;
 const envFile = path.join(folder, '.env');
 const localModels = path.join(folder, 'llm'); await fs.mkdir(localModels);
-await fs.writeFile(envFile, [
+const environment = [
   `POSTGRES_PASSWORD=${randomBytes(32).toString('hex')}`,
   `JWT_ACCESS_SECRET=${randomBytes(32).toString('hex')}`,
   `JWT_REFRESH_SECRET=${randomBytes(32).toString('hex')}`,
-  `APP_PORT=${port}`, `WEB_ORIGIN=${base}`, 'LLM_PROVIDER=local',
-  'LLM_BASE_URL=http://host.docker.internal:1/v1', 'LLM_MODEL=unavailable-check-model',
+  `APP_PORT=${port}`, `WEB_ORIGIN=${base}`, 'LLM_PROVIDER=openrouter',
+  'OPENROUTER_MODEL=openrouter/free',
   'LOCAL_LLM_BASE_URL=http://local-llm:8081/v1', 'LOCAL_LLM_MODEL_FILE=/app/local_models/model.gguf',
   `LOCAL_LLM_DIRECTORY=${localModels.replaceAll('\\', '/')}`,
   'RATE_LIMIT_MAX=10000', // This isolated runner opens 48 pages faster than a human.
-].join('\n'), { flag: 'wx' });
+].join('\n');
+await fs.writeFile(envFile, environment, { flag: 'wx' });
+const secrets = environment.split('\n').filter(line => /(?:PASSWORD|SECRET)=/.test(line)).map(line => line.slice(line.indexOf('=') + 1));
 const env = { ...process.env, APP_ENV_FILE: envFile };
 const args = ['compose', '--env-file', envFile, '-f', 'compose.production.yaml', '-p', project];
 function compose(...commands) {
   const result = spawnSync('docker', [...args, ...commands], { cwd: root, env, encoding: 'utf8', timeout: 180000, windowsHide: true });
-  // Compose config and container env may contain secrets; never print raw output.
+  // Only this runner's synthetic services are inspected. Never print config/env.
+  if (result.status !== 0) {
+    const logs = spawnSync('docker', [...args, 'logs', '--no-color', '--tail', '40', 'api', 'worker', 'migrate'], {
+      cwd: root, env, encoding: 'utf8', timeout: 15000, windowsHide: true,
+    });
+    let diagnostic = [result.stderr, logs.stdout, logs.stderr].filter(Boolean).join('\n');
+    for (const secret of [...secrets, 'fixture-key-for-storage']) diagnostic = diagnostic.replaceAll(secret, '[redacted]');
+    diagnostic = diagnostic.replace(/postgres(?:ql)?:\/\/[^\s"']+/g, '[database URL]')
+      .replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]');
+    console.error(diagnostic.slice(-12000));
+  }
   assert.equal(result.status, 0, `Production compose command failed: ${commands[0]}`);
   return result.stdout.trim();
 }
 try {
   const config = JSON.parse(compose('config', '--format', 'json'));
   assert.equal(config.services.api.ports.length, 1);
-  for (const service of ['postgres', 'redis', 'worker', 'migrate', 'local-llm']) assert(!config.services[service].ports);
+  for (const service of ['postgres', 'redis', 'worker', 'migrate']) assert(!config.services[service].ports);
+  assert(!config.services['local-llm'], 'Default installation must not start a local LLM');
   assert(config.services.api.volumes.some(volume => volume.target === '/app/local_models' && volume.read_only));
   assert(config.services.migrate.command.includes('deploy'));
   assert(!config.services.migrate.command.includes('dev'));
@@ -60,6 +73,12 @@ try {
   assert.equal(registered.status, 201);
   const { accessToken, user } = await registered.json();
   const modelHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` };
+  const freshSettings = await httpFetch(base + '/api/analysis/provider', { headers: modelHeaders });
+  const freshConfiguration = await freshSettings.json();
+  assert.equal(freshConfiguration.provider, 'openrouter');
+  assert.equal(freshConfiguration.hasApiKey, false);
+  const missingKey = await httpFetch(base + '/api/analysis/provider/check', { method: 'POST', headers: modelHeaders });
+  assert.equal(missingKey.status, 503); assert.equal((await missingKey.json()).code, 'model_unavailable');
   const missingModel = await httpFetch(base + '/api/analysis/provider', { headers: modelHeaders });
   assert.equal(missingModel.status, 200); assert.equal((await missingModel.json()).local.state, 'missing');
   const localChoice = await httpFetch(base + '/api/analysis/provider', { method: 'PUT', headers: modelHeaders, body: JSON.stringify({ provider: 'local' }) });

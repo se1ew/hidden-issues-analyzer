@@ -36,6 +36,15 @@ afterEach(async () => {
 });
 
 describe('local and OpenRouter HTTP adapters', () => {
+  it.each([undefined, '', 'sk-or-v1-XXXXXXXX'])('starts without a usable installation key (%s) and rejects requests before HTTP', async (apiKey) => {
+    let calls = 0;
+    const base = await fixture((_req, res) => { calls++; json(res, envelope()); });
+    const adapter = createProvider(config(base, { provider: 'openrouter', apiKey, cloudDelayMs: 0 }));
+    await expect(adapter.check()).rejects.toMatchObject({ code: 'model_unavailable', message: expect.stringContaining('профиле') });
+    await expect(adapter.completeJson(request, AnalysisResultSchema)).rejects.toMatchObject({ code: 'model_unavailable' });
+    expect(calls).toBe(0);
+  });
+
   it.each(['local', 'openrouter'] as const)('%s uses the same validated contract and never changes endpoints', async (provider) => {
     const paths: string[] = [];
     const cases = [result, { sentiment: 'positive', sentiment_score: 0.8, aspects: [], issues: [] },

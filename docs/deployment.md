@@ -23,14 +23,22 @@ WEB_DIST_DIR=../web/dist
 или скопируйте пример и замените секреты самостоятельно. Из корня:
 
 ```powershell
-docker compose --env-file deploy/.env -f compose.production.yaml build api local-llm
+docker compose --env-file deploy/.env -f compose.production.yaml build api
 docker compose --env-file deploy/.env -f compose.production.yaml run --rm --no-deps worker node /app/scripts/ensure-embeddings.mjs
 docker compose --env-file deploy/.env -f compose.production.yaml up -d --no-build
 docker compose --env-file deploy/.env -f compose.production.yaml ps
 docker compose --env-file deploy/.env -f compose.production.yaml stop
 ```
 
-Приложение: `http://localhost:8080`. Основной вариант с 4 ноября: CPU-runtime
+Приложение: `http://localhost:8080`. С 13 ноября 2026 основной вариант —
+OpenRouter: приложение запускается без серверного ключа, собственный ключ
+сохраняется в профиле. Образ локальной LLM не собирается и сервис не запускается.
+Модель эмбеддингов остаётся нужна для семантической группировки.
+
+Прежний CPU-runtime доступен только при явном выборе:
+`app.ps1 -Action Build -EnableLocalLlm` и `app.ps1 -Action Start -EnableLocalLlm`. Для прямых команд
+Compose добавьте `--profile local` и соберите `api local-llm`.
+CPU-runtime
 `local-llm` с официальным CPU-пакетом llama.cpp b12098 запускается автоматически
 и ждёт `models/llm/model.gguf`. Он доступен только внутри Docker-сети, на
 хост порт не публикуется. Файл подключается к runtime, API и worker только для
@@ -48,8 +56,8 @@ Docker build не получает `.env`, пользовательские за
 
 20 октября образ собран с Linux-зависимостями; на отдельном случайном Compose
 project проверены миграции, readiness БД/Redis/worker, страницы SPA, регистрация
-и создание товара. Повтор: `npm run test:production:compose` после сборки обоих
-образов через `scripts/app.ps1 -Action Build`. Проверка удаляет только
+и создание товара. Повтор: `npm run test:production:compose` после сборки приложения
+через `scripts/app.ps1 -Action Build`. Проверка удаляет только
 собственный временный project.
 
 ## Данные и модели

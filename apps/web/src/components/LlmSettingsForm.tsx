@@ -89,7 +89,7 @@ export function LlmSettingsForm({
                 <p>
                   Скачайте один GGUF-файл, переименуйте в <code>model.gguf</code> и поместите в{' '}
                   <code>{settings.local.file}</code> на компьютере, где запущено приложение. Runtime
-                  уже входит в Docker-установку.
+                  доступен как необязательный компонент установки; его запуск описан в README.
                 </p>
                 <p role="status">
                   {settings.local.state === 'present'

@@ -34,7 +34,8 @@ export async function verifyProductionBrowser(base, { openRouterFixture = false 
     assert(cookies.some(cookie => cookie.name === 'hia-refresh' && cookie.httpOnly && cookie.path === '/api/auth'));
     await page.goto(base + '/profile');
     await page.getByRole('radio', { name: 'Локально · CPU' }).waitFor();
-    assert(await page.getByText('models/llm/model.gguf', { exact: true }).isVisible());
+    assert(await page.getByRole('radio', { name: 'OpenRouter', exact: true }).isChecked());
+    assert(await page.getByLabel('API-ключ OpenRouter', { exact: true }).isVisible());
     if (openRouterFixture) {
       await page.getByRole('radio', { name: 'OpenRouter', exact: true }).check();
       await page.getByRole('option', { name: /openrouter\/free.*Бесплатно/ }).waitFor({ state: 'attached' });
@@ -68,6 +69,7 @@ export async function verifyProductionBrowser(base, { openRouterFixture = false 
       await page.getByRole('radio', { name: 'Локально · CPU' }).waitFor();
     }
     await page.getByRole('radio', { name: 'Локально · CPU' }).check();
+    assert(await page.getByText('models/llm/model.gguf', { exact: true }).isVisible());
     const savedLocal = page.waitForResponse(response => response.url().endsWith('/api/analysis/provider') && response.request().method() === 'PUT');
     await page.getByRole('button', { name: 'Сохранить режим анализа' }).click();
     assert.equal((await savedLocal).status(), 200);

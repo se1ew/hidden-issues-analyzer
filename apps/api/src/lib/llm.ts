@@ -94,13 +94,15 @@ export function createProvider(input: ProviderConfig, sharedCapacity = false): L
   const gate = new Gate(config.concurrency);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (config.provider === 'openrouter') {
-    if (!config.apiKey || /^sk-or-v1-X+$/.test(config.apiKey)) throw new Error('Для OpenRouter нужен настоящий API-ключ');
-    headers.Authorization = `Bearer ${config.apiKey}`;
+    if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
     headers['HTTP-Referer'] = config.webOrigin ?? '';
     headers['X-Title'] = 'ReviewLens';
   }
 
   async function fetchJson(path: string, body: unknown, signal: AbortSignal): Promise<unknown> {
+    if (config.provider === 'openrouter' && (!config.apiKey || /^sk-or-v1-X+$/.test(config.apiKey))) {
+      throw new LlmError('model_unavailable', 'Сохраните API-ключ OpenRouter в профиле перед запуском анализа.');
+    }
     const maxResponseBytes = (path === 'models' ? 8 : 2) * 1024 * 1024;
     const timeout = AbortSignal.timeout(config.timeoutMs);
     const combined = AbortSignal.any([signal, timeout]);

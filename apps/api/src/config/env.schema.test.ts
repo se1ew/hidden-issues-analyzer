@@ -35,16 +35,20 @@ describe('startup environment schema', () => {
     expect(EnvSchema.safeParse({ ...valid, NODE_ENV: 'production', JWT_ACCESS_SECRET: 'change_me_access_secret_at_least_32_chars_long' }).success).toBe(false);
   });
 
-  it.each(['../../.env.example', '../../../../.env.example'])('шаблон %s поддерживает локальный режим без облачного ключа', (relativePath) => {
+  it.each(['../../.env.example', '../../../../.env.example'])('шаблон %s запускает OpenRouter без ключа установки', (relativePath) => {
     const template = parse(readFileSync(new URL(relativePath, import.meta.url)));
     const replaced = EnvSchema.parse({ ...template, OPENROUTER_API_KEY: valid.OPENROUTER_API_KEY });
     for (const key of Object.keys(replaced)) expect(template).toHaveProperty(key);
     expect(EnvSchema.safeParse(template).success).toBe(true);
-    expect(EnvSchema.safeParse({ ...template, LLM_PROVIDER: 'openrouter' }).success).toBe(false);
+    expect(EnvSchema.parse(template).LLM_PROVIDER).toBe('openrouter');
   });
 
   it('локальный режим не требует облачного ключа', () => {
     expect(EnvSchema.safeParse({ ...valid, LLM_PROVIDER: 'local', OPENROUTER_API_KEY: undefined }).success).toBe(true);
+  });
+
+  it('новая установка запускается до сохранения личного ключа в профиле', () => {
+    expect(EnvSchema.parse({ ...valid, LLM_PROVIDER: undefined, OPENROUTER_API_KEY: undefined }).LLM_PROVIDER).toBe('openrouter');
   });
 
   it.each([{ LLM_PROVIDER: 'automatic' }, { LLM_TIMEOUT_MS: 0 }, { LLM_CONCURRENCY: 9 },

@@ -20,8 +20,10 @@ export function LlmStatus({ editable = false }: { editable?: boolean }) {
         {check.isPending ? 'Проверка…' : 'Проверить доступность'}
       </button>
     </div>
-    <p className="text-xs text-neutral-500">Используется выбранный режим. При сбое локальной модели данные автоматически в облако не отправляются.</p>
-    {!editable && <a className="text-sm underline" href="/profile">Выбрать OpenRouter или локальную модель в профиле</a>}
+    <p className="text-xs text-neutral-500">{settings.data?.provider === 'openrouter'
+      ? 'Для анализа нужны интернет и API-ключ OpenRouter, сохранённый в профиле.'
+      : 'Используется выбранный режим. При сбое локальной модели данные автоматически в облако не отправляются.'}</p>
+    {!editable && <a className="text-sm underline" href="/profile">Настроить модель анализа в профиле</a>}
     {settings.data?.provider === 'openrouter' && <OpenRouterQuota hasApiKey={!!settings.data.hasApiKey} />}
     {editable && settings.data && <LlmSettingsForm settings={settings.data} onSaved={() => check.reset()} />}
     {check.isSuccess && <p role="status" className="text-sm text-green-700 dark:text-green-300">Настроенная модель доступна на сервере.</p>}

@@ -6,6 +6,7 @@ param(
     [ValidateRange(1024,65535)][int]$Port = 8080,
     [string]$HostAddress = 'localhost',
     [string]$RuntimeScript,
+    [switch]$EnableLocalLlm,
     [switch]$WhatIf
 )
 $ErrorActionPreference = 'Stop'
@@ -24,13 +25,15 @@ function Invoke-Compose {
     $previousEnvFile = $env:APP_ENV_FILE
     try {
         $env:APP_ENV_FILE = $envPath
-        & docker compose --env-file $envPath -f $composePath -p $ProjectName @Command
+        $profiles = @()
+        if ($EnableLocalLlm) { $profiles = @('--profile','local') }
+        & docker compose --env-file $envPath -f $composePath -p $ProjectName @profiles @Command
         if ($LASTEXITCODE -ne 0) { throw "Compose action failed: $($Command[0])" }
     } finally { $env:APP_ENV_FILE = $previousEnvFile }
 }
 if ($RuntimeScript) { $RuntimeScript = (Resolve-Path -LiteralPath $RuntimeScript).Path }
 if ($WhatIf) {
-    Write-Output "Action=$Action; project=$ProjectName; env=$envPath; task=$taskName"
+    Write-Output "Action=$Action; project=$ProjectName; env=$envPath; task=$taskName; localLlm=$([bool]$EnableLocalLlm)"
     exit 0
 }
 if ($Action -eq 'Init') {
@@ -47,7 +50,7 @@ if ($Action -eq 'Init') {
     $stream = [IO.File]::Open($envPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
     try { $bytes = [Text.UTF8Encoding]::new($false).GetBytes($content); $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
     New-Item -ItemType Directory -Path (Join-Path $root 'models\llm') -Force | Out-Null
-    Write-Output "Created $envPath. Choose OpenRouter in Profile, or put one GGUF file in models/llm/model.gguf."
+    Write-Output "Created $envPath. Save your OpenRouter API key and choose a model in Profile."
     exit 0
 }
 if (-not (Test-Path -LiteralPath $envPath)) { throw 'Run -Action Init first.' }
@@ -75,7 +78,11 @@ if ($Action -eq 'Local') {
     $Action = 'Start'
 }
 switch ($Action) {
-    'Build' { Invoke-Compose -Command @('build','api','local-llm') }
+    'Build' {
+        $targets = @('build','api')
+        if ($EnableLocalLlm) { $targets += 'local-llm' }
+        Invoke-Compose -Command $targets
+    }
     'Start' {
         if ($RuntimeScript) { & $RuntimeScript }
         $ready = $false
@@ -103,6 +110,7 @@ switch ($Action) {
     'InstallAutostart' {
         $arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Action Start -EnvFile `"$envPath`" -ProjectName `"$ProjectName`""
         if ($RuntimeScript) { $arguments += " -RuntimeScript `"$RuntimeScript`"" }
+        if ($EnableLocalLlm) { $arguments += ' -EnableLocalLlm' }
         $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($existing -and $existing.Actions.Arguments -notlike "*$PSCommandPath*") { throw 'A different task already uses this name.' }
         $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name

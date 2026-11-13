@@ -26,7 +26,7 @@ export const EnvSchema = z.object({
   OPENROUTER_API_KEY: z.string().trim().optional(),
   OPENROUTER_MODEL: z.string().trim().min(1).default('openrouter/free'),
   OPENROUTER_BASE_URL: serviceUrl(['http:', 'https:']).default('https://openrouter.ai/api/v1'),
-  LLM_PROVIDER: z.enum(['local', 'openrouter']).default('local'),
+  LLM_PROVIDER: z.enum(['local', 'openrouter']).default('openrouter'),
   LOCAL_LLM_BASE_URL: serviceUrl(['http:', 'https:']).optional(),
   LOCAL_LLM_MODEL_FILE: z.string().trim().min(1).optional(),
   LLM_BASE_URL: serviceUrl(['http:', 'https:']).optional(),
@@ -57,7 +57,7 @@ export const EnvSchema = z.object({
   if (env.ANALYSIS_LEASE_MS < env.ANALYSIS_HEARTBEAT_MS * 3) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ANALYSIS_LEASE_MS'], message: 'Lease должен быть не меньше трёх интервалов heartbeat' });
   }
-  if (env.LLM_PROVIDER === 'openrouter' && (!env.OPENROUTER_API_KEY || /^sk-or-v1-X+$/.test(env.OPENROUTER_API_KEY))) {
+  if (env.LLM_PROVIDER === 'openrouter' && env.OPENROUTER_API_KEY && /^sk-or-v1-X+$/.test(env.OPENROUTER_API_KEY)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['OPENROUTER_API_KEY'], message: 'Для OpenRouter нужен настоящий API-ключ' });
   }
   if (env.LLM_MAX_OUTPUT_TOKENS >= env.LLM_CONTEXT_TOKENS) {

@@ -60,7 +60,7 @@ try {
   Object.assign(process.env, {
     NODE_ENV: 'test', DATABASE_URL: `postgresql://check:check@127.0.0.1:${databasePort}/check`,
     REDIS_URL: `redis://127.0.0.1:${redisPort}`, JWT_ACCESS_SECRET: 'settings-access-secret-xxxxxxxxxxxxxxx',
-    JWT_REFRESH_SECRET: 'settings-refresh-secret-xxxxxxxxxxxxxx', LLM_PROVIDER: 'local', OPENROUTER_API_KEY: '',
+    JWT_REFRESH_SECRET: 'settings-refresh-secret-xxxxxxxxxxxxxx', LLM_PROVIDER: 'openrouter', OPENROUTER_API_KEY: '',
     OPENROUTER_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`, LLM_RETRIES: '0', LLM_CLOUD_DELAY_MS: '0',
     LOCAL_LLM_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`, LOCAL_LLM_MODEL_FILE: path.join(folder, 'model.gguf'),
     ANALYSIS_QUEUE_NAME: name, LLM_TIMEOUT_MS: '5000', RATE_LIMIT_MAX: '10000',
@@ -83,6 +83,11 @@ try {
     const product = await db.product.create({ data: { userId: owner, name: `Model test ${owner}` } }); products.push(product);
     const batch = await db.uploadBatch.create({ data: { userId: owner, productId: product.id, source: 'manual', status: 'completed' } });
     await db.review.create({ data: { productId: product.id, uploadBatchId: batch.id, text: 'Хороший товар, всё работает.', rating: 5 } });
+    const initial = await authenticated('get', 'analysis/provider', owner);
+    assert.equal(initial.status, 200); assert.equal(initial.body.provider, 'openrouter');
+    assert.equal(initial.body.hasApiKey, false);
+    const unconfigured = await authenticated('post', 'analysis/provider/check', owner);
+    assert.equal(unconfigured.status, 503); assert.equal(unconfigured.body.code, 'model_unavailable');
     const settings = await authenticated('put', 'analysis/provider', owner)
       .send({ provider: 'openrouter', cloudModel: owner === 'a' ? 'openrouter/free' : 'vendor/b', apiKey: `fixture-private-${owner}` });
     assert.equal(settings.status, 200); assert.equal(settings.body.hasApiKey, true);
