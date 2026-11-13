@@ -23,10 +23,14 @@ async function contend(client, duration) {
 }
 try {
   docker(['run', '-d', '--name', name, '-e', 'POSTGRES_USER=check', '-e', 'POSTGRES_PASSWORD=check', '-p', '127.0.0.1::5432', 'postgres:16-alpine']);
+  let postgresReady = false;
   for (let i = 0; i < 60; i++) {
-    if (spawnSync('docker', ['exec', name, 'pg_isready', '-U', 'check']).status === 0) break;
+    if (spawnSync('docker', ['exec', name, 'pg_isready', '-h', '127.0.0.1', '-U', 'check']).status === 0) {
+      postgresReady = true; break;
+    }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
+  assert(postgresReady, 'Temporary PostgreSQL TCP listener did not become ready');
   const port = docker(['port', name, '5432']).split(':').at(-1);
   const url = `postgresql://check:check@127.0.0.1:${port}/check?connection_limit=1`;
   baseline = new PrismaClient({ datasources: { db: { url } }, log: [] });

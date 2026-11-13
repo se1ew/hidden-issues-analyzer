@@ -19,8 +19,14 @@ try {
   process.exitCode = 1;
 } finally {
   report.durationMs = Math.round(performance.now() - started);
-  await fs.mkdir(new URL('../.cache/', import.meta.url), { recursive: true });
-  await fs.writeFile(values.output, JSON.stringify(report, null, 2));
-  console.log(JSON.stringify(report));
-  const { disconnectPrisma } = await import('../apps/api/dist/lib/prisma.js'); await disconnectPrisma();
+  try {
+    await fs.mkdir(new URL('../.cache/', import.meta.url), { recursive: true });
+    await fs.writeFile(values.output, JSON.stringify(report, null, 2));
+    console.log(JSON.stringify(report));
+  } finally {
+    const [{ disconnectPrisma }, { disconnectRedis }] = await Promise.all([
+      import('../apps/api/dist/lib/prisma.js'), import('../apps/api/dist/lib/redis.js'),
+    ]);
+    await Promise.all([disconnectPrisma(), disconnectRedis()]);
+  }
 }

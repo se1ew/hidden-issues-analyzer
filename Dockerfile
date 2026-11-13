@@ -1,15 +1,18 @@
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
-RUN npm ci
+RUN --mount=type=cache,id=reviewlens-npm,target=/app/.cache/npm,sharing=locked \
+    --mount=type=cache,id=reviewlens-prisma,target=/root/.cache/prisma,sharing=locked \
+    npm ci --foreground-scripts --prefer-offline --no-audit
 COPY . .
-RUN npm run db:generate && npm run build
+RUN --mount=type=cache,id=reviewlens-prisma,target=/root/.cache/prisma,sharing=locked \
+    npm run db:generate && npm run build
 
-FROM node:24-bookworm-slim AS production
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app

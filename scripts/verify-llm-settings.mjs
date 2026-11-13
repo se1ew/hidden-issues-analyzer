@@ -15,7 +15,12 @@ const folder = path.join(root, '.cache', name);
 let db, server, browserServer, queue;
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', windowsHide: true, ...options });
-  assert.equal(result.status, 0, `${command} ${args[0]} failed`);
+  let detail = result.stderr || result.error?.message || '';
+  for (const key of ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET', 'OPENROUTER_API_KEY']) {
+    if (process.env[key]) detail = detail.replaceAll(process.env[key], '[redacted]');
+  }
+  detail = detail.replace(/postgres(?:ql)?:\/\/[^\s"']+/g, '[database URL]');
+  assert.equal(result.status, 0, `${command} ${args[0]} failed: ${detail.slice(-3000)}`);
   return result.stdout.trim();
 }
 try {
@@ -25,10 +30,14 @@ try {
     run('docker', ['run', '-d', '--name', container, ...(suffix === 'postgres'
       ? ['-e', 'POSTGRES_USER=check', '-e', 'POSTGRES_PASSWORD=check'] : []), '-p', `127.0.0.1::${port}`, image]);
   }
+  let postgresReady = false;
   for (let i = 0; i < 60; i++) {
-    if (spawnSync('docker', ['exec', containers[0], 'pg_isready', '-U', 'check']).status === 0) break;
+    if (spawnSync('docker', ['exec', containers[0], 'pg_isready', '-h', '127.0.0.1', '-U', 'check']).status === 0) {
+      postgresReady = true; break;
+    }
     await new Promise(resolve => setTimeout(resolve, 300));
   }
+  assert(postgresReady, 'Temporary PostgreSQL TCP listener did not become ready');
   const databasePort = run('docker', ['port', containers[0], '5432']).split(':').at(-1);
   const redisPort = run('docker', ['port', containers[1], '6379']).split(':').at(-1);
   server = createServer(async (req, res) => {

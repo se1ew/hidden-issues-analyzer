@@ -24,15 +24,12 @@ async function run(input, callback) {
 
 for (const newline of ['\n', '\r\n']) {
   test(`preserves tasks, notes and line endings (${JSON.stringify(newline)})`, async () => {
-    const input = repositoryTasks.replace(/\r?\n/g, newline)
+    const expected = repositoryTasks.replace(/\r?\n/g, newline);
+    const input = expected
       .replace(/Выполнено \d+ из \d+ задач;/, 'Выполнено 0 из 0 задач;')
-      .replace(/открыто \d+\./, 'открыто 0.')
-      .replace('| 0 | Зафиксировать поведение и границы первой версии | 13/13 |', '| 0 | Зафиксировать поведение и границы первой версии | 0/0 |');
+      .replace(/открыто \d+\./, 'открыто 0.');
     await run(input, async (result, output, directory) => {
       assert.equal(result.status, 0, result.stderr);
-      const expected = input.replace('Выполнено 0 из 0 задач;', 'Выполнено 245 из 267 задач;')
-        .replace('открыто 0.', 'открыто 22.')
-        .replace('| 0 | Зафиксировать поведение и границы первой версии | 0/0 |', '| 0 | Зафиксировать поведение и границы первой версии | 13/13 |');
       assert.equal(output, expected);
       const repeated = spawnSync(process.execPath, [path.join(directory, 'scripts/update-task-summary.mjs')], { encoding: 'utf8', windowsHide: true });
       assert.equal(repeated.status, 0, repeated.stderr);
@@ -40,6 +37,22 @@ for (const newline of ['\n', '\r\n']) {
     });
   });
 }
+
+test('derives totals from phase checklists and excludes active tasks and history', async () => {
+  const rows = Array.from({ length: 20 }, (_, index) => `| ${index} | Phase ${index} | 0/0 | **Всё выполнено** |`).join('\n');
+  const phases = Array.from({ length: 20 }, (_, index) =>
+    `## Фаза ${index}: Phase ${index}\n\n${index === 0 ? '- [x] First\n- [ ] Second\n- [x] Third\n' : 'No tasks yet.\n'}`).join('\n');
+  const input = '# Tasks\n\n## Active\n\n- [x] Active task\n\n'
+    + '## Все фазы — одним взглядом\n\nВыполнено 0 из 0 задач;\nоткрыто 0.\n\n'
+    + '| Фаза | Название | Выполнено | Статус |\n| --- | --- | ---: | --- |\n' + rows
+    + '\n\nKeep these summary notes.\n\n' + phases + '\n## History\n\n- [x] Historical task\n';
+  await run(input, (result, output) => {
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(output, input.replace('Выполнено 0 из 0 задач;', 'Выполнено 2 из 3 задач;')
+      .replace('открыто 0.', 'открыто 1.')
+      .replace('| 0 | Phase 0 | 0/0 | **Всё выполнено** |', '| 0 | Phase 0 | 2/3 | Осталось: 1 |'));
+  });
+});
 
 for (const input of [
   repositoryTasks.replace('## Фаза 0:', '## Отсутствующая фаза:'),

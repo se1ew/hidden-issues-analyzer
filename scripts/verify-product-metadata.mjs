@@ -12,10 +12,14 @@ function run(command, args) {
 try {
   run('docker', ['run', '-d', '--name', container, '-e', 'POSTGRES_USER=check', '-e', 'POSTGRES_PASSWORD=check',
     '-p', '127.0.0.1::5432', 'postgres:16-alpine']);
+  let postgresReady = false;
   for (let attempt = 0; attempt < 60; attempt++) {
-    if (spawnSync('docker', ['exec', container, 'pg_isready', '-U', 'check']).status === 0) break;
+    if (spawnSync('docker', ['exec', container, 'pg_isready', '-h', '127.0.0.1', '-U', 'check']).status === 0) {
+      postgresReady = true; break;
+    }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
+  assert(postgresReady, 'Temporary PostgreSQL TCP listener did not become ready');
   const port = run('docker', ['port', container, '5432']).split(':').at(-1);
   Object.assign(process.env, { NODE_ENV: 'test', DATABASE_URL: `postgresql://check:check@127.0.0.1:${port}/check`,
     REDIS_URL: 'redis://127.0.0.1:1', JWT_ACCESS_SECRET: 'product-access-secret-xxxxxxxxxxxx',
