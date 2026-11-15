@@ -1,0 +1,475 @@
+{
+  "capturedAt": "2026-11-15T08:16:15.205Z",
+  "kind": "model-evaluation-requires-human-adjudication",
+  "reviewedBy": null,
+  "approvedThresholds": null,
+  "configuration": {
+    "provider": "local",
+    "model": "reviewlens-local-3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+    "modelVersion": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+    "contextTokens": 4096,
+    "maxOutputTokens": 1024,
+    "timeoutMs": 300000,
+    "retries": 0,
+    "responseFormat": "json_schema",
+    "concurrency": 1,
+    "promptVersion": "review-evidence-v3",
+    "methodVersion": "extraction-v4",
+    "cache": "disabled-for-evaluation"
+  },
+  "cases": [
+    {
+      "id": "r01",
+      "productId": "kettle-a",
+      "text": "Отличный чайник. Быстро кипятит воду, удобно держать.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive"
+        ],
+        "positiveContext": true,
+        "issues": []
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 612,
+          "completionTokens": 53,
+          "totalTokens": 665
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.8000000000000002,
+          "aspects": [
+            {
+              "name": "быстрота кипячения",
+              "sentiment": "positive"
+            },
+            {
+              "name": "удобство использования",
+              "sentiment": "positive"
+            }
+          ],
+          "complaints": []
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "быстрота кипячения",
+            "originalName": "быстрота кипячения",
+            "sentiment": "positive"
+          },
+          {
+            "category": "usability",
+            "name": "удобство",
+            "originalName": "удобство использования",
+            "sentiment": "positive"
+          }
+        ],
+        "complaints": [],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 4968
+    },
+    {
+      "id": "r08",
+      "productId": "kettle-a",
+      "text": "Мне нравится чайник. Крышка заедает, и при кипячении он громко гудит.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "lid_sticks",
+            "aspect": "usability",
+            "scope": "product",
+            "quote": "Крышка заедает"
+          },
+          {
+            "defect": "boiling_noise",
+            "aspect": "functionality",
+            "scope": "product",
+            "quote": "при кипячении он громко гудит"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 620,
+          "completionTokens": 131,
+          "totalTokens": 751
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.6,
+          "aspects": [
+            {
+              "name": "звук",
+              "sentiment": "negative"
+            },
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "крышка заедает",
+              "quote": "Крышка заедает",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 21,
+              "quoteEnd": 35
+            },
+            {
+              "aspectIndex": 1,
+              "scope": "product",
+              "description": "громко гудит при кипячении",
+              "quote": "при кипячении он громко гудит",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 39,
+              "quoteEnd": 68
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "functionality",
+            "name": "звук",
+            "originalName": "звук",
+            "sentiment": "negative"
+          },
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "крышка заедает",
+            "quote": "Крышка заедает",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 21,
+            "quoteEnd": 35,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 5,
+              "highRating": true,
+              "sentiment": "positive",
+              "positiveSentiment": true,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating",
+                "positive_sentiment"
+              ],
+              "interpretation": "mention_signal"
+            }
+          },
+          {
+            "aspectIndex": 1,
+            "scope": "product",
+            "description": "громко гудит при кипячении",
+            "quote": "при кипячении он громко гудит",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 39,
+            "quoteEnd": 68,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 5,
+              "highRating": true,
+              "sentiment": "positive",
+              "positiveSentiment": true,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating",
+                "positive_sentiment"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 11167
+    },
+    {
+      "id": "r18",
+      "productId": "kettle-a",
+      "text": "Плохой товар. Больше не куплю.",
+      "rating": 1,
+      "expected": {
+        "sentiments": [
+          "negative"
+        ],
+        "positiveContext": false,
+        "issues": []
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 602,
+          "completionTokens": 67,
+          "totalTokens": 669
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "negative",
+          "sentiment_score": -1,
+          "aspects": [
+            {
+              "name": "товар",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "плохой товар",
+              "quote": "Плохой товар",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 0,
+              "quoteEnd": 12
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "товар",
+            "originalName": "товар",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "плохой товар",
+            "quote": "Плохой товар",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 0,
+            "quoteEnd": 12,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 1,
+              "highRating": false,
+              "sentiment": "negative",
+              "positiveSentiment": false,
+              "positiveContext": false,
+              "reasons": [],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 5782
+    },
+    {
+      "id": "r20",
+      "productId": "headphones-a",
+      "text": "Хорошие наушники. Левый периодически теряет связь с телефоном.",
+      "rating": 4,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "left_disconnects",
+            "aspect": "functionality",
+            "scope": "product",
+            "quote": "Левый периодически теряет связь с телефоном"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 0,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 609,
+          "completionTokens": 83,
+          "totalTokens": 692
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "status": "failed",
+      "errorCode": "invalid_evidence",
+      "durationMs": 7086
+    },
+    {
+      "id": "r21",
+      "productId": "headphones-a",
+      "text": "Левый наушник звучит заметно тише правого.",
+      "rating": 2,
+      "expected": {
+        "sentiments": [
+          "negative"
+        ],
+        "positiveContext": false,
+        "issues": [
+          {
+            "defect": "left_quiet",
+            "aspect": "functionality",
+            "scope": "product",
+            "quote": "Левый наушник звучит заметно тише правого"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 0,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 607,
+          "completionTokens": 90,
+          "totalTokens": 697
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "status": "failed",
+      "errorCode": "invalid_evidence",
+      "durationMs": 7554
+    },
+    {
+      "id": "r24",
+      "productId": "bottle-a",
+      "text": "Шампунь нравится. Флакон течёт даже с плотно закрученной крышкой.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "bottle_leaks",
+            "aspect": "quality",
+            "scope": "product",
+            "quote": "Флакон течёт даже с плотно закрученной крышкой"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 0,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 616,
+          "completionTokens": 108,
+          "totalTokens": 724
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "status": "failed",
+      "errorCode": "invalid_evidence",
+      "durationMs": 10284
+    }
+  ],
+  "totals": {
+    "total": 6,
+    "succeeded": 3,
+    "failed": 3,
+    "validatedQuotes": 3,
+    "precision": null,
+    "recall": null
+  },
+  "timing": {
+    "firstRequestMs": 4968,
+    "subsequentRequestMs": [
+      11167,
+      5782,
+      7086,
+      7554,
+      10284
+    ],
+    "totalMs": 46841,
+    "limitation": "Runtime cold startup and peak GPU/RAM must be measured separately on the target PC."
+  }
+}

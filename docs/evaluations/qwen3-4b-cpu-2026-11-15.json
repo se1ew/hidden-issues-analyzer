@@ -1,0 +1,2329 @@
+{
+  "capturedAt": "2026-11-15T08:11:36.108Z",
+  "kind": "model-evaluation-requires-human-adjudication",
+  "reviewedBy": null,
+  "approvedThresholds": null,
+  "configuration": {
+    "provider": "local",
+    "model": "reviewlens-local-3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+    "modelVersion": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+    "contextTokens": 4096,
+    "maxOutputTokens": 1024,
+    "timeoutMs": 300000,
+    "retries": 0,
+    "responseFormat": "json_object",
+    "concurrency": 1,
+    "promptVersion": "review-evidence-v3",
+    "methodVersion": "extraction-v4",
+    "cache": "disabled-for-evaluation"
+  },
+  "cases": [
+    {
+      "id": "r01",
+      "productId": "kettle-a",
+      "text": "Отличный чайник. Быстро кипятит воду, удобно держать.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive"
+        ],
+        "positiveContext": true,
+        "issues": []
+      },
+      "metrics": {
+        "chunks": 0,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 612,
+          "completionTokens": 108,
+          "totalTokens": 720
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "status": "failed",
+      "errorCode": "invalid_response",
+      "durationMs": 21738
+    },
+    {
+      "id": "r02",
+      "productId": "kettle-a",
+      "text": "Чайник нравится, но крышка заедает при открывании.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "lid_sticks",
+            "aspect": "usability",
+            "scope": "product",
+            "quote": "крышка заедает при открывании"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 607,
+          "completionTokens": 76,
+          "totalTokens": 683
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "neutral",
+          "sentiment_score": 0,
+          "aspects": [
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "крышка заедает при открывании",
+              "quote": "крышка заедает при открывании",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 20,
+              "quoteEnd": 49
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "крышка заедает при открывании",
+            "quote": "крышка заедает при открывании",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 20,
+            "quoteEnd": 49,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 5,
+              "highRating": true,
+              "sentiment": "neutral",
+              "positiveSentiment": false,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 6589
+    },
+    {
+      "id": "r03",
+      "productId": "kettle-a",
+      "text": "В целом покупкой доволен. Крышку приходится открывать с усилием: заедает.",
+      "rating": 4,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "lid_sticks",
+            "aspect": "usability",
+            "scope": "product",
+            "quote": "Крышку приходится открывать с усилием: заедает"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 615,
+          "completionTokens": 86,
+          "totalTokens": 701
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.6,
+          "aspects": [
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "крышка заедает при открытии",
+              "quote": "Крышку приходится открывать с усилием: заедает.",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 26,
+              "quoteEnd": 73
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "крышка заедает при открытии",
+            "quote": "Крышку приходится открывать с усилием: заедает.",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 26,
+            "quoteEnd": 73,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 4,
+              "highRating": true,
+              "sentiment": "positive",
+              "positiveSentiment": true,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating",
+                "positive_sentiment"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 7571
+    },
+    {
+      "id": "r04",
+      "productId": "kettle-a",
+      "text": "Ужасный чайник: крышка заедает каждый раз.",
+      "rating": 1,
+      "expected": {
+        "sentiments": [
+          "negative"
+        ],
+        "positiveContext": false,
+        "issues": [
+          {
+            "defect": "lid_sticks",
+            "aspect": "usability",
+            "scope": "product",
+            "quote": "крышка заедает каждый раз"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 605,
+          "completionTokens": 74,
+          "totalTokens": 679
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "negative",
+          "sentiment_score": -0.9000000000000001,
+          "aspects": [
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "крышка заедает каждый раз",
+              "quote": "крышка заедает каждый раз",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 16,
+              "quoteEnd": 41
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "крышка заедает каждый раз",
+            "quote": "крышка заедает каждый раз",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 16,
+            "quoteEnd": 41,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 1,
+              "highRating": false,
+              "sentiment": "negative",
+              "positiveSentiment": false,
+              "positiveContext": false,
+              "reasons": [],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 6356
+    },
+    {
+      "id": "r05",
+      "productId": "kettle-a",
+      "text": "Хороший чайник, не протекает и крышка не заедает.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive"
+        ],
+        "positiveContext": true,
+        "issues": []
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 608,
+          "completionTokens": 48,
+          "totalTokens": 656
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.8,
+          "aspects": [
+            {
+              "name": "непротекание",
+              "sentiment": "positive"
+            },
+            {
+              "name": "крышка",
+              "sentiment": "positive"
+            }
+          ],
+          "complaints": []
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "непротекание",
+            "originalName": "непротекание",
+            "sentiment": "positive"
+          },
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "positive"
+          }
+        ],
+        "complaints": [],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 4512
+    },
+    {
+      "id": "r06",
+      "productId": "kettle-a",
+      "text": "Чайник хороший. Коробка помята, курьер опоздал на два дня.",
+      "rating": 4,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "box_dented",
+            "aspect": "packaging",
+            "scope": "packaging",
+            "quote": "Коробка помята"
+          },
+          {
+            "defect": "delivery_late",
+            "aspect": "delivery",
+            "scope": "delivery",
+            "quote": "курьер опоздал на два дня"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 612,
+          "completionTokens": 142,
+          "totalTokens": 754
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "neutral",
+          "sentiment_score": 0,
+          "aspects": [
+            {
+              "name": "качество продукта",
+              "sentiment": "positive"
+            },
+            {
+              "name": "доставка",
+              "sentiment": "negative"
+            },
+            {
+              "name": "упаковка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 1,
+              "scope": "delivery",
+              "description": "курьер опоздал на два дня",
+              "quote": "курьер опоздал на два дня",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 32,
+              "quoteEnd": 57
+            },
+            {
+              "aspectIndex": 2,
+              "scope": "packaging",
+              "description": "коробка помята",
+              "quote": "Коробка помята",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 16,
+              "quoteEnd": 30
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "качество продукта",
+            "originalName": "качество продукта",
+            "sentiment": "positive"
+          },
+          {
+            "category": "delivery",
+            "name": "доставка",
+            "originalName": "доставка",
+            "sentiment": "negative"
+          },
+          {
+            "category": "packaging",
+            "name": "упаковка",
+            "originalName": "упаковка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 1,
+            "scope": "delivery",
+            "description": "курьер опоздал на два дня",
+            "quote": "курьер опоздал на два дня",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 32,
+            "quoteEnd": 57,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 4,
+              "highRating": true,
+              "sentiment": "neutral",
+              "positiveSentiment": false,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating"
+              ],
+              "interpretation": "mention_signal"
+            }
+          },
+          {
+            "aspectIndex": 2,
+            "scope": "packaging",
+            "description": "коробка помята",
+            "quote": "Коробка помята",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 16,
+            "quoteEnd": 30,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 4,
+              "highRating": true,
+              "sentiment": "neutral",
+              "positiveSentiment": false,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 11938
+    },
+    {
+      "id": "r07",
+      "productId": "kettle-a",
+      "text": "Чайник отличный, но продавец прислал другую модель.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "wrong_model_sent",
+            "aspect": "seller",
+            "scope": "seller",
+            "quote": "продавец прислал другую модель"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 607,
+          "completionTokens": 88,
+          "totalTokens": 695
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.5,
+          "aspects": [
+            {
+              "name": "продукт",
+              "sentiment": "positive"
+            },
+            {
+              "name": "продажа",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 1,
+              "scope": "seller",
+              "description": "прислал другую модель",
+              "quote": "продавец прислал другую модель",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 20,
+              "quoteEnd": 50
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "продукт",
+            "originalName": "продукт",
+            "sentiment": "positive"
+          },
+          {
+            "category": "other",
+            "name": "продажа",
+            "originalName": "продажа",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 1,
+            "scope": "seller",
+            "description": "прислал другую модель",
+            "quote": "продавец прислал другую модель",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 20,
+            "quoteEnd": 50,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 5,
+              "highRating": true,
+              "sentiment": "positive",
+              "positiveSentiment": true,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating",
+                "positive_sentiment"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 7923
+    },
+    {
+      "id": "r08",
+      "productId": "kettle-a",
+      "text": "Мне нравится чайник. Крышка заедает, и при кипячении он громко гудит.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "lid_sticks",
+            "aspect": "usability",
+            "scope": "product",
+            "quote": "Крышка заедает"
+          },
+          {
+            "defect": "boiling_noise",
+            "aspect": "functionality",
+            "scope": "product",
+            "quote": "при кипячении он громко гудит"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 620,
+          "completionTokens": 131,
+          "totalTokens": 751
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.6,
+          "aspects": [
+            {
+              "name": "звук",
+              "sentiment": "negative"
+            },
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "крышка заедает",
+              "quote": "Крышка заедает",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 21,
+              "quoteEnd": 35
+            },
+            {
+              "aspectIndex": 1,
+              "scope": "product",
+              "description": "громко гудит при кипячении",
+              "quote": "при кипячении он громко гудит",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 39,
+              "quoteEnd": 68
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "functionality",
+            "name": "звук",
+            "originalName": "звук",
+            "sentiment": "negative"
+          },
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "крышка заедает",
+            "quote": "Крышка заедает",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 21,
+            "quoteEnd": 35,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 5,
+              "highRating": true,
+              "sentiment": "positive",
+              "positiveSentiment": true,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating",
+                "positive_sentiment"
+              ],
+              "interpretation": "mention_signal"
+            }
+          },
+          {
+            "aspectIndex": 1,
+            "scope": "product",
+            "description": "громко гудит при кипячении",
+            "quote": "при кипячении он громко гудит",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 39,
+            "quoteEnd": 68,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 5,
+              "highRating": true,
+              "sentiment": "positive",
+              "positiveSentiment": true,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating",
+                "positive_sentiment"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 11179
+    },
+    {
+      "id": "r09",
+      "productId": "kettle-a",
+      "text": "Покупкой доволен, только шум при кипении мешает разговаривать.",
+      "rating": 4,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "boiling_noise",
+            "aspect": "functionality",
+            "scope": "product",
+            "quote": "шум при кипении мешает разговаривать"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 612,
+          "completionTokens": 90,
+          "totalTokens": 702
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.7,
+          "aspects": [
+            {
+              "name": "шум при кипении",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "шум при кипении мешает разговаривать",
+              "quote": "шум при кипении мешает разговаривать",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 25,
+              "quoteEnd": 61
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "шум при кипении",
+            "originalName": "шум при кипении",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "шум при кипении мешает разговаривать",
+            "quote": "шум при кипении мешает разговаривать",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 25,
+            "quoteEnd": 61,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 4,
+              "highRating": true,
+              "sentiment": "positive",
+              "positiveSentiment": true,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating",
+                "positive_sentiment"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 7677
+    },
+    {
+      "id": "r10",
+      "productId": "kettle-a",
+      "text": "Крышка сломалась, теперь не закрывается.",
+      "rating": 2,
+      "expected": {
+        "sentiments": [
+          "negative"
+        ],
+        "positiveContext": false,
+        "issues": [
+          {
+            "defect": "lid_broken",
+            "aspect": "quality",
+            "scope": "product",
+            "quote": "Крышка сломалась, теперь не закрывается"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 604,
+          "completionTokens": 87,
+          "totalTokens": 691
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "negative",
+          "sentiment_score": -1,
+          "aspects": [
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "крышка сломалась, теперь не закрывается",
+              "quote": "Крышка сломалась, теперь не закрывается.",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 0,
+              "quoteEnd": 40
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "крышка сломалась, теперь не закрывается",
+            "quote": "Крышка сломалась, теперь не закрывается.",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 0,
+            "quoteEnd": 40,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 2,
+              "highRating": false,
+              "sentiment": "negative",
+              "positiveSentiment": false,
+              "positiveContext": false,
+              "reasons": [],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 7715
+    },
+    {
+      "id": "r11",
+      "productId": "kettle-a",
+      "text": "Отличный чайник, я доволен. Только крышка заедает.",
+      "rating": null,
+      "expected": {
+        "sentiments": [
+          "positive"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "lid_sticks",
+            "aspect": "usability",
+            "scope": "product",
+            "quote": "крышка заедает"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 608,
+          "completionTokens": 70,
+          "totalTokens": 678
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.8,
+          "aspects": [
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "крышка заедает",
+              "quote": "крышка заедает",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 35,
+              "quoteEnd": 49
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "крышка заедает",
+            "quote": "крышка заедает",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 35,
+            "quoteEnd": 49,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": null,
+              "highRating": null,
+              "sentiment": "positive",
+              "positiveSentiment": true,
+              "positiveContext": true,
+              "reasons": [
+                "positive_sentiment"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 6469
+    },
+    {
+      "id": "r12",
+      "productId": "kettle-a",
+      "text": "Крышка заедает.",
+      "rating": null,
+      "expected": {
+        "sentiments": [
+          "negative",
+          "neutral"
+        ],
+        "positiveContext": false,
+        "issues": [
+          {
+            "defect": "lid_sticks",
+            "aspect": "usability",
+            "scope": "product",
+            "quote": "Крышка заедает"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 596,
+          "completionTokens": 69,
+          "totalTokens": 665
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "negative",
+          "sentiment_score": -1,
+          "aspects": [
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "заедает",
+              "quote": "Крышка заедает.",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 0,
+              "quoteEnd": 15
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "заедает",
+            "quote": "Крышка заедает.",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 0,
+            "quoteEnd": 15,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": null,
+              "highRating": null,
+              "sentiment": "negative",
+              "positiveSentiment": false,
+              "positiveContext": false,
+              "reasons": [],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 6088
+    },
+    {
+      "id": "r13",
+      "productId": "kettle-a",
+      "text": "Совсем не понравился: перестал включаться на второй день.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "negative"
+        ],
+        "positiveContext": true,
+        "ratingSentimentConflict": true,
+        "issues": [
+          {
+            "defect": "power_failure",
+            "aspect": "quality",
+            "scope": "product",
+            "quote": "перестал включаться на второй день"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 607,
+          "completionTokens": 78,
+          "totalTokens": 685
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "negative",
+          "sentiment_score": -0.8,
+          "aspects": [
+            {
+              "name": "работоспособность",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "перестал включаться",
+              "quote": "перестал включаться на второй день",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 22,
+              "quoteEnd": 56
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "functionality",
+            "name": "функциональность",
+            "originalName": "работоспособность",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "перестал включаться",
+            "quote": "перестал включаться на второй день",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 22,
+            "quoteEnd": 56,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 5,
+              "highRating": true,
+              "sentiment": "negative",
+              "positiveSentiment": false,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 7073
+    },
+    {
+      "id": "r14",
+      "productId": "kettle-a",
+      "text": "За такую цену отличный чайник. Возможно, когда-нибудь сломается крышка, но сейчас всё работает.",
+      "rating": 4,
+      "expected": {
+        "sentiments": [
+          "positive"
+        ],
+        "positiveContext": true,
+        "issues": []
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 616,
+          "completionTokens": 101,
+          "totalTokens": 717
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.7,
+          "aspects": [
+            {
+              "name": "цена",
+              "sentiment": "positive"
+            },
+            {
+              "name": "работа чайника",
+              "sentiment": "positive"
+            },
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": []
+        },
+        "aspects": [
+          {
+            "category": "price",
+            "name": "цена",
+            "originalName": "цена",
+            "sentiment": "positive"
+          },
+          {
+            "category": "other",
+            "name": "работа чайника",
+            "originalName": "работа чайника",
+            "sentiment": "positive"
+          },
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 9488
+    },
+    {
+      "id": "r15",
+      "productId": "kettle-a",
+      "text": "Читал, что у других крышка заедает. У меня открывается легко, чайник отличный.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive"
+        ],
+        "positiveContext": true,
+        "issues": []
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 614,
+          "completionTokens": 89,
+          "totalTokens": 703
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.7,
+          "aspects": [
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            },
+            {
+              "name": "чайник",
+              "sentiment": "positive"
+            }
+          ],
+          "complaints": []
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          },
+          {
+            "category": "other",
+            "name": "чайник",
+            "originalName": "чайник",
+            "sentiment": "positive"
+          }
+        ],
+        "complaints": [],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 8189
+    },
+    {
+      "id": "r16",
+      "productId": "kettle-a",
+      "text": "Хороший чайник. Крышка заедает. Повторюсь: крышка заедает каждый раз.",
+      "rating": 4,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "lid_sticks",
+            "aspect": "usability",
+            "scope": "product",
+            "quote": "Крышка заедает"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 616,
+          "completionTokens": 71,
+          "totalTokens": 687
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.5,
+          "aspects": [
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "крышка заедает",
+              "quote": "крышка заедает",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 43,
+              "quoteEnd": 57
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "крышка заедает",
+            "quote": "крышка заедает",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 43,
+            "quoteEnd": 57,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 4,
+              "highRating": true,
+              "sentiment": "positive",
+              "positiveSentiment": true,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating",
+                "positive_sentiment"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 6389
+    },
+    {
+      "id": "r17",
+      "productId": "kettle-b",
+      "text": "Отличный чайник, только крышка заедает.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "lid_sticks",
+            "aspect": "usability",
+            "scope": "product",
+            "quote": "крышка заедает"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 603,
+          "completionTokens": 70,
+          "totalTokens": 673
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.7,
+          "aspects": [
+            {
+              "name": "крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "крышка заедает",
+              "quote": "крышка заедает",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 24,
+              "quoteEnd": 38
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "крышка",
+            "originalName": "крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "крышка заедает",
+            "quote": "крышка заедает",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 24,
+            "quoteEnd": 38,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 5,
+              "highRating": true,
+              "sentiment": "positive",
+              "positiveSentiment": true,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating",
+                "positive_sentiment"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 6037
+    },
+    {
+      "id": "r18",
+      "productId": "kettle-a",
+      "text": "Плохой товар. Больше не куплю.",
+      "rating": 1,
+      "expected": {
+        "sentiments": [
+          "negative"
+        ],
+        "positiveContext": false,
+        "issues": []
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 602,
+          "completionTokens": 67,
+          "totalTokens": 669
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "negative",
+          "sentiment_score": -1,
+          "aspects": [
+            {
+              "name": "товар",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 0,
+              "scope": "product",
+              "description": "плохой товар",
+              "quote": "Плохой товар",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 0,
+              "quoteEnd": 12
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "товар",
+            "originalName": "товар",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 0,
+            "scope": "product",
+            "description": "плохой товар",
+            "quote": "Плохой товар",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 0,
+            "quoteEnd": 12,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 1,
+              "highRating": false,
+              "sentiment": "negative",
+              "positiveSentiment": false,
+              "positiveContext": false,
+              "reasons": [],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 5719
+    },
+    {
+      "id": "r19",
+      "productId": "headphones-a",
+      "text": "Звук отличный, покупкой доволен, но левый наушник отключается сам.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "left_disconnects",
+            "aspect": "functionality",
+            "scope": "product",
+            "quote": "левый наушник отключается сам"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 613,
+          "completionTokens": 88,
+          "totalTokens": 701
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.6,
+          "aspects": [
+            {
+              "name": "звук",
+              "sentiment": "positive"
+            },
+            {
+              "name": "наушник",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 1,
+              "scope": "product",
+              "description": "левый наушник отключается сам",
+              "quote": "левый наушник отключается сам",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 36,
+              "quoteEnd": 65
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "functionality",
+            "name": "звук",
+            "originalName": "звук",
+            "sentiment": "positive"
+          },
+          {
+            "category": "other",
+            "name": "наушник",
+            "originalName": "наушник",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 1,
+            "scope": "product",
+            "description": "левый наушник отключается сам",
+            "quote": "левый наушник отключается сам",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 36,
+            "quoteEnd": 65,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 5,
+              "highRating": true,
+              "sentiment": "positive",
+              "positiveSentiment": true,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating",
+                "positive_sentiment"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 7788
+    },
+    {
+      "id": "r20",
+      "productId": "headphones-a",
+      "text": "Хорошие наушники. Левый периодически теряет связь с телефоном.",
+      "rating": 4,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "left_disconnects",
+            "aspect": "functionality",
+            "scope": "product",
+            "quote": "Левый периодически теряет связь с телефоном"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 0,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 609,
+          "completionTokens": 83,
+          "totalTokens": 692
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "status": "failed",
+      "errorCode": "invalid_evidence",
+      "durationMs": 7066
+    },
+    {
+      "id": "r21",
+      "productId": "headphones-a",
+      "text": "Левый наушник звучит заметно тише правого.",
+      "rating": 2,
+      "expected": {
+        "sentiments": [
+          "negative"
+        ],
+        "positiveContext": false,
+        "issues": [
+          {
+            "defect": "left_quiet",
+            "aspect": "functionality",
+            "scope": "product",
+            "quote": "Левый наушник звучит заметно тише правого"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 0,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 607,
+          "completionTokens": 90,
+          "totalTokens": 697
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "status": "failed",
+      "errorCode": "invalid_evidence",
+      "durationMs": 7639
+    },
+    {
+      "id": "r22",
+      "productId": "headphones-a",
+      "text": "Отличные наушники, связь не пропадает, громкость одинаковая.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive"
+        ],
+        "positiveContext": true,
+        "issues": []
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 612,
+          "completionTokens": 47,
+          "totalTokens": 659
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.8,
+          "aspects": [
+            {
+              "name": "связь",
+              "sentiment": "positive"
+            },
+            {
+              "name": "громкость",
+              "sentiment": "positive"
+            }
+          ],
+          "complaints": []
+        },
+        "aspects": [
+          {
+            "category": "functionality",
+            "name": "связь",
+            "originalName": "связь",
+            "sentiment": "positive"
+          },
+          {
+            "category": "other",
+            "name": "громкость",
+            "originalName": "громкость",
+            "sentiment": "positive"
+          }
+        ],
+        "complaints": [],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": true,
+      "durationMs": 4357
+    },
+    {
+      "id": "r23",
+      "productId": "bottle-a",
+      "text": "Удобный флакон, но шампунь вытекает из-под закрытой крышки.",
+      "rating": 4,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "bottle_leaks",
+            "aspect": "quality",
+            "scope": "product",
+            "quote": "шампунь вытекает из-под закрытой крышки"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 615,
+          "completionTokens": 110,
+          "totalTokens": 725
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "negative",
+          "sentiment_score": 0.2,
+          "aspects": [
+            {
+              "name": "удобство",
+              "sentiment": "positive"
+            },
+            {
+              "name": "закрытая крышка",
+              "sentiment": "negative"
+            }
+          ],
+          "complaints": [
+            {
+              "aspectIndex": 1,
+              "scope": "product",
+              "description": "шампунь вытекает из-под закрытой крышки",
+              "quote": "шампунь вытекает из-под закрытой крышки",
+              "assertion": "experienced",
+              "consequences": null,
+              "quoteStart": 19,
+              "quoteEnd": 58
+            }
+          ]
+        },
+        "aspects": [
+          {
+            "category": "usability",
+            "name": "удобство",
+            "originalName": "удобство",
+            "sentiment": "positive"
+          },
+          {
+            "category": "other",
+            "name": "закрытая крышка",
+            "originalName": "закрытая крышка",
+            "sentiment": "negative"
+          }
+        ],
+        "complaints": [
+          {
+            "aspectIndex": 1,
+            "scope": "product",
+            "description": "шампунь вытекает из-под закрытой крышки",
+            "quote": "шампунь вытекает из-под закрытой крышки",
+            "assertion": "experienced",
+            "consequences": null,
+            "quoteStart": 19,
+            "quoteEnd": 58,
+            "masking": {
+              "methodVersion": "positive-context-v1",
+              "rating": 4,
+              "highRating": true,
+              "sentiment": "negative",
+              "positiveSentiment": false,
+              "positiveContext": true,
+              "reasons": [
+                "high_rating"
+              ],
+              "interpretation": "mention_signal"
+            }
+          }
+        ],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": false,
+      "durationMs": 9332
+    },
+    {
+      "id": "r24",
+      "productId": "bottle-a",
+      "text": "Шампунь нравится. Флакон течёт даже с плотно закрученной крышкой.",
+      "rating": 5,
+      "expected": {
+        "sentiments": [
+          "positive",
+          "neutral"
+        ],
+        "positiveContext": true,
+        "issues": [
+          {
+            "defect": "bottle_leaks",
+            "aspect": "quality",
+            "scope": "product",
+            "quote": "Флакон течёт даже с плотно закрученной крышкой"
+          }
+        ]
+      },
+      "metrics": {
+        "chunks": 0,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 616,
+          "completionTokens": 108,
+          "totalTokens": 724
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "status": "failed",
+      "errorCode": "invalid_evidence",
+      "durationMs": 9177
+    },
+    {
+      "id": "r25",
+      "productId": "bottle-a",
+      "text": "Шампунь в обычном флаконе. Запах травяной.",
+      "rating": null,
+      "expected": {
+        "sentiments": [
+          "neutral"
+        ],
+        "positiveContext": false,
+        "issues": []
+      },
+      "metrics": {
+        "chunks": 1,
+        "cacheHit": false,
+        "usage": {
+          "promptTokens": 609,
+          "completionTokens": 47,
+          "totalTokens": 656
+        },
+        "responses": 1
+      },
+      "adjudication": {
+        "truePositives": null,
+        "falsePositives": null,
+        "falseNegatives": null,
+        "notes": ""
+      },
+      "extracted": {
+        "result": {
+          "sentiment": "positive",
+          "sentiment_score": 0.7,
+          "aspects": [
+            {
+              "name": "запах",
+              "sentiment": "positive"
+            },
+            {
+              "name": "форма продукта",
+              "sentiment": "positive"
+            }
+          ],
+          "complaints": []
+        },
+        "aspects": [
+          {
+            "category": "other",
+            "name": "запах",
+            "originalName": "запах",
+            "sentiment": "positive"
+          },
+          {
+            "category": "other",
+            "name": "форма продукта",
+            "originalName": "форма продукта",
+            "sentiment": "positive"
+          }
+        ],
+        "complaints": [],
+        "metadata": {
+          "offsetUnit": "utf16",
+          "aspectDictionaryVersion": "ru-aspects-v1",
+          "confidence": "not_calibrated",
+          "evidenceValidation": "exact_unique_quote"
+        }
+      },
+      "status": "succeeded",
+      "sentimentAllowed": false,
+      "durationMs": 4289
+    }
+  ],
+  "totals": {
+    "total": 25,
+    "succeeded": 21,
+    "failed": 4,
+    "validatedQuotes": 18,
+    "precision": null,
+    "recall": null
+  },
+  "timing": {
+    "firstRequestMs": 21738,
+    "subsequentRequestMs": [
+      6589,
+      7571,
+      6356,
+      4512,
+      11938,
+      7923,
+      11179,
+      7677,
+      7715,
+      6469,
+      6088,
+      7073,
+      9488,
+      8189,
+      6389,
+      6037,
+      5719,
+      7788,
+      7066,
+      7639,
+      4357,
+      9332,
+      9177,
+      4289
+    ],
+    "totalMs": 198298,
+    "limitation": "Runtime cold startup and peak GPU/RAM must be measured separately on the target PC."
+  }
+}
