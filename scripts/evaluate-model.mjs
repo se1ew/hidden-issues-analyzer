@@ -7,7 +7,7 @@ import { performance } from 'node:perf_hooks';
 import { createHash } from 'node:crypto';
 import dotenv from 'dotenv';
 
-export async function evaluateCases(cases, provider, modelVersion = 'unverified', baseline = false) {
+export async function evaluateCases(cases, provider, modelVersion = 'unverified', baseline = false, onCase = () => {}) {
   const { extractReview } = await import('../apps/api/dist/services/chunked-extraction.service.js');
   const { prepareExtraction, LEGACY_EXTRACTION_PROMPT, EXTRACTION_PROMPT, EXTRACTION_PROMPT_VERSION, EXTRACTION_METHOD_VERSION } = await import('../apps/api/dist/services/extraction.service.js');
   const prompt = baseline ? LEGACY_EXTRACTION_PROMPT : EXTRACTION_PROMPT;
@@ -34,7 +34,7 @@ export async function evaluateCases(cases, provider, modelVersion = 'unverified'
       row.sentimentAllowed = item.expected?.sentiments?.includes(result.sentiment) ?? null;
       report.totals.succeeded++; report.totals.validatedQuotes += row.extracted.complaints.length;
     } catch (error) { row.status = 'failed'; row.errorCode = error.code ?? 'evaluation_error'; report.totals.failed++; }
-    row.durationMs = Math.round(performance.now() - started); report.cases.push(row);
+    row.durationMs = Math.round(performance.now() - started); report.cases.push(row); onCase(row);
   }
   report.timing = { firstRequestMs: report.cases[0]?.durationMs ?? null,
     subsequentRequestMs: report.cases.slice(1).map(row => row.durationMs),
@@ -74,7 +74,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       const datasetText = await fs.readFile(values.dataset, 'utf8');
       const dataset = JSON.parse(datasetText);
       assert(Array.isArray(dataset.cases) && dataset.cases.length > 0);
-      const report = await evaluateCases(dataset.cases, provider, selected.modelVersion, values.baseline);
+      const report = await evaluateCases(dataset.cases, provider, selected.modelVersion, values.baseline,
+        ({ id, status, errorCode, durationMs, metrics }) => console.log(JSON.stringify({ id, status, errorCode, durationMs, repairs: metrics.repairs })));
       report.dataset = { name: path.basename(values.dataset), sha256: createHash('sha256').update(datasetText).digest('hex'), provenance: dataset.provenance ?? null };
       const output = path.resolve(values.output); await fs.mkdir(path.dirname(output), { recursive: true });
       await fs.writeFile(output, JSON.stringify(report, null, 2), { flag: 'wx' });

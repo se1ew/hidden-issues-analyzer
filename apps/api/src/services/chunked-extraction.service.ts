@@ -3,10 +3,12 @@ import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { LlmError, type LlmProvider, type TokenUsage } from '../lib/llm.js';
 import { complaintRange, ExtractionResultSchema, EXTRACTION_JSON_SCHEMA, ModelExtractionSchema, MODEL_EXTRACTION_JSON_SCHEMA, validateComplaintSpecificity, validateExtractionEvidence, type ExtractionResult } from './extraction.service.js';
+import { sourceEvidence, SOURCE_EVIDENCE_VERSION } from './source-evidence.js';
 
 export const CHUNKING_VERSION = 'utf16-overlap-v1';
 const userPrompt = (text: string) => `Проанализируй следующий отзыв и верни JSON:\n\n"""\n${text}\n"""`;
 const repairInstruction = '\nПредыдущий ответ не прошёл проверку формата или доказательств. Верни весь JSON заново. Цитаты копируй из отзыва дословно с исходным регистром и ё/е, без добавленных слов. Последствия должны быть дословной частью цитаты. У общей оценки без конкретного дефекта complaints: [].';
+const spanRepairInstruction = '\nПредыдущий JSON не прошёл проверку. Верни полный JSON по схеме заново. evidenceId и consequenceId — только целые номера из списка; consequenceId внутри evidenceId или null. Цитаты и числовые позиции не возвращай. Общая оценка без дефекта: complaints: [].';
 
 /** UTF-8 budget, original UTF-16 offsets, no lost bytes or split surrogate pairs. */
 export function splitReview(text: string, maxBytes: number) {
@@ -36,7 +38,7 @@ export function splitReview(text: string, maxBytes: number) {
 
 export function extractionCacheKey(input: { userId: string; text: string; prompt: string; promptVersion: string; methodVersion: string; modelVersion: string }, provider: LlmProvider) {
   const { apiKey: _secret, ...config } = provider.config;
-  return createHash('sha256').update(JSON.stringify({ ...input, config, schema: input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : MODEL_EXTRACTION_JSON_SCHEMA, chunking: CHUNKING_VERSION })).digest('hex');
+  return createHash('sha256').update(JSON.stringify({ ...input, config, schema: input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : input.methodVersion === 'extraction-v7' ? SOURCE_EVIDENCE_VERSION : MODEL_EXTRACTION_JSON_SCHEMA, chunking: CHUNKING_VERSION })).digest('hex');
 }
 
 export async function extractReview(input: { userId: string; text: string; prompt: string; promptVersion: string; methodVersion: string; modelVersion: string },
@@ -56,27 +58,34 @@ export async function extractReview(input: { userId: string; text: string; promp
       }
     } catch { logger.warn('Extraction cache unavailable; running analysis'); }
   }
-  const repairEnabled = input.methodVersion === 'extraction-v6';
-  const fixedBytes = Buffer.byteLength(input.prompt) + Buffer.byteLength(userPrompt('')) + (repairEnabled ? Buffer.byteLength(repairInstruction) : 0);
-  const budget = (provider.config.contextTokens - provider.config.maxOutputTokens) * 4 - fixedBytes - 256;
-  const chunks = splitReview(input.text, budget);
+  const spanMode = input.methodVersion === 'extraction-v7';
+  const repairEnabled = spanMode || input.methodVersion === 'extraction-v6';
+  const repairText = spanMode ? spanRepairInstruction : repairInstruction;
+  const maxUserBytes = (provider.config.contextTokens - provider.config.maxOutputTokens) * 4 - Buffer.byteLength(input.prompt) - (repairEnabled ? Buffer.byteLength(repairText) : 0) - 256;
+  let budget = spanMode ? Math.min(4000, maxUserBytes) : maxUserBytes - Buffer.byteLength(userPrompt(''));
+  let chunks = splitReview(input.text, budget);
+  // Account for the actual serialized selection list, not just the original source.
+  while (spanMode && chunks.some(chunk => Buffer.byteLength(sourceEvidence(chunk.text).userPrompt) > maxUserBytes)) {
+    budget = Math.floor(budget * 0.75); chunks = splitReview(input.text, budget);
+  }
   const results: Array<{ result: ExtractionResult; weight: number }> = [];
   for (const chunk of chunks) {
     assertActive();
+    const contract = spanMode ? sourceEvidence(chunk.text) : null;
     const completeChunk = async (repair = false) => {
       assertActive();
       const raw = await provider.completeJson({
-        messages: [{ role: 'system', content: input.prompt }, { role: 'user', content: userPrompt(chunk.text) + (repair ? repairInstruction : '') }],
+        messages: [{ role: 'system', content: input.prompt }, { role: 'user', content: (contract?.userPrompt ?? userPrompt(chunk.text)) + (repair ? repairText : '') }],
         disableRetries: repair,
         temperature: 0.1, max_tokens: provider.config.maxOutputTokens,
-        jsonSchema: input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : MODEL_EXTRACTION_JSON_SCHEMA, schemaName: 'review_analysis',
+        jsonSchema: contract?.jsonSchema ?? (input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : MODEL_EXTRACTION_JSON_SCHEMA), schemaName: 'review_analysis',
         onUsage: usage => {
           metrics.responses++;
           for (const field of ['promptTokens', 'completionTokens', 'totalTokens'] as const) {
             if (usage[field] !== undefined) metrics.usage[field] = (metrics.usage[field] ?? 0) + usage[field]!;
           }
         },
-      }, input.methodVersion === 'extraction-v4' ? ExtractionResultSchema : ModelExtractionSchema, signal);
+      }, contract?.schema ?? (input.methodVersion === 'extraction-v4' ? ExtractionResultSchema : ModelExtractionSchema), signal);
       assertActive();
       const validated = validateExtractionEvidence(chunk.text, raw);
       return repairEnabled ? validateComplaintSpecificity(validated) : validated;

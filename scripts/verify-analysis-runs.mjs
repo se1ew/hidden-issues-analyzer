@@ -49,7 +49,7 @@ try {
     const complete = () => { if (!res.destroyed) res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: {
       content: JSON.stringify({ sentiment: fixtureMode === 'invalid' ? 'invalid' : 'positive', sentiment_score: 0.5,
         aspects: [{ name: 'качество', sentiment: e2e ? 'negative' : 'positive', complaints: e2e ? [{
-          scope: 'product', description: 'заедает крышка', quote: 'Крышка заедает', assertion: 'experienced', consequences: null }] : [] }] }),
+          scope: 'product', description: 'заедает крышка', evidenceId: 0, assertion: 'experienced', consequenceId: null }] : [] }] }),
     } }] })); };
     if (fixtureMode === 'hold') pendingModelReplies.push(complete); else complete();
   });

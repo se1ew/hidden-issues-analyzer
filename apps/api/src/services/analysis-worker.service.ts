@@ -67,6 +67,7 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
   let phase = 'configuration';
   try {
     const structured = (run.promptVersion === EXTRACTION_PROMPT_VERSION && run.methodVersion === EXTRACTION_METHOD_VERSION)
+      || (run.promptVersion === 'review-evidence-v4' && run.methodVersion === 'extraction-v6')
       || (run.promptVersion === 'review-evidence-v4' && run.methodVersion === 'extraction-v5')
       || (run.promptVersion === 'review-evidence-v3' && run.methodVersion === 'extraction-v4')
       || (run.promptVersion === 'review-evidence-v3' && run.methodVersion === 'extraction-v3')
@@ -102,7 +103,7 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
             { role: 'user', content: `Проанализируй следующий отзыв и верни JSON:\n\n"""\n${input.text}\n"""` }],
           temperature: 0.1, max_tokens: configuration.maxOutputTokens, jsonSchema: structured ? EXTRACTION_JSON_SCHEMA : ANALYSIS_JSON_SCHEMA, schemaName: 'review_analysis',
         };
-        const result = ([EXTRACTION_METHOD_VERSION, 'extraction-v4', 'extraction-v5'].includes(run.methodVersion)) ? await extractReview({
+        const result = ([EXTRACTION_METHOD_VERSION, 'extraction-v4', 'extraction-v5', 'extraction-v6'].includes(run.methodVersion)) ? await extractReview({
           userId: run.userId, text: input.text, prompt: configuration.prompt, promptVersion: run.promptVersion,
           methodVersion: run.methodVersion, modelVersion: run.modelVersion ?? 'unverified',
         }, provider, signal, metrics) : structured

@@ -6,7 +6,7 @@ import { EXTRACTION_PROMPT_VERSION, EXTRACTION_METHOD_VERSION, prepareExtraction
 const cache = vi.hoisted(() => ({ findUnique: vi.fn(), upsert: vi.fn() }));
 vi.mock('../lib/prisma.js', () => ({ prisma: { extractionCache: cache } }));
 const config = { provider: 'local' as const, baseUrl: 'http://localhost/v1', model: 'fixture', timeoutMs: 1000,
-  contextTokens: 1024, maxOutputTokens: 512, concurrency: 1, retries: 0, retryDelayMs: 0,
+  contextTokens: 2048, maxOutputTokens: 512, concurrency: 1, retries: 0, retryDelayMs: 0,
   maxRetryDelayMs: 1000, responseFormat: 'json_object' as const, cloudDelayMs: 0 };
 const input = { userId: 'a', text: 'Крышка заедает.', prompt: 'Извлеки жалобы.',
   promptVersion: EXTRACTION_PROMPT_VERSION, methodVersion: EXTRACTION_METHOD_VERSION, modelVersion: 'sha:123' };
