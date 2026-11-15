@@ -38,7 +38,7 @@ export function splitReview(text: string, maxBytes: number) {
 
 export function extractionCacheKey(input: { userId: string; text: string; prompt: string; promptVersion: string; methodVersion: string; modelVersion: string }, provider: LlmProvider) {
   const { apiKey: _secret, ...config } = provider.config;
-  return createHash('sha256').update(JSON.stringify({ ...input, config, schema: input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : input.methodVersion === 'extraction-v7' ? SOURCE_EVIDENCE_VERSION : MODEL_EXTRACTION_JSON_SCHEMA, chunking: CHUNKING_VERSION })).digest('hex');
+  return createHash('sha256').update(JSON.stringify({ ...input, config, schema: input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : input.methodVersion === 'extraction-v7' ? 'source-spans-v1' : input.methodVersion === 'extraction-v8' ? SOURCE_EVIDENCE_VERSION : MODEL_EXTRACTION_JSON_SCHEMA, chunking: CHUNKING_VERSION })).digest('hex');
 }
 
 export async function extractReview(input: { userId: string; text: string; prompt: string; promptVersion: string; methodVersion: string; modelVersion: string },
@@ -58,20 +58,21 @@ export async function extractReview(input: { userId: string; text: string; promp
       }
     } catch { logger.warn('Extraction cache unavailable; running analysis'); }
   }
-  const spanMode = input.methodVersion === 'extraction-v7';
+  const spanMode = ['extraction-v7', 'extraction-v8'].includes(input.methodVersion);
+  const deriveScope = input.methodVersion === 'extraction-v8';
   const repairEnabled = spanMode || input.methodVersion === 'extraction-v6';
   const repairText = spanMode ? spanRepairInstruction : repairInstruction;
   const maxUserBytes = (provider.config.contextTokens - provider.config.maxOutputTokens) * 4 - Buffer.byteLength(input.prompt) - (repairEnabled ? Buffer.byteLength(repairText) : 0) - 256;
   let budget = spanMode ? Math.min(4000, maxUserBytes) : maxUserBytes - Buffer.byteLength(userPrompt(''));
   let chunks = splitReview(input.text, budget);
   // Account for the actual serialized selection list, not just the original source.
-  while (spanMode && chunks.some(chunk => Buffer.byteLength(sourceEvidence(chunk.text).userPrompt) > maxUserBytes)) {
+  while (spanMode && chunks.some(chunk => Buffer.byteLength(sourceEvidence(chunk.text, deriveScope).userPrompt) > maxUserBytes)) {
     budget = Math.floor(budget * 0.75); chunks = splitReview(input.text, budget);
   }
   const results: Array<{ result: ExtractionResult; weight: number }> = [];
   for (const chunk of chunks) {
     assertActive();
-    const contract = spanMode ? sourceEvidence(chunk.text) : null;
+    const contract = spanMode ? sourceEvidence(chunk.text, deriveScope) : null;
     const completeChunk = async (repair = false) => {
       assertActive();
       const raw = await provider.completeJson({
@@ -88,7 +89,7 @@ export async function extractReview(input: { userId: string; text: string; promp
       }, contract?.schema ?? (input.methodVersion === 'extraction-v4' ? ExtractionResultSchema : ModelExtractionSchema), signal);
       assertActive();
       const validated = validateExtractionEvidence(chunk.text, raw);
-      return repairEnabled ? validateComplaintSpecificity(validated) : validated;
+      return repairEnabled ? validateComplaintSpecificity(validated, deriveScope) : validated;
     };
     let result: ExtractionResult;
     try { result = await completeChunk(); }

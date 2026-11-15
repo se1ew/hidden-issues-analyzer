@@ -45,11 +45,13 @@ try {
     const parsedRequest = JSON.parse(body);
     assert.equal(parsedRequest.model, 'fixture-model', 'Worker must use the saved model, not current environment defaults');
     const e2e = parsedRequest.messages?.[1]?.content.includes('E2E');
+    const fragments = e2e ? JSON.parse(parsedRequest.messages[1].content.split('\n')[1]) : [];
+    const evidenceId = fragments.find(span => span.text === 'Крышка заедает')?.id ?? 0;
     inferenceCalls++;
     const complete = () => { if (!res.destroyed) res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: {
       content: JSON.stringify({ sentiment: fixtureMode === 'invalid' ? 'invalid' : 'positive', sentiment_score: 0.5,
         aspects: [{ name: 'качество', sentiment: e2e ? 'negative' : 'positive', complaints: e2e ? [{
-          scope: 'product', description: 'заедает крышка', evidenceId: 0, assertion: 'experienced', consequenceId: null }] : [] }] }),
+          description: 'заедает крышка', evidenceId, assertion: 'experienced', consequenceId: null }] : [] }] }),
     } }] })); };
     if (fixtureMode === 'hold') pendingModelReplies.push(complete); else complete();
   });

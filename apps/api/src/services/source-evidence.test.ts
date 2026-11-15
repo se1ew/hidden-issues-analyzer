@@ -6,10 +6,19 @@ import { createProvider } from '../lib/llm.js';
 const wire = (evidenceId: number, consequenceId: number | null = null) => ({
   sentiment: 'negative', sentiment_score: -0.5,
   aspects: [{ name: 'шум', sentiment: 'negative', complaints: [{
-    scope: 'product', description: 'громкий шум', assertion: 'experienced', evidenceId, consequenceId,
+    description: 'громкий шум', assertion: 'experienced', evidenceId, consequenceId,
   }] }],
 });
 describe('selection of original source evidence', () => {
+  it('assigns scope from the canonical aspect and keeps the old v7 wire format', () => {
+    for (const [name, scope] of [['упаковка', 'packaging'], ['доставка', 'delivery'], ['продавец', 'seller'], ['качество', 'product']]) {
+      const raw = wire(0); raw.aspects[0].name = name;
+      expect(sourceEvidence('Проблема.').schema.parse(raw).complaints[0].scope).toBe(scope);
+      const old = { ...raw, aspects: [{ ...raw.aspects[0], complaints: [{ ...raw.aspects[0].complaints[0], scope: 'product' }] }] };
+      expect(sourceEvidence('Проблема.', false).schema.parse(old).complaints[0].scope).toBe('product');
+      expect(sourceEvidence('Проблема.').schema.safeParse(old).success).toBe(false);
+    }
+  });
   it('copies exact source characters and resolves repeated occurrences with UTF-16 offsets', () => {
     const text = '😀 Всё хорошо. Шумит. Шумит.';
     const contract = sourceEvidence(text);

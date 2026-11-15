@@ -8,6 +8,12 @@ const make = (assertion: ExtractionResult['complaints'][number]['assertion'], qu
 });
 
 describe('structured review extraction', () => {
+  it('discards evidence consisting only of known generic opinions but retains concrete clauses', () => {
+    const result = make('experienced', 'Плохой товар. Больше не куплю.');
+    expect(validateComplaintSpecificity(result, true).complaints).toEqual([]);
+    result.complaints[0].quote = 'Плохой товар. Не включается.';
+    expect(validateComplaintSpecificity(result, true).complaints).toHaveLength(1);
+  });
   it('omits a generic opinion without suppressing concrete failures or surrounding context', () => {
     const result = make('experienced', 'Плохой товар!');
     result.complaints[0].description = 'плохой товар';
@@ -19,6 +25,7 @@ describe('structured review extraction', () => {
   });
   it('rejects a concrete claim supported only by a generic opinion, and the reverse', () => {
     const result = make('experienced', 'Плохой товар');
+    expect(validateComplaintSpecificity(result, true).complaints).toEqual([]);
     expect(() => validateComplaintSpecificity(result)).toThrow();
     result.complaints[0] = { ...result.complaints[0], description: 'Плохой товар', quote: 'Крышка заедает' };
     expect(() => validateComplaintSpecificity(result)).toThrow();

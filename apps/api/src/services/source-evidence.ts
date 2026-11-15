@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { ExtractionResultSchema, MODEL_ASPECT_NAMES, type ExtractionResult } from './extraction.service.js';
 
-export const SOURCE_EVIDENCE_VERSION = 'source-spans-v1';
+export const SOURCE_EVIDENCE_VERSION = 'source-spans-v2';
 /** Offsets identify occurrences, including repeated phrases. No model text is used as a quote. */
-export function sourceEvidence(text: string) {
+export function sourceEvidence(text: string, deriveScope = true) {
   const spans: Array<{ id: number; text: string; start: number; end: number }> = [];
   const add = (start: number, end: number) => {
     const raw = text.slice(start, end);
@@ -19,9 +19,11 @@ export function sourceEvidence(text: string) {
   }
   // Empty reviews still have no selectable evidence; empty complaint lists are valid.
   const id = z.number().int().nonnegative().refine(value => !!spans[value], 'Неизвестный фрагмент');
-  const complaint = ExtractionResultSchema.innerType().shape.complaints.element.omit({
+  const complaintFields = ExtractionResultSchema.innerType().shape.complaints.element.omit({
     aspectIndex: true, quote: true, quoteStart: true, quoteEnd: true, consequences: true,
-  }).extend({ evidenceId: id, consequenceId: id.nullable() }).strict();
+  });
+  const complaint = (deriveScope ? complaintFields.omit({ scope: true }) : complaintFields)
+    .extend({ evidenceId: id, consequenceId: id.nullable() }).strict();
   const tone = z.enum(['positive', 'negative', 'neutral']);
   const schema = z.object({ sentiment: tone, sentiment_score: z.number().finite().min(-1).max(1),
     aspects: z.array(z.object({ name: z.enum(MODEL_ASPECT_NAMES), sentiment: tone,
@@ -37,7 +39,9 @@ export function sourceEvidence(text: string) {
     sentiment: raw.sentiment, sentiment_score: raw.sentiment_score,
     aspects: raw.aspects.map(({ name, sentiment }) => ({ name, sentiment })),
     complaints: raw.aspects.flatMap((aspect, aspectIndex) => aspect.complaints.map(({ evidenceId, consequenceId, ...item }) => ({
-      ...item, aspectIndex, quote: spans[evidenceId].text, quoteStart: spans[evidenceId].start, quoteEnd: spans[evidenceId].end,
+      ...item, scope: deriveScope ? aspect.name === 'доставка' ? 'delivery' : aspect.name === 'продавец' ? 'seller' : aspect.name === 'упаковка' ? 'packaging' : 'product'
+        : complaintFields.shape.scope.parse('scope' in item ? item.scope : undefined),
+      aspectIndex, quote: spans[evidenceId].text, quoteStart: spans[evidenceId].start, quoteEnd: spans[evidenceId].end,
       consequences: consequenceId === null ? null : spans[consequenceId].text,
     }))),
   }));
@@ -47,8 +51,8 @@ export function sourceEvidence(text: string) {
     aspects: { type: 'array', maxItems: 20, items: { type: 'object', additionalProperties: false, required: ['name', 'sentiment', 'complaints'], properties: {
       name: { type: 'string', enum: [...MODEL_ASPECT_NAMES] }, sentiment: { type: 'string', enum: tone.options },
       complaints: { type: 'array', maxItems: spans.length ? 20 : 0, items: { type: 'object', additionalProperties: false,
-        required: ['scope', 'description', 'assertion', 'evidenceId', 'consequenceId'], properties: {
-          scope: { type: 'string', enum: ['product', 'delivery', 'seller', 'packaging'] },
+        required: [...(deriveScope ? [] : ['scope']), 'description', 'assertion', 'evidenceId', 'consequenceId'], properties: {
+          ...(deriveScope ? {} : { scope: { type: 'string', enum: ['product', 'delivery', 'seller', 'packaging'] } }),
           description: { type: 'string', minLength: 1, maxLength: 500 },
           assertion: { type: 'string', enum: ['experienced', 'negated', 'hypothetical', 'no_experience'] },
           evidenceId: selectable, consequenceId: { anyOf: [selectable, { type: 'null' }] },
