@@ -24,7 +24,7 @@ export interface ProviderConfig {
 export interface LlmProvider {
   readonly config: Readonly<ProviderConfig>;
   complete(request: CompletionRequest, signal?: AbortSignal): Promise<string>;
-  completeJson<T>(request: CompletionRequest, schema: ZodType<T>, signal?: AbortSignal): Promise<T>;
+  completeJson<T>(request: CompletionRequest, schema: ZodType<T, z.ZodTypeDef, unknown>, signal?: AbortSignal): Promise<T>;
   check(signal?: AbortSignal): Promise<void>;
 }
 
@@ -208,7 +208,7 @@ export function createProvider(input: ProviderConfig, sharedCapacity = false): L
   return {
     config,
     complete: (request, signal) => execute((current) => completion(request, current), signal),
-    completeJson: <T>(request: CompletionRequest, schema: ZodType<T>, signal?: AbortSignal) => execute(async (current) => {
+    completeJson: <T>(request: CompletionRequest, schema: ZodType<T, z.ZodTypeDef, unknown>, signal?: AbortSignal) => execute(async (current) => {
       const text = await completion(request, current);
       let raw: unknown;
       try { raw = JSON.parse(text); }

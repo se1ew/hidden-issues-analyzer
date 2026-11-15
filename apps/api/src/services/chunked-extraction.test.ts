@@ -13,6 +13,17 @@ const input = { userId: 'a', text: 'Крышка заедает.', prompt: 'Из
 beforeEach(() => { vi.clearAllMocks(); cache.findUnique.mockResolvedValue(null); });
 
 describe('bounded extraction and revision cache', () => {
+  it('keeps the flat wire contract for previously queued extraction-v4 runs', async () => {
+    const legacy = { sentiment: 'neutral', sentiment_score: 0, aspects: [], complaints: [] };
+    const completeJson = vi.fn(async (request, schema) => {
+      expect(request.jsonSchema.properties).toHaveProperty('complaints');
+      expect(schema.safeParse(legacy).success).toBe(true);
+      return legacy;
+    });
+    await extractReview({ ...input, promptVersion: 'review-evidence-v3', methodVersion: 'extraction-v4', modelVersion: 'unverified' },
+      { config, completeJson } as unknown as LlmProvider);
+    expect(completeJson).toHaveBeenCalledOnce();
+  });
   it('covers every original code unit and preserves emoji at chunk boundaries', () => {
     const text = 'Текст 😀 о товаре. '.repeat(200);
     const chunks = splitReview(text, 768);

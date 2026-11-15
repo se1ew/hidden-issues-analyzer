@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createProvider, type LlmProvider } from '../lib/llm.js';
-import { ExtractionResultSchema, EXTRACTION_JSON_SCHEMA, EXTRACTION_PROMPT, prepareExtraction, type ExtractionResult } from './extraction.service.js';
+import { ExtractionResultSchema, EXTRACTION_JSON_SCHEMA, EXTRACTION_PROMPT, ModelExtractionSchema, MODEL_EXTRACTION_JSON_SCHEMA, prepareExtraction, type ExtractionResult } from './extraction.service.js';
 
 interface ReviewCase { id: string; text: string; rating: number | null;
   expected: { sentiments: ExtractionResult['sentiment'][]; positiveContext: boolean;
@@ -31,6 +31,18 @@ async function extract(text: string, rating: number | null) {
 }
 
 describe('annotated extraction through the production HTTP adapter (not a model quality evaluation)', () => {
+  it('decodes the nested model contract through HTTP before storing legacy-shaped aspect links', async () => {
+    reply = { sentiment: 'positive', sentiment_score: 0.5, aspects: [
+      { name: 'звук', sentiment: 'positive', complaints: [] },
+      { name: 'удобство', sentiment: 'negative', complaints: [{ scope: 'product', description: 'давит дужка',
+        quote: 'дужка давит', assertion: 'experienced', consequences: null }] },
+    ] };
+    const raw = await provider.completeJson({ messages: [{ role: 'system', content: EXTRACTION_PROMPT },
+      { role: 'user', content: 'Звук хороший, но дужка давит' }], jsonSchema: MODEL_EXTRACTION_JSON_SCHEMA }, ModelExtractionSchema);
+    const extracted = prepareExtraction('Звук хороший, но дужка давит', 5, raw);
+    expect(extracted.complaints[0]).toMatchObject({ aspectIndex: 1, quote: 'дужка давит' });
+    expect(extracted.aspects[1].category).toBe('usability');
+  });
   it.each(cases)('preserves evidence and context for $id', async (review) => {
     reply = { sentiment: review.expected.sentiments[0], sentiment_score: 0,
       aspects: review.expected.issues.map(issue => ({ name: issue.aspect, sentiment: 'negative' })),

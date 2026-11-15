@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ExtractionResultSchema, validateExtractionEvidence, prepareExtraction, type ExtractionResult } from './extraction.service.js';
+import { ExtractionResultSchema, ModelExtractionSchema, validateExtractionEvidence, prepareExtraction, type ExtractionResult } from './extraction.service.js';
 
 const make = (assertion: ExtractionResult['complaints'][number]['assertion'], quote: string): ExtractionResult => ({
   sentiment: 'positive', sentiment_score: 0.7,
@@ -8,6 +8,19 @@ const make = (assertion: ExtractionResult['complaints'][number]['assertion'], qu
 });
 
 describe('structured review extraction', () => {
+  it('creates aspect links on the server from nested evidence and refuses model-supplied indices', () => {
+    const complaint = { scope: 'product', description: 'заедает крышка', quote: 'крышка заедает', assertion: 'experienced', consequences: null };
+    const wire = { sentiment: 'positive', sentiment_score: 0.5, aspects: [
+      { name: 'звук', sentiment: 'positive', complaints: [] },
+      { name: 'удобство', sentiment: 'negative', complaints: [complaint] },
+    ] };
+    const result = ModelExtractionSchema.parse(wire);
+    expect(result.complaints[0].aspectIndex).toBe(1);
+    expect(prepareExtraction('Звук хороший, но крышка заедает', 5, result).aspects[1].category).toBe('usability');
+    expect(ModelExtractionSchema.safeParse({ ...wire, aspects: [{ ...wire.aspects[1], complaints: [{ ...complaint, aspectIndex: 0 }] }] }).success).toBe(false);
+    expect(ModelExtractionSchema.safeParse({ ...wire, aspects: [{ ...wire.aspects[1], name: 'крышка' }] }).success).toBe(false);
+    expect(ExtractionResultSchema.safeParse(result).success).toBe(true);
+  });
   it('collapses exact normalized complaint duplicates but retains distinct defects and spans', () => {
     const raw = make('experienced', 'давит оголовье');
     raw.aspects.push({ name: 'Комфорт', sentiment: 'negative' });

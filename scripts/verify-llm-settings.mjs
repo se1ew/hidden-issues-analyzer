@@ -63,7 +63,7 @@ try {
     observations.push({ model: parsed.model, authorization: req.headers.authorization });
     const summary = parsed.messages[0].content.startsWith('Составь краткую сводку');
     res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: summary ? 'Сводка контрольного запуска.'
-      : JSON.stringify({ sentiment: 'positive', sentiment_score: 0.5, aspects: [], complaints: [] }) } }] }));
+      : JSON.stringify({ sentiment: 'positive', sentiment_score: 0.5, aspects: [] }) } }] }));
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   Object.assign(process.env, {

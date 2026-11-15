@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { LlmError, type LlmProvider, type TokenUsage } from '../lib/llm.js';
-import { complaintRange, ExtractionResultSchema, EXTRACTION_JSON_SCHEMA, validateExtractionEvidence, type ExtractionResult } from './extraction.service.js';
+import { complaintRange, ExtractionResultSchema, EXTRACTION_JSON_SCHEMA, ModelExtractionSchema, MODEL_EXTRACTION_JSON_SCHEMA, validateExtractionEvidence, type ExtractionResult } from './extraction.service.js';
 
 export const CHUNKING_VERSION = 'utf16-overlap-v1';
 const userPrompt = (text: string) => `Проанализируй следующий отзыв и верни JSON:\n\n"""\n${text}\n"""`;
@@ -35,7 +35,7 @@ export function splitReview(text: string, maxBytes: number) {
 
 export function extractionCacheKey(input: { userId: string; text: string; prompt: string; promptVersion: string; methodVersion: string; modelVersion: string }, provider: LlmProvider) {
   const { apiKey: _secret, ...config } = provider.config;
-  return createHash('sha256').update(JSON.stringify({ ...input, config, schema: EXTRACTION_JSON_SCHEMA, chunking: CHUNKING_VERSION })).digest('hex');
+  return createHash('sha256').update(JSON.stringify({ ...input, config, schema: input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : MODEL_EXTRACTION_JSON_SCHEMA, chunking: CHUNKING_VERSION })).digest('hex');
 }
 
 export async function extractReview(input: { userId: string; text: string; prompt: string; promptVersion: string; methodVersion: string; modelVersion: string },
@@ -63,14 +63,15 @@ export async function extractReview(input: { userId: string; text: string; promp
     assertActive();
     const result = validateExtractionEvidence(chunk.text, await provider.completeJson({
       messages: [{ role: 'system', content: input.prompt }, { role: 'user', content: userPrompt(chunk.text) }],
-      temperature: 0.1, max_tokens: provider.config.maxOutputTokens, jsonSchema: EXTRACTION_JSON_SCHEMA, schemaName: 'review_analysis',
+      temperature: 0.1, max_tokens: provider.config.maxOutputTokens,
+      jsonSchema: input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : MODEL_EXTRACTION_JSON_SCHEMA, schemaName: 'review_analysis',
       onUsage: usage => {
         metrics.responses++;
         for (const field of ['promptTokens', 'completionTokens', 'totalTokens'] as const) {
           if (usage[field] !== undefined) metrics.usage[field] = (metrics.usage[field] ?? 0) + usage[field]!;
         }
       },
-    }, ExtractionResultSchema, signal));
+    }, input.methodVersion === 'extraction-v4' ? ExtractionResultSchema : ModelExtractionSchema, signal));
     metrics.chunks++;
     results.push({ weight: chunk.weight, result: { ...result, complaints: result.complaints.map(complaint => {
       const range = complaintRange(chunk.text, complaint)!;
