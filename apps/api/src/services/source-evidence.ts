@@ -1,8 +1,12 @@
 import { z } from 'zod';
 import { ExtractionResultSchema, MODEL_ASPECT_NAMES, type ExtractionResult } from './extraction.service.js';
 
-export const SOURCE_EVIDENCE_VERSION = 'source-spans-v2';
+export const SOURCE_EVIDENCE_VERSION = 'source-spans-v3';
+export function scopeForAspect(name: string): ExtractionResult['complaints'][number]['scope'] {
+  return name === 'доставка' ? 'delivery' : name === 'продавец' ? 'seller' : name === 'упаковка' ? 'packaging' : 'product';
+}
 /** Offsets identify occurrences, including repeated phrases. No model text is used as a quote. */
+// deriveScope preserves the retired v8 wire format; v9 keeps v7's scoped wire and normalizes after decoding.
 export function sourceEvidence(text: string, deriveScope = true) {
   const spans: Array<{ id: number; text: string; start: number; end: number }> = [];
   const add = (start: number, end: number) => {
@@ -39,7 +43,7 @@ export function sourceEvidence(text: string, deriveScope = true) {
     sentiment: raw.sentiment, sentiment_score: raw.sentiment_score,
     aspects: raw.aspects.map(({ name, sentiment }) => ({ name, sentiment })),
     complaints: raw.aspects.flatMap((aspect, aspectIndex) => aspect.complaints.map(({ evidenceId, consequenceId, ...item }) => ({
-      ...item, scope: deriveScope ? aspect.name === 'доставка' ? 'delivery' : aspect.name === 'продавец' ? 'seller' : aspect.name === 'упаковка' ? 'packaging' : 'product'
+      ...item, scope: deriveScope ? scopeForAspect(aspect.name)
         : complaintFields.shape.scope.parse('scope' in item ? item.scope : undefined),
       aspectIndex, quote: spans[evidenceId].text, quoteStart: spans[evidenceId].start, quoteEnd: spans[evidenceId].end,
       consequences: consequenceId === null ? null : spans[consequenceId].text,

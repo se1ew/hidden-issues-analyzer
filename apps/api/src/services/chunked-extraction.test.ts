@@ -13,6 +13,16 @@ const input = { userId: 'a', text: 'Крышка заедает.', prompt: 'Из
 beforeEach(() => { vi.clearAllMocks(); cache.findUnique.mockResolvedValue(null); });
 
 describe('bounded extraction and revision cache', () => {
+  it('uses the stable scoped wire format but assigns authoritative scope from the aspect on the server', async () => {
+    const completeJson = vi.fn(async (request, schema) => {
+      const properties = request.jsonSchema.properties.aspects.items.properties.complaints.items.properties;
+      expect(properties).toHaveProperty('scope');
+      return schema.parse({ sentiment: 'negative', sentiment_score: -0.5, aspects: [{ name: 'упаковка', sentiment: 'negative',
+        complaints: [{ scope: 'product', description: 'помята коробка', evidenceId: 0, consequenceId: null, assertion: 'experienced' }] }] });
+    });
+    const result = await extractReview({ ...input, text: 'Коробка помята.' }, { config, completeJson } as unknown as LlmProvider);
+    expect(result.complaints[0]).toMatchObject({ scope: 'packaging', quote: 'Коробка помята.' });
+  });
   const valid = { sentiment: 'negative' as const, sentiment_score: -0.5,
     aspects: [{ name: 'качество', sentiment: 'negative' as const }],
     complaints: [{ aspectIndex: 0, scope: 'product' as const, description: 'заедание', quote: 'Крышка заедает.', assertion: 'experienced' as const, consequences: null }] };

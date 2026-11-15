@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { LlmError, type LlmProvider, type TokenUsage } from '../lib/llm.js';
 import { complaintRange, ExtractionResultSchema, EXTRACTION_JSON_SCHEMA, ModelExtractionSchema, MODEL_EXTRACTION_JSON_SCHEMA, validateComplaintSpecificity, validateExtractionEvidence, type ExtractionResult } from './extraction.service.js';
-import { sourceEvidence, SOURCE_EVIDENCE_VERSION } from './source-evidence.js';
+import { scopeForAspect, sourceEvidence, SOURCE_EVIDENCE_VERSION } from './source-evidence.js';
 
 export const CHUNKING_VERSION = 'utf16-overlap-v1';
 const userPrompt = (text: string) => `Проанализируй следующий отзыв и верни JSON:\n\n"""\n${text}\n"""`;
@@ -38,7 +38,7 @@ export function splitReview(text: string, maxBytes: number) {
 
 export function extractionCacheKey(input: { userId: string; text: string; prompt: string; promptVersion: string; methodVersion: string; modelVersion: string }, provider: LlmProvider) {
   const { apiKey: _secret, ...config } = provider.config;
-  return createHash('sha256').update(JSON.stringify({ ...input, config, schema: input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : input.methodVersion === 'extraction-v7' ? 'source-spans-v1' : input.methodVersion === 'extraction-v8' ? SOURCE_EVIDENCE_VERSION : MODEL_EXTRACTION_JSON_SCHEMA, chunking: CHUNKING_VERSION })).digest('hex');
+  return createHash('sha256').update(JSON.stringify({ ...input, config, schema: input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : input.methodVersion === 'extraction-v7' ? 'source-spans-v1' : input.methodVersion === 'extraction-v8' ? 'source-spans-v2' : input.methodVersion === 'extraction-v9' ? SOURCE_EVIDENCE_VERSION : MODEL_EXTRACTION_JSON_SCHEMA, chunking: CHUNKING_VERSION })).digest('hex');
 }
 
 export async function extractReview(input: { userId: string; text: string; prompt: string; promptVersion: string; methodVersion: string; modelVersion: string },
@@ -58,8 +58,9 @@ export async function extractReview(input: { userId: string; text: string; promp
       }
     } catch { logger.warn('Extraction cache unavailable; running analysis'); }
   }
-  const spanMode = ['extraction-v7', 'extraction-v8'].includes(input.methodVersion);
+  const spanMode = ['extraction-v7', 'extraction-v8', 'extraction-v9'].includes(input.methodVersion);
   const deriveScope = input.methodVersion === 'extraction-v8';
+  const canonicalScope = deriveScope || input.methodVersion === 'extraction-v9';
   const repairEnabled = spanMode || input.methodVersion === 'extraction-v6';
   const repairText = spanMode ? spanRepairInstruction : repairInstruction;
   const maxUserBytes = (provider.config.contextTokens - provider.config.maxOutputTokens) * 4 - Buffer.byteLength(input.prompt) - (repairEnabled ? Buffer.byteLength(repairText) : 0) - 256;
@@ -89,7 +90,10 @@ export async function extractReview(input: { userId: string; text: string; promp
       }, contract?.schema ?? (input.methodVersion === 'extraction-v4' ? ExtractionResultSchema : ModelExtractionSchema), signal);
       assertActive();
       const validated = validateExtractionEvidence(chunk.text, raw);
-      return repairEnabled ? validateComplaintSpecificity(validated, deriveScope) : validated;
+      const scoped = canonicalScope ? { ...validated, complaints: validated.complaints.map(complaint => ({
+        ...complaint, scope: scopeForAspect(validated.aspects[complaint.aspectIndex].name),
+      })) } : validated;
+      return repairEnabled ? validateComplaintSpecificity(scoped, canonicalScope) : scoped;
     };
     let result: ExtractionResult;
     try { result = await completeChunk(); }
