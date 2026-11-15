@@ -67,6 +67,7 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
   let phase = 'configuration';
   try {
     const structured = (run.promptVersion === EXTRACTION_PROMPT_VERSION && run.methodVersion === EXTRACTION_METHOD_VERSION)
+      || (run.promptVersion === 'review-evidence-v4' && run.methodVersion === 'extraction-v5')
       || (run.promptVersion === 'review-evidence-v3' && run.methodVersion === 'extraction-v4')
       || (run.promptVersion === 'review-evidence-v3' && run.methodVersion === 'extraction-v3')
       || (run.promptVersion === 'review-evidence-v2' && run.methodVersion === 'extraction-v2');
@@ -89,9 +90,9 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
       if (signal.aborted || lostLease) break;
       if (!await retryRunDatabase(() => beginAnalysisInput(runId, token, input.id), signal)) continue;
       const start = performance.now();
-      const metrics = { chunks: 0, cacheHit: false, usage: {} as TokenUsage, responses: 0 };
+      const metrics = { chunks: 0, cacheHit: false, usage: {} as TokenUsage, responses: 0, repairs: 0 };
       const execution = () => ({ chunks: metrics.chunks, cacheHit: metrics.cacheHit,
-        usageResponses: metrics.responses, chunkingVersion: CHUNKING_VERSION,
+        usageResponses: metrics.responses, repairRequests: metrics.repairs, chunkingVersion: CHUNKING_VERSION,
         sentimentAggregation: metrics.chunks > 1 ? 'nonoverlap_length_weighted_score' : 'model',
       });
       let outcome: Parameters<typeof saveAnalysisInput>[3];
@@ -101,7 +102,7 @@ export async function processAnalysisRun(runId: string, shutdown?: AbortSignal) 
             { role: 'user', content: `Проанализируй следующий отзыв и верни JSON:\n\n"""\n${input.text}\n"""` }],
           temperature: 0.1, max_tokens: configuration.maxOutputTokens, jsonSchema: structured ? EXTRACTION_JSON_SCHEMA : ANALYSIS_JSON_SCHEMA, schemaName: 'review_analysis',
         };
-        const result = (run.methodVersion === EXTRACTION_METHOD_VERSION || run.methodVersion === 'extraction-v4') ? await extractReview({
+        const result = ([EXTRACTION_METHOD_VERSION, 'extraction-v4', 'extraction-v5'].includes(run.methodVersion)) ? await extractReview({
           userId: run.userId, text: input.text, prompt: configuration.prompt, promptVersion: run.promptVersion,
           methodVersion: run.methodVersion, modelVersion: run.modelVersion ?? 'unverified',
         }, provider, signal, metrics) : structured

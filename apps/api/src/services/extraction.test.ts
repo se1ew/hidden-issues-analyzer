@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ExtractionResultSchema, ModelExtractionSchema, validateExtractionEvidence, prepareExtraction, type ExtractionResult } from './extraction.service.js';
+import { ExtractionResultSchema, ModelExtractionSchema, validateComplaintSpecificity, validateExtractionEvidence, prepareExtraction, type ExtractionResult } from './extraction.service.js';
 
 const make = (assertion: ExtractionResult['complaints'][number]['assertion'], quote: string): ExtractionResult => ({
   sentiment: 'positive', sentiment_score: 0.7,
@@ -8,6 +8,21 @@ const make = (assertion: ExtractionResult['complaints'][number]['assertion'], qu
 });
 
 describe('structured review extraction', () => {
+  it('omits a generic opinion without suppressing concrete failures or surrounding context', () => {
+    const result = make('experienced', 'Плохой товар!');
+    result.complaints[0].description = 'плохой товар';
+    expect(validateComplaintSpecificity(result).complaints).toEqual([]);
+    for (const phrase of ['Не включается', 'Плохой товар: крышка отвалилась']) {
+      result.complaints[0] = { ...result.complaints[0], description: phrase, quote: phrase };
+      expect(validateComplaintSpecificity(result).complaints).toHaveLength(1);
+    }
+  });
+  it('rejects a concrete claim supported only by a generic opinion, and the reverse', () => {
+    const result = make('experienced', 'Плохой товар');
+    expect(() => validateComplaintSpecificity(result)).toThrow();
+    result.complaints[0] = { ...result.complaints[0], description: 'Плохой товар', quote: 'Крышка заедает' };
+    expect(() => validateComplaintSpecificity(result)).toThrow();
+  });
   it('creates aspect links on the server from nested evidence and refuses model-supplied indices', () => {
     const complaint = { scope: 'product', description: 'заедает крышка', quote: 'крышка заедает', assertion: 'experienced', consequences: null };
     const wire = { sentiment: 'positive', sentiment_score: 0.5, aspects: [

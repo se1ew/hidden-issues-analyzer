@@ -10,6 +10,7 @@ export class LlmError extends Error {
 }
 export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string }
 export interface CompletionRequest {
+  disableRetries?: boolean;
   messages: ChatMessage[]; temperature?: number; max_tokens?: number;
   jsonSchema?: Record<string, unknown>; schemaName?: string;
   onUsage?: (usage: TokenUsage) => void;
@@ -155,7 +156,7 @@ export function createProvider(input: ProviderConfig, sharedCapacity = false): L
     }
   }
 
-  async function execute<T>(operation: (signal: AbortSignal) => Promise<T>, external?: AbortSignal): Promise<T> {
+  async function execute<T>(operation: (signal: AbortSignal) => Promise<T>, external?: AbortSignal, retries = config.retries): Promise<T> {
     const release = await gate.acquire(external);
     const signal = external ?? new AbortController().signal;
     try {
@@ -167,7 +168,7 @@ export function createProvider(input: ProviderConfig, sharedCapacity = false): L
           const retryable = ['network', 'timeout', 'invalid_response'].includes(error.code)
             || (error.code === 'http' && [408, 429, 500, 502, 503, 504].includes(error.status ?? 0));
           const indicated = (error as LlmError & { retryAfterMs?: number }).retryAfterMs;
-          if (!retryable || attempt >= config.retries || (indicated !== undefined && indicated > config.maxRetryDelayMs)) throw error;
+          if (!retryable || attempt >= retries || (indicated !== undefined && indicated > config.maxRetryDelayMs)) throw error;
           const ms = indicated !== undefined && Number.isFinite(indicated) ? Math.max(0, indicated)
             : Math.min(config.maxRetryDelayMs, config.retryDelayMs * 2 ** attempt);
           await waitForLlm(ms, signal);
@@ -207,7 +208,7 @@ export function createProvider(input: ProviderConfig, sharedCapacity = false): L
 
   return {
     config,
-    complete: (request, signal) => execute((current) => completion(request, current), signal),
+    complete: (request, signal) => execute((current) => completion(request, current), signal, request.disableRetries ? 0 : config.retries),
     completeJson: <T>(request: CompletionRequest, schema: ZodType<T, z.ZodTypeDef, unknown>, signal?: AbortSignal) => execute(async (current) => {
       const text = await completion(request, current);
       let raw: unknown;
@@ -216,7 +217,7 @@ export function createProvider(input: ProviderConfig, sharedCapacity = false): L
       const parsed = schema.safeParse(raw);
       if (!parsed.success) throw new LlmError('invalid_response', 'Результат модели не соответствует схеме');
       return parsed.data;
-    }, signal),
+    }, signal, request.disableRetries ? 0 : config.retries),
     check: (signal) => execute(async (current) => {
       const models = z.object({ data: z.array(z.object({ id: z.string() })) }).safeParse(await fetchJson('models', undefined, current));
       if (!models.success) throw new LlmError('invalid_response', 'Некорректный список моделей');

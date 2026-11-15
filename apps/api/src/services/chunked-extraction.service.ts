@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { LlmError, type LlmProvider, type TokenUsage } from '../lib/llm.js';
-import { complaintRange, ExtractionResultSchema, EXTRACTION_JSON_SCHEMA, ModelExtractionSchema, MODEL_EXTRACTION_JSON_SCHEMA, validateExtractionEvidence, type ExtractionResult } from './extraction.service.js';
+import { complaintRange, ExtractionResultSchema, EXTRACTION_JSON_SCHEMA, ModelExtractionSchema, MODEL_EXTRACTION_JSON_SCHEMA, validateComplaintSpecificity, validateExtractionEvidence, type ExtractionResult } from './extraction.service.js';
 
 export const CHUNKING_VERSION = 'utf16-overlap-v1';
 const userPrompt = (text: string) => `Проанализируй следующий отзыв и верни JSON:\n\n"""\n${text}\n"""`;
+const repairInstruction = '\nПредыдущий ответ не прошёл проверку формата или доказательств. Верни весь JSON заново. Цитаты копируй из отзыва дословно с исходным регистром и ё/е, без добавленных слов. Последствия должны быть дословной частью цитаты. У общей оценки без конкретного дефекта complaints: [].';
 
 /** UTF-8 budget, original UTF-16 offsets, no lost bytes or split surrogate pairs. */
 export function splitReview(text: string, maxBytes: number) {
@@ -39,7 +40,7 @@ export function extractionCacheKey(input: { userId: string; text: string; prompt
 }
 
 export async function extractReview(input: { userId: string; text: string; prompt: string; promptVersion: string; methodVersion: string; modelVersion: string },
-  provider: LlmProvider, signal?: AbortSignal, metrics: { chunks: number; cacheHit: boolean; usage: TokenUsage; responses: number } = { chunks: 0, cacheHit: false, usage: {}, responses: 0 }) {
+  provider: LlmProvider, signal?: AbortSignal, metrics: { chunks: number; cacheHit: boolean; usage: TokenUsage; responses: number; repairs?: number } = { chunks: 0, cacheHit: false, usage: {}, responses: 0 }) {
   const assertActive = () => { if (signal?.aborted) throw new LlmError('cancelled', 'Анализ отменён'); };
   assertActive();
   // Mutable model aliases cannot identify a reproducible cache entry.
@@ -55,23 +56,39 @@ export async function extractReview(input: { userId: string; text: string; promp
       }
     } catch { logger.warn('Extraction cache unavailable; running analysis'); }
   }
-  const fixedBytes = Buffer.byteLength(input.prompt) + Buffer.byteLength(userPrompt(''));
+  const repairEnabled = input.methodVersion === 'extraction-v6';
+  const fixedBytes = Buffer.byteLength(input.prompt) + Buffer.byteLength(userPrompt('')) + (repairEnabled ? Buffer.byteLength(repairInstruction) : 0);
   const budget = (provider.config.contextTokens - provider.config.maxOutputTokens) * 4 - fixedBytes - 256;
   const chunks = splitReview(input.text, budget);
   const results: Array<{ result: ExtractionResult; weight: number }> = [];
   for (const chunk of chunks) {
     assertActive();
-    const result = validateExtractionEvidence(chunk.text, await provider.completeJson({
-      messages: [{ role: 'system', content: input.prompt }, { role: 'user', content: userPrompt(chunk.text) }],
-      temperature: 0.1, max_tokens: provider.config.maxOutputTokens,
-      jsonSchema: input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : MODEL_EXTRACTION_JSON_SCHEMA, schemaName: 'review_analysis',
-      onUsage: usage => {
-        metrics.responses++;
-        for (const field of ['promptTokens', 'completionTokens', 'totalTokens'] as const) {
-          if (usage[field] !== undefined) metrics.usage[field] = (metrics.usage[field] ?? 0) + usage[field]!;
-        }
-      },
-    }, input.methodVersion === 'extraction-v4' ? ExtractionResultSchema : ModelExtractionSchema, signal));
+    const completeChunk = async (repair = false) => {
+      assertActive();
+      const raw = await provider.completeJson({
+        messages: [{ role: 'system', content: input.prompt }, { role: 'user', content: userPrompt(chunk.text) + (repair ? repairInstruction : '') }],
+        disableRetries: repair,
+        temperature: 0.1, max_tokens: provider.config.maxOutputTokens,
+        jsonSchema: input.methodVersion === 'extraction-v4' ? EXTRACTION_JSON_SCHEMA : MODEL_EXTRACTION_JSON_SCHEMA, schemaName: 'review_analysis',
+        onUsage: usage => {
+          metrics.responses++;
+          for (const field of ['promptTokens', 'completionTokens', 'totalTokens'] as const) {
+            if (usage[field] !== undefined) metrics.usage[field] = (metrics.usage[field] ?? 0) + usage[field]!;
+          }
+        },
+      }, input.methodVersion === 'extraction-v4' ? ExtractionResultSchema : ModelExtractionSchema, signal);
+      assertActive();
+      const validated = validateExtractionEvidence(chunk.text, raw);
+      return repairEnabled ? validateComplaintSpecificity(validated) : validated;
+    };
+    let result: ExtractionResult;
+    try { result = await completeChunk(); }
+    catch (error) {
+      assertActive();
+      if (!repairEnabled || !(error instanceof LlmError) || !['invalid_evidence', 'invalid_response'].includes(error.code)) throw error;
+      metrics.repairs = (metrics.repairs ?? 0) + 1;
+      result = await completeChunk(true);
+    }
     metrics.chunks++;
     results.push({ weight: chunk.weight, result: { ...result, complaints: result.complaints.map(complaint => {
       const range = complaintRange(chunk.text, complaint)!;

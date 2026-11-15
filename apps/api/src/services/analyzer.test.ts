@@ -4,7 +4,7 @@ import { analyzeReviewText } from './analyzer.service.js';
 
 vi.mock('../lib/llm.js', async (original) => ({
   ...await original<typeof import('../lib/llm.js')>(),
-  llm: { config: { provider: 'local', concurrency: 1, cloudDelayMs: 4000 }, completeJson: vi.fn() },
+  llm: { config: { provider: 'local', concurrency: 1, cloudDelayMs: 4000, contextTokens: 4096, maxOutputTokens: 1024 }, completeJson: vi.fn() },
   waitForLlm: vi.fn(),
 }));
 const result = { sentiment: 'positive' as const, sentiment_score: 0.5, aspects: [], complaints: [] };

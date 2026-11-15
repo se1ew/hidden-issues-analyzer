@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 import { llm } from '../lib/llm.js';
-import { EXTRACTION_PROMPT, MODEL_EXTRACTION_JSON_SCHEMA, ModelExtractionSchema, validateExtractionEvidence, type ExtractionResult } from './extraction.service.js';
+import { EXTRACTION_PROMPT, EXTRACTION_PROMPT_VERSION, EXTRACTION_METHOD_VERSION, type ExtractionResult } from './extraction.service.js';
+import { extractReview } from './chunked-extraction.service.js';
 
 export const AnalysisResultSchema = z.object({
   sentiment: z.enum(['positive', 'negative', 'neutral']),
@@ -36,18 +37,11 @@ export const ANALYSIS_PROMPT = `Ты — опытный аналитик пот�
 Пример ответа:
 {"sentiment":"negative","sentiment_score":-0.7,"aspects":[{"name":"качество","sentiment":"negative"},{"name":"доставка","sentiment":"positive"}],"issues":["сломалась через месяц","некачественный пластик"]}`;
 
-function buildUserPrompt(reviewText: string): string {
-  return `Проанализируй следующий отзыв и верни JSON-объект:\n\n"""\n${reviewText}\n"""`;
-}
-
 /**
  * Анализирует один отзыв через LLM.
  */
 export async function analyzeReviewText(text: string, signal?: AbortSignal): Promise<ExtractionResult> {
-  const result = await llm.completeJson({
-    messages: [{ role: 'system', content: EXTRACTION_PROMPT }, { role: 'user', content: buildUserPrompt(text) }],
-    temperature: 0.1, jsonSchema: MODEL_EXTRACTION_JSON_SCHEMA, schemaName: 'review_analysis',
-  }, ModelExtractionSchema, signal);
-  return validateExtractionEvidence(text, result);
+  return extractReview({ userId: 'uncached-single-review', text, prompt: EXTRACTION_PROMPT,
+    promptVersion: EXTRACTION_PROMPT_VERSION, methodVersion: EXTRACTION_METHOD_VERSION, modelVersion: 'unverified' }, llm, signal);
 }
 

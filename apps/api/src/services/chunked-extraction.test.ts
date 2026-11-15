@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { createProvider, type LlmProvider } from '../lib/llm.js';
+import { createProvider, LlmError, type LlmProvider } from '../lib/llm.js';
 import { extractReview, extractionCacheKey, splitReview } from './chunked-extraction.service.js';
 import { EXTRACTION_PROMPT_VERSION, EXTRACTION_METHOD_VERSION, prepareExtraction } from './extraction.service.js';
 
@@ -13,6 +13,54 @@ const input = { userId: 'a', text: 'Крышка заедает.', prompt: 'Из
 beforeEach(() => { vi.clearAllMocks(); cache.findUnique.mockResolvedValue(null); });
 
 describe('bounded extraction and revision cache', () => {
+  const valid = { sentiment: 'negative' as const, sentiment_score: -0.5,
+    aspects: [{ name: 'качество', sentiment: 'negative' as const }],
+    complaints: [{ aspectIndex: 0, scope: 'product' as const, description: 'заедание', quote: 'Крышка заедает.', assertion: 'experienced' as const, consequences: null }] };
+  it('repairs evidence once against the original text and caches only the validated result', async () => {
+    const completeJson = vi.fn().mockResolvedValueOnce({ ...valid, complaints: [{ ...valid.complaints[0], quote: 'крышка заедает.' }] }).mockResolvedValueOnce(valid);
+    const metrics = { chunks: 0, cacheHit: false, usage: {}, responses: 0, repairs: 0 };
+    const result = await extractReview(input, { config, completeJson } as unknown as LlmProvider, undefined, metrics);
+    expect(result.complaints[0]).toMatchObject({ quoteStart: 0, quoteEnd: input.text.length });
+    expect(completeJson).toHaveBeenCalledTimes(2);
+    expect(completeJson.mock.calls[1][0]).toMatchObject({ disableRetries: true });
+    expect(completeJson.mock.calls[1][0].messages[1].content).toContain(input.text);
+    expect(metrics.repairs).toBe(1);
+    expect(cache.upsert).toHaveBeenCalledOnce();
+  });
+  it('rejects a second invalid response without caching or further requests', async () => {
+    const completeJson = vi.fn().mockRejectedValue(new LlmError('invalid_response', 'bad JSON'));
+    await expect(extractReview(input, { config, completeJson } as unknown as LlmProvider)).rejects.toMatchObject({ code: 'invalid_response' });
+    expect(completeJson).toHaveBeenCalledTimes(2); expect(cache.upsert).not.toHaveBeenCalled();
+  });
+  it.each(['network', 'timeout', 'http', 'cancelled'] as const)('does not repair %s failures', async code => {
+    const completeJson = vi.fn().mockRejectedValue(new LlmError(code, 'unavailable'));
+    await expect(extractReview(input, { config, completeJson } as unknown as LlmProvider)).rejects.toMatchObject({ code });
+    expect(completeJson).toHaveBeenCalledOnce();
+  });
+  it('honors cancellation before the repair request', async () => {
+    const controller = new AbortController();
+    const completeJson = vi.fn(async () => { controller.abort(); throw new LlmError('invalid_response', 'bad'); });
+    await expect(extractReview(input, { config, completeJson } as unknown as LlmProvider, controller.signal)).rejects.toMatchObject({ code: 'cancelled' });
+    expect(completeJson).toHaveBeenCalledOnce(); expect(cache.upsert).not.toHaveBeenCalled();
+  });
+  it('does not silently resolve ambiguous repeated evidence', async () => {
+    const completeJson = vi.fn().mockResolvedValue(valid);
+    await expect(extractReview({ ...input, text: input.text.repeat(2) }, { config, completeJson } as unknown as LlmProvider)).rejects.toMatchObject({ code: 'invalid_evidence' });
+    expect(completeJson).toHaveBeenCalledTimes(2); expect(cache.upsert).not.toHaveBeenCalled();
+  });
+  it.each(['extraction-v4', 'extraction-v5'])('does not add repair to historical %s runs', async methodVersion => {
+    const completeJson = vi.fn().mockRejectedValue(new LlmError('invalid_evidence', 'bad'));
+    await expect(extractReview({ ...input, methodVersion }, { config, completeJson } as unknown as LlmProvider)).rejects.toMatchObject({ code: 'invalid_evidence' });
+    expect(completeJson).toHaveBeenCalledOnce();
+  });
+  it('disables transport retries for a bounded repair request', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response('unavailable', { status: 503 }));
+    vi.stubGlobal('fetch', fetch);
+    try {
+      await expect(createProvider({ ...config, retries: 2 }).complete({ messages: [{ role: 'user', content: 'test' }], disableRetries: true })).rejects.toMatchObject({ code: 'http' });
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally { vi.unstubAllGlobals(); }
+  });
   it('keeps the flat wire contract for previously queued extraction-v4 runs', async () => {
     const legacy = { sentiment: 'neutral', sentiment_score: 0, aspects: [], complaints: [] };
     const completeJson = vi.fn(async (request, schema) => {
