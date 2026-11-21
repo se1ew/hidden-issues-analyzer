@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { summarizeModelEvaluation } from './summarize-model-evaluation.mjs';
+import {
+  compareModelEvaluations,
+  summarizeModelEvaluation,
+} from './summarize-model-evaluation.mjs';
 
 const report = JSON.parse(
   await readFile(
@@ -10,13 +13,13 @@ const report = JSON.parse(
   ),
 );
 
-function reviewedReport() {
-  const reviewed = structuredClone(report);
+function reviewedReport(source = report, scopeMismatchIds = ['h12']) {
+  const reviewed = structuredClone(source);
   reviewed.reviewedBy = '  Test reviewer  ';
   for (const row of reviewed.cases) {
     const expected = row.expected.issues.length;
     const predicted = row.extracted?.complaints.length ?? 0;
-    const matches = row.id === 'h12' ? 0 : Math.min(expected, predicted);
+    const matches = scopeMismatchIds.includes(row.id) ? 0 : Math.min(expected, predicted);
     row.adjudication = {
       truePositives: matches,
       falsePositives: predicted - matches,
@@ -107,4 +110,40 @@ test('rejects impossible counts and repeated review IDs', () => {
   assert.throws(() => summarizeModelEvaluation(input), /account for every expected defect/);
   row.adjudication.falseNegatives = -1;
   assert.throws(() => summarizeModelEvaluation(input), /nonnegative integer/);
+});
+
+test('compares the archived runs and identifies the reviews that changed', async () => {
+  const source = JSON.parse(
+    await readFile(
+      new URL('../docs/evaluations/qwen3-baseline-transfer-2026-11-15.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const result = compareModelEvaluations(reviewedReport(source, []), reviewedReport());
+  assert.equal(result.baseline.configuration.methodVersion, 'extraction-v4');
+  assert.equal(result.candidate.configuration.methodVersion, 'extraction-v9');
+  assert.equal(result.delta.truePositives, 1);
+  assert.equal(result.delta.falsePositives, -1);
+  assert.equal(result.delta.falseNegatives, -1);
+  assert.equal(result.delta.succeeded, 1);
+  assert.equal(result.delta.precision, 7 / 9 - 6 / 9);
+  assert.equal(result.delta.recall, 7 / 8 - 6 / 8);
+  assert.deepEqual(
+    result.changedCases.map(({ id }) => id),
+    ['h02', 'h04', 'h05', 'h08', 'h10', 'h12'],
+  );
+  assert.equal(result.changedCases[0].candidate.status, 'failed');
+});
+
+test('rejects mismatching datasets, even with an unchanged checksum in an edited report', () => {
+  const baseline = reviewedReport();
+  const candidate = reviewedReport();
+  candidate.dataset.sha256 = 'c'.repeat(64);
+  assert.throws(() => compareModelEvaluations(baseline, candidate), /identical dataset SHA-256/);
+  candidate.dataset.sha256 = baseline.dataset.sha256;
+  candidate.cases[0].expected.issues[0].scope = 'seller';
+  assert.throws(
+    () => compareModelEvaluations(baseline, candidate),
+    /ground truth differs at row 1/,
+  );
 });

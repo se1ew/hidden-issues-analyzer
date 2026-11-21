@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs } from 'node:util';
+import { isDeepStrictEqual, parseArgs } from 'node:util';
 
 export function summarizeModelEvaluation(report) {
   assert.equal(
@@ -98,22 +98,84 @@ export function summarizeModelEvaluation(report) {
   };
 }
 
+export function compareModelEvaluations(baseline, candidate) {
+  const before = summarizeModelEvaluation(baseline);
+  const after = summarizeModelEvaluation(candidate);
+  const checksum = before.dataset?.sha256;
+  assert(
+    typeof checksum === 'string' &&
+      /^[a-f0-9]{64}$/u.test(checksum) &&
+      checksum === after.dataset?.sha256,
+    'Comparison requires identical dataset SHA-256 values',
+  );
+  assert(before.total === after.total, 'Comparison requires the same number of reviews');
+
+  const caseInput = ({ id, productId, text, rating, expected }) => ({
+    id,
+    productId,
+    text,
+    rating,
+    expected,
+  });
+  const caseScore = ({ status, adjudication }) => ({
+    status,
+    truePositives: adjudication.truePositives,
+    falsePositives: adjudication.falsePositives,
+    falseNegatives: adjudication.falseNegatives,
+    duplicatePredictions: adjudication.duplicatePredictions ?? 0,
+  });
+  const changedCases = [];
+  for (const [index, row] of baseline.cases.entries()) {
+    const other = candidate.cases[index];
+    assert(
+      isDeepStrictEqual(caseInput(row), caseInput(other)),
+      `Review input or ground truth differs at row ${index + 1}`,
+    );
+    const original = caseScore(row);
+    const revised = caseScore(other);
+    if (!isDeepStrictEqual(original, revised))
+      changedCases.push({ id: row.id, baseline: original, candidate: revised });
+  }
+
+  const delta = {};
+  for (const field of [
+    'succeeded',
+    'failed',
+    'successRate',
+    'truePositives',
+    'falsePositives',
+    'falseNegatives',
+    'duplicatePredictions',
+    'precision',
+    'recall',
+  ]) {
+    delta[field] =
+      before[field] === null || after[field] === null ? null : after[field] - before[field];
+  }
+  return { baseline: before, candidate: after, delta, changedCases };
+}
+
+async function readReport(filename) {
+  const contents = await readFile(filename, 'utf8');
+  return JSON.parse(contents.replace(/^\uFEFF/u, ''));
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const { positionals } = parseArgs({ allowPositionals: true });
+    const { positionals, values } = parseArgs({
+      allowPositionals: true,
+      options: { compare: { type: 'boolean' } },
+    });
     assert.equal(
       positionals.length,
-      1,
-      'Usage: node scripts/summarize-model-evaluation.mjs PATH_TO_REVIEWED_REPORT.json',
+      values.compare ? 2 : 1,
+      'Usage: node scripts/summarize-model-evaluation.mjs REVIEWED.json or --compare BASELINE.json CANDIDATE.json',
     );
-    const contents = await readFile(positionals[0], 'utf8');
-    console.log(
-      JSON.stringify(
-        summarizeModelEvaluation(JSON.parse(contents.replace(/^\uFEFF/u, ''))),
-        null,
-        2,
-      ),
-    );
+    const first = await readReport(positionals[0]);
+    const result = values.compare
+      ? compareModelEvaluations(first, await readReport(positionals[1]))
+      : summarizeModelEvaluation(first);
+    console.log(JSON.stringify(result, null, 2));
   } catch (error) {
     console.error(
       error instanceof SyntaxError ? 'Invalid JSON in evaluation report' : error.message,
