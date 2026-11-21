@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../lib/prisma.js';
 import { persistImport } from './imports.service.js';
 vi.mock('./imports.service.js', () => ({ persistImport: vi.fn() }));
-import { parseWildberries } from './parsing.service.js';
+import { inspectWildberriesSource, parseWildberries } from './parsing.service.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -60,6 +60,32 @@ describe('parseWildberries', () => {
   it('reports a changed source format instead of pretending the product has no reviews', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith('card.json') ? { imt_id: 77 } : { unexpected: [] }))));
     await expect(parseWildberries('https://wildberries.ru/catalog/123/detail.aspx', 'owner')).rejects.toMatchObject({ status: 503, code: 'source_format_changed' });
+    expect(persistImport).not.toHaveBeenCalled();
+  });
+  it.each(['card', 'feedbacks'] as const)('preserves a format error from %s after later 404 responses', async (stage) => {
+    const stages = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('card.json')) {
+        if (stage === 'feedbacks') return Response.json({ imt_id: 77 });
+        if (url.includes('basket-01.')) return Response.json({ unexpected: true });
+      } else if (url.includes('feedbacks2.wb.ru/feedbacks/v2/')) {
+        return Response.json({ unexpected: true });
+      }
+      return new Response('', { status: 404 });
+    }));
+    await expect(inspectWildberriesSource('123', undefined, stages)).rejects.toMatchObject({ code: 'source_format_changed' });
+    expect(stages).toHaveBeenLastCalledWith(stage);
+    expect(persistImport).not.toHaveBeenCalled();
+  });
+  it.each(['card', 'feedbacks'] as const)('stops requests when %s reports rate limiting', async (stage) => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (stage === 'feedbacks' && url.endsWith('card.json')) return Response.json({ imt_id: 77 });
+      return new Response('', { status: 429 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(parseWildberries('123', 'owner')).rejects.toMatchObject({ status: 429, code: 'source_rate_limited' });
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('card.json'))).toHaveLength(3);
+    expect(fetchMock).toHaveBeenCalledTimes(stage === 'card' ? 3 : 4);
     expect(persistImport).not.toHaveBeenCalled();
   });
   it.each(['https://evil.test/catalog/123/detail.aspx', 'https://wildberries.ru.evil.test/catalog/123/detail.aspx', 'https://a:b@wildberries.ru/catalog/123/detail.aspx', '9007199254740993'])('rejects an unsafe or imprecise identity %s', async url => {

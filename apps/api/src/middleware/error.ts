@@ -3,17 +3,9 @@ import { ZodError } from 'zod';
 import multer from 'multer';
 import { LlmError } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
+import { HttpError } from '../lib/http-error.js';
 
-export class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-    public details?: unknown,
-    public code?: string,
-  ) {
-    super(message);
-  }
-}
+export { HttpError } from '../lib/http-error.js';
 
 export const notFound = (_req: Request, res: Response, _next: NextFunction): void => {
   res.status(404).json(errorBody('not_found', 'Not Found'));
