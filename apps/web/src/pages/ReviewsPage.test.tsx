@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReviewsPage } from './ReviewsPage';
 import { useProductStore } from '../store/product.store';
@@ -38,10 +38,15 @@ beforeEach(() => {
     },
   });
 });
+function CurrentSearch() {
+  return <output aria-label="Параметры адреса">{useLocation().search}</output>;
+}
+
 const show = (entry = '/reviews') =>
   render(
     <MemoryRouter initialEntries={[entry]}>
       <ReviewsPage />
+      <CurrentSearch />
     </MemoryRouter>,
   );
 describe('review navigation and destructive actions', () => {
@@ -63,6 +68,38 @@ describe('review navigation and destructive actions', () => {
         expect.objectContaining({ page: 1, productId: 'other' }),
       ),
     );
+  });
+  it.each(['Infinity', '1000001', '2.5'])(
+    'normalizes an invalid URL page %s and retains the filters',
+    (page) => {
+      show(`/reviews?page=${page}&rating=5`);
+      for (const [params] of mocks.reviews.mock.calls) {
+        expect(params).toEqual(expect.objectContaining({ page: 1, rating: 5 }));
+      }
+      expect(screen.getByLabelText('Параметры адреса')).toHaveTextContent('?rating=5');
+    },
+  );
+  it('returns to the last available page after deleting the only item on the current page', async () => {
+    const visible = mocks.reviews();
+    let deleted = false;
+    mocks.remove.mockImplementation(async () => {
+      deleted = true;
+    });
+    mocks.reviews.mockImplementation(({ page }) =>
+      deleted
+        ? { data: { ...visible.data, total: 50, items: page === 3 ? [] : visible.data.items } }
+        : visible,
+    );
+    show('/reviews?page=3&rating=5');
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить отзыв' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить' }));
+    await waitFor(() =>
+      expect(mocks.reviews).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 2, rating: 5 }),
+      ),
+    );
+    expect(screen.getByLabelText('Параметры адреса')).toHaveTextContent('?page=2&rating=5');
+    expect(screen.getByText('Отзыв покупателя')).toBeInTheDocument();
   });
   it('requires confirmation before deleting an individual review', async () => {
     show();

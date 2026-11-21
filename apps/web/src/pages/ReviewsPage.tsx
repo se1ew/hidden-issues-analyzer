@@ -31,9 +31,16 @@ import {
   StatusBadge,
 } from '../components/ui';
 
+const pageSize = 25;
+const maxPage = 1_000_000;
+
 export function ReviewsPage() {
   const [params, setParams] = useSearchParams();
-  const page = Math.max(1, Math.floor(Number(params.get('page')) || 1));
+  const rawPage = params.get('page');
+  const requestedPage = rawPage === null ? 1 : Number(rawPage);
+  const validPage =
+    Number.isInteger(requestedPage) && requestedPage >= 1 && requestedPage <= maxPage;
+  const page = validPage ? requestedPage : 1;
   const sentiment = params.get('sentiment') ?? '',
     rating = params.get('rating') ?? '',
     hasIssues = params.get('hasIssues') ?? '',
@@ -61,7 +68,7 @@ export function ReviewsPage() {
     launch = useRunAnalysis();
   const query = useReviews({
     page,
-    pageSize: 25,
+    pageSize,
     sentiment: sentiment || undefined,
     rating: rating ? Number(rating) : undefined,
     hasIssues: hasIssues === '' ? undefined : hasIssues === 'true',
@@ -71,25 +78,30 @@ export function ReviewsPage() {
   useEffect(() => {
     setSearchInput(search);
   }, [search]);
+  const totalPages = Math.max(1, Math.ceil((query.data?.total ?? 0) / pageSize));
+  const pageOutOfRange = !!query.data && !query.isError && !query.isFetching && page > totalPages;
   useEffect(() => {
-    if (
-      previousScope.current.productId === selectedProductId &&
-      previousScope.current.runId === selectedRunId
-    )
-      return;
-    previousScope.current = { productId: selectedProductId, runId: selectedRunId };
-    setSelected(null);
-    setDeleteTarget(null);
+    const scopeChanged =
+      previousScope.current.productId !== selectedProductId ||
+      previousScope.current.runId !== selectedRunId;
+    if (scopeChanged) {
+      previousScope.current = { productId: selectedProductId, runId: selectedRunId };
+      setSelected(null);
+      setDeleteTarget(null);
+    }
+    if (!scopeChanged && validPage && !pageOutOfRange) return;
+
+    const nextPage = scopeChanged || !validPage ? 1 : totalPages;
     setParams(
       (previous) => {
         const next = new URLSearchParams(previous);
-        next.delete('page');
+        if (nextPage === 1) next.delete('page');
+        else next.set('page', String(nextPage));
         return next;
       },
       { replace: true },
     );
-  }, [selectedProductId, selectedRunId, setParams]);
-  const totalPages = Math.max(1, Math.ceil((query.data?.total ?? 0) / 25));
+  }, [selectedProductId, selectedRunId, validPage, pageOutOfRange, totalPages, setParams]);
   const start = async () => {
     try {
       await launch.mutateAsync({ limit: 200, mode: analysisMode });
@@ -275,7 +287,7 @@ export function ReviewsPage() {
       </FilterBar>
       {query.isError ? (
         <ErrorState error={query.error} retry={query.refetch} />
-      ) : query.isPending ? (
+      ) : query.isPending || pageOutOfRange ? (
         <LoadingState>Загрузка отзывов…</LoadingState>
       ) : !query.data.items.length ? (
         <EmptyState
