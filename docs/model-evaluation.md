@@ -31,12 +31,15 @@
 node scripts/evaluate-model.mjs --output .cache/model-evaluation-01.json
 # Другой набор того же формата:
 node scripts/evaluate-model.mjs --dataset PATH_TO_CASES_JSON --output .cache/model-evaluation-holdout.json
+# Проверить набор без сборки API и подключения к модели:
+node scripts/evaluate-model.mjs --validate-only --dataset PATH_TO_CASES_JSON
 ```
 
 В контейнерной установке команда выполняется внутри worker:
 `node /app/scripts/evaluate-model.mjs --output /app/models_cache/model-evaluation-01.json`.
 Запускайте её при простаивающем worker: это отдельный последовательный процесс.
-Файл вывода должен быть новым; существующий не перезаписывается. Облачный
+Набор и путь вывода проверяются до подключения к провайдеру. Существующий
+файл вывода сохраняется. Облачный
 провайдер отвергается. Пользовательская БД не меняется, кэш ответов отключён.
 
 Инструмент использует production-разбиение длинного текста, JSON-схему и

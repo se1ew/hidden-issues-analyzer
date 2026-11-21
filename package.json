@@ -10,7 +10,7 @@
     "dev": "npm-run-all --parallel dev:api dev:web dev:worker",
     "tasks:summary": "node scripts/update-task-summary.mjs",
     "test:tasks": "node --test scripts/update-task-summary.test.mjs",
-    "test:evaluation": "node --test scripts/summarize-model-evaluation.test.mjs",
+    "test:evaluation": "node --test scripts/summarize-model-evaluation.test.mjs scripts/review-case-validation.test.mjs",
     "dev:api": "npm run dev --workspace=@hia/api",
     "dev:web": "npm run dev --workspace=@hia/web",
     "dev:worker": "npm run dev:worker --workspace=@hia/api",

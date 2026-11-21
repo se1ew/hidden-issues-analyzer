@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { performance } from 'node:perf_hooks';
 import { createHash } from 'node:crypto';
-import dotenv from 'dotenv';
+import { validateReviewCases } from './review-case-validation.mjs';
 
 export async function evaluateCases(cases, provider, modelVersion = 'unverified', baseline = false, onCase = () => {}) {
   const { extractReview } = await import('../apps/api/dist/services/chunked-extraction.service.js');
@@ -43,12 +43,34 @@ export async function evaluateCases(cases, provider, modelVersion = 'unverified'
   return report;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+async function run() {
   const { values } = parseArgs({ options: { dataset: { type: 'string', default: fileURLToPath(new URL('../docs/fixtures/review-cases.json', import.meta.url)) },
-    output: { type: 'string', default: '.cache/model-evaluation.json' }, baseline: { type: 'boolean', default: false }, 'self-test': { type: 'boolean', default: false } } });
+    output: { type: 'string', default: '.cache/model-evaluation.json' }, baseline: { type: 'boolean', default: false }, 'self-test': { type: 'boolean', default: false },
+    'validate-only': { type: 'boolean', default: false } } });
+  assert(!(values['self-test'] && values['validate-only']), 'Choose either --self-test or --validate-only');
+  const output = path.resolve(values.output);
+  let dataset;
+  let datasetIdentity;
+  if (!values['self-test']) {
+    const bytes = await fs.readFile(values.dataset);
+    dataset = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/u, ''));
+    validateReviewCases(dataset);
+    datasetIdentity = { name: path.basename(values.dataset), sha256: createHash('sha256').update(bytes).digest('hex'), provenance: dataset.provenance ?? null };
+    if (values['validate-only']) {
+      console.log(JSON.stringify({ dataset: datasetIdentity, cases: dataset.cases.length }));
+      return;
+    }
+    await fs.mkdir(path.dirname(output), { recursive: true });
+    const existing = await fs.lstat(output).catch((error) => {
+      if (error.code !== 'ENOENT') throw error;
+      return null;
+    });
+    assert(!existing, `Output already exists: ${output}`);
+  }
   if (values['self-test']) Object.assign(process.env, { NODE_ENV: 'test', DATABASE_URL: 'postgresql://test:test@127.0.0.1:1/test', REDIS_URL: 'redis://127.0.0.1:1',
     JWT_ACCESS_SECRET: 'evaluation-access-secret-xxxxxxxxxx', JWT_REFRESH_SECRET: 'evaluation-refresh-secret-xxxxxxxxxx', LLM_PROVIDER: 'local' });
-  dotenv.config({ path: fileURLToPath(new URL('../apps/api/.env', import.meta.url)), quiet: true });
+  const { config: loadEnv } = await import('dotenv');
+  loadEnv({ path: fileURLToPath(new URL('../apps/api/.env', import.meta.url)), quiet: true });
   const { env } = await import('../apps/api/dist/config/env.js');
   const { createProvider, providerConfig, LlmError } = await import('../apps/api/dist/lib/llm.js');
   try {
@@ -71,16 +93,21 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       const selected = await resolveLocalLlmSettings();
       const provider = createProvider(selected.config); // Dedicated process, no API/worker semaphore or database writes.
       await provider.check(AbortSignal.timeout(10000));
-      const datasetText = await fs.readFile(values.dataset, 'utf8');
-      const dataset = JSON.parse(datasetText);
-      assert(Array.isArray(dataset.cases) && dataset.cases.length > 0);
       const report = await evaluateCases(dataset.cases, provider, selected.modelVersion, values.baseline,
         ({ id, status, errorCode, durationMs, metrics }) => console.log(JSON.stringify({ id, status, errorCode, durationMs, repairs: metrics.repairs })));
-      report.dataset = { name: path.basename(values.dataset), sha256: createHash('sha256').update(datasetText).digest('hex'), provenance: dataset.provenance ?? null };
-      const output = path.resolve(values.output); await fs.mkdir(path.dirname(output), { recursive: true });
+      report.dataset = datasetIdentity;
       await fs.writeFile(output, JSON.stringify(report, null, 2), { flag: 'wx' });
       console.log(JSON.stringify({ output, totals: report.totals, requiresHumanAdjudication: true }));
       if (report.totals.failed) process.exitCode = 1;
     }
   } finally { const { disconnectPrisma } = await import('../apps/api/dist/lib/prisma.js'); await disconnectPrisma(); }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    await run();
+  } catch (error) {
+    console.error(error instanceof SyntaxError ? 'Invalid JSON in evaluation input' : error.message);
+    process.exitCode = 1;
+  }
 }
