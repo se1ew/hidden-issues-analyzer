@@ -22,4 +22,8 @@ try {
 report.durationMs = Math.round(performance.now() - started);
 await fs.mkdir(path.dirname(path.resolve(values.output)), { recursive: true });
 await fs.writeFile(values.output, JSON.stringify(report, null, 2));
-console.log(JSON.stringify(report));
+await new Promise((resolve, reject) => {
+  process.stdout.write(`${JSON.stringify(report)}\n`, (error) => error ? reject(error) : resolve());
+});
+// A cancelled lookup can leave OS DNS work pending after the probe has finished.
+process.exit(process.exitCode ?? 0);
